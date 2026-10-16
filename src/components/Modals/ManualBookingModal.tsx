@@ -29,6 +29,7 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
   const [recurrenceFreq, setRecurrenceFreq] = useState(21);
   const [totalSessions, setTotalSessions] = useState(3);
   const [notes, setNotes] = useState('');
+  const [sendWhatsAppAuto, setSendWhatsAppAuto] = useState<boolean>(true);
 
   if (!isOpen) return null;
 
@@ -40,8 +41,6 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
     return bDigits.length >= 8 && (normalized.includes(bDigits) || bDigits.includes(normalized));
   });
 
-  const [sendWhatsAppAuto, setSendWhatsAppAuto] = useState<boolean>(true);
-
   const isInadimplente = Boolean(matchedBlacklist);
   const effectivePaymentMode = isInadimplente ? 'pre_pagamento_100' : paymentMode;
 
@@ -49,7 +48,10 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!clientName.trim()) return;
+    if (!clientName.trim()) {
+      alert('Por favor, informe o nome completo da cliente.');
+      return;
+    }
 
     const recurrenceConfig: RecurrenceConfig | undefined = isRecurring
       ? {
@@ -137,7 +139,6 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
             <label className="block text-[#49382E] font-semibold mb-1">Nome Completo da Cliente *</label>
             <input
               type="text"
-              required
               value={clientName}
               onChange={e => setClientName(e.target.value)}
               placeholder="Ex: Amanda Rezende"
