@@ -101,7 +101,7 @@ export const HeaderPublic: React.FC<HeaderPublicProps> = ({
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             {/* WhatsApp Studio Contact (hidden on small screens) */}
             <a
-              href="https://wa.me/5531984521920"
+              href="https://wa.me/5512974062241"
               target="_blank"
               rel="noopener noreferrer"
               className="hidden lg:flex items-center gap-2 bg-[#FFFFFF] hover:bg-[#F7EFEA] px-3 py-1.5 rounded-full border border-[#E8D9B5] transition-all text-left shadow-xs"
@@ -110,7 +110,7 @@ export const HeaderPublic: React.FC<HeaderPublicProps> = ({
               <span className="material-symbols-outlined text-[#D4AF37] text-[17px]">chat</span>
               <div className="flex flex-col">
                 <span className="font-jakarta text-[11px] text-[#49382E] font-bold leading-tight">
-                  (31) 98452-1920
+                  (12) 97406 2241
                 </span>
                 <span className="font-jakarta text-[9px] text-[#786C63] leading-tight">
                   São Sebastião • SP
@@ -229,14 +229,14 @@ export const HeaderPublic: React.FC<HeaderPublicProps> = ({
             {/* Studio WhatsApp Hotline */}
             <div className="pt-2 border-t border-[#E8D9B5]">
               <a
-                href="https://wa.me/5531984521920"
+                href="https://wa.me/5512974062241"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-3 p-3 rounded-xl bg-[#F7EFEA] text-[#49382E] hover:text-[#D4AF37] border border-[#E8D9B5]"
               >
                 <span className="material-symbols-outlined text-[#D4AF37] text-[20px]">chat</span>
                 <div className="text-xs">
-                  <span className="font-bold text-[#49382E] block">(31) 98452-1920</span>
+                  <span className="font-bold text-[#49382E] block">(12) 97406 2241</span>
                   <span className="text-[#786C63]">WhatsApp Direto • Horário Comercial</span>
                 </div>
               </a>
