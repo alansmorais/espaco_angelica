@@ -1,5 +1,4 @@
 import React from 'react';
-import { BRAND_ASSETS } from '../data/mockData';
 
 interface FooterPublicProps {
   onOpenAbout: () => void;
@@ -19,15 +18,8 @@ export const FooterPublic: React.FC<FooterPublicProps> = ({
           {/* Col 1 */}
           <div className="space-y-4">
             <div className="flex items-center gap-3">
-              <div className="p-1 rounded-lg bg-[#0B0A0A] border border-[#E8D9B5] inline-flex shadow-xs">
-                <img
-                  alt="Angelica do Carmo Logo"
-                  className="h-7 w-auto object-contain"
-                  src={BRAND_ASSETS.logoSmall}
-                />
-              </div>
               <span className="font-syne text-lg text-[#49382E] font-bold">
-                Atelier Nail Art
+                Espaço Angelica do Carmo
               </span>
             </div>
             <p className="font-jakarta text-xs sm:text-sm text-[#786C63] leading-relaxed">

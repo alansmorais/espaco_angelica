@@ -41,7 +41,7 @@ export const HeaderPublic: React.FC<HeaderPublicProps> = ({
               <img
                 alt="Espaço Angelica do Carmo Logo"
                 className="h-6 sm:h-8 w-auto object-contain drop-shadow"
-                src={BRAND_ASSETS.logoSmall}
+                src={BRAND_ASSETS.logoGold}
               />
             </div>
             <div className="flex flex-col min-w-0">

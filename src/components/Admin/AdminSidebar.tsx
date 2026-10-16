@@ -70,7 +70,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                 <img
                   alt="Angelica do Carmo Logo"
                   className="h-7 w-auto object-contain"
-                  src={BRAND_ASSETS.logoSmall}
+                  src={BRAND_ASSETS.logoGold}
                 />
               </div>
               <div className="flex flex-col">

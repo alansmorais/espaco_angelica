@@ -34,7 +34,7 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
               <img
                 alt="Logo Espaço Angelica do Carmo"
                 className="h-6 w-auto object-contain"
-                src={BRAND_ASSETS.logoSmall}
+                src={BRAND_ASSETS.logoGold}
               />
             </div>
             <span className="font-syne text-base sm:text-lg text-[#49382E] tracking-tight hidden sm:inline-block font-semibold">

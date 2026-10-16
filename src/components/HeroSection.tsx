@@ -1,5 +1,4 @@
 import React from 'react';
-import { BRAND_ASSETS } from '../data/mockData';
 
 interface HeroSectionProps {
   onStartBooking: () => void;
@@ -16,18 +15,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
       <div className="pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 w-[600px] sm:w-[780px] h-[360px] sm:h-[480px] rounded-full bg-[#D4AF37]/10 blur-[100px] sm:blur-[130px] -z-10" />
       <div className="pointer-events-none absolute top-[400px] -left-48 w-[400px] sm:w-[520px] h-[400px] sm:h-[520px] rounded-full bg-[#E8D3C7]/40 blur-[100px] sm:blur-[140px] -z-10" />
 
-      <div className="max-w-5xl mx-auto flex flex-col items-center text-center">
-        {/* Brand Logo Presentation - elegantly framed in luxury medallion container */}
-        <div className="mb-4 sm:mb-6 flex flex-col items-center">
-          <div className="p-3 sm:p-5 rounded-3xl bg-[#0B0A0A] border border-[#E8D9B5] shadow-xl flex items-center justify-center">
-            <img
-              alt="Espaço Angelica do Carmo - Manicure e Nail Designer"
-              className="h-20 sm:h-28 md:h-36 max-w-[90vw] w-auto object-contain filter drop-shadow-[0_4px_20px_rgba(212,175,55,0.4)] transition-transform duration-500"
-              src={BRAND_ASSETS.logoGold}
-            />
-          </div>
-        </div>
-
+      <div className="max-w-5xl mx-auto flex flex-col items-center text-center pt-4">
         {/* Overline Tag */}
         <div className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-1 sm:py-1.5 rounded-full bg-[#FFFFFF] text-[#49382E] border border-[#E8D9B5] shadow-xs mb-4 sm:mb-5 max-w-[95%]">
           <span className="material-symbols-outlined text-[14px] sm:text-[16px] text-[#D4AF37] shrink-0">stars</span>

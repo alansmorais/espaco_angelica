@@ -29,7 +29,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({
         <div className="flex items-center gap-3 mb-6">
           <div className="p-1.5 rounded-xl bg-[#0B0A0A] border border-[#E8D9B5] inline-flex shadow-xs">
             <img
-              src={BRAND_ASSETS.logoSmall}
+              src={BRAND_ASSETS.logoGold}
               alt="Logo Angelica do Carmo"
               className="h-9 w-auto object-contain"
             />
