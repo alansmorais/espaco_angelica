@@ -1,0 +1,6 @@
+{
+  "name": "Espaço Angelica do Carmo - Haute Nail Atelier",
+  "description": "Atelier de alta estética e nail design: agendamento exclusivo com sinal Pix e WhatsApp, agenda semanal com trava inteligente, conciliação bancária e CRM ungueal.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

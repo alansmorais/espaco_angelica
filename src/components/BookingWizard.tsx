@@ -1,0 +1,880 @@
+import React, { useState } from 'react';
+import { Service, Appointment, TimeSlotConfig, BlacklistEntry, StudioAddressConfig, RecurrenceConfig } from '../types';
+import { INITIAL_TIME_SLOTS, INITIAL_BLACKLIST, STUDIO_ADDRESS } from '../data/mockData';
+
+interface BookingWizardProps {
+  selectedService: Service;
+  onBookingConfirmed: (newApt: Appointment) => void;
+  timeSlots?: TimeSlotConfig[];
+  blacklist?: BlacklistEntry[];
+  studioAddress?: StudioAddressConfig;
+  services?: Service[];
+  onSelectService?: (service: Service) => void;
+}
+
+export const BookingWizard: React.FC<BookingWizardProps> = ({
+  selectedService,
+  onBookingConfirmed,
+  timeSlots = INITIAL_TIME_SLOTS,
+  blacklist = INITIAL_BLACKLIST,
+  studioAddress = STUDIO_ADDRESS,
+  services = [],
+  onSelectService
+}) => {
+  const [selectedDate, setSelectedDate] = useState<string>('Quinta, 14 Nov');
+  const [selectedTime, setSelectedTime] = useState<string>('11:30');
+  const [clientName, setClientName] = useState<string>('');
+  const [clientPhone, setClientPhone] = useState<string>('');
+  const [clientInstagram, setClientInstagram] = useState<string>('');
+  const [nailCondition, setNailCondition] = useState<string>('Unhas naturais sem nenhum produto');
+  const [clientNotes, setClientNotes] = useState<string>('');
+  const [copiedPix, setCopiedPix] = useState<boolean>(false);
+  const [receiptFileName, setReceiptFileName] = useState<string | null>(null);
+  const [bookingWhatsAppModal, setBookingWhatsAppModal] = useState<boolean>(false);
+
+  // Requirement 5: Agendamento Recorrente
+  const [isRecurring, setIsRecurring] = useState<boolean>(false);
+  const [recurrenceFreqDays, setRecurrenceFreqDays] = useState<number>(21);
+  const [recurrenceTotalSessions, setRecurrenceTotalSessions] = useState<number>(3);
+
+  // Requirement 7: Opção de Pré-pagamento via Pix
+  const [paymentMode, setPaymentMode] = useState<'sinal_50' | 'pre_pagamento_100'>('sinal_50');
+
+  // Requirement 6: Checagem de Inadimplência
+  const normalizedPhone = clientPhone.replace(/\D/g, '');
+  const matchedBlacklist = blacklist.find(b => {
+    if (!b.active) return false;
+    const bDigits = b.phone.replace(/\D/g, '');
+    return bDigits.length >= 8 && (normalizedPhone.includes(bDigits) || bDigits.includes(normalizedPhone));
+  });
+
+  const isInadimplente = Boolean(matchedBlacklist);
+  const effectivePaymentMode = isInadimplente ? 'pre_pagamento_100' : paymentMode;
+
+  const availableDates = [
+    { day: 'Ter', num: '12', full: 'Terça, 12 Nov', available: true },
+    { day: 'Qua', num: '13', full: 'Quarta, 13 Nov', available: true },
+    { day: 'Qui', num: '14', full: 'Quinta, 14 Nov', available: true },
+    { day: 'Sex', num: '15', full: 'Sexta, 15 Nov', available: true },
+    { day: 'Sáb', num: '16', full: 'Sábado, 16 Nov', available: true },
+    { day: 'Dom', num: '17', full: 'Domingo, 17 Nov', available: false },
+    { day: 'Seg', num: '18', full: 'Segunda, 18 Nov', available: false }
+  ];
+
+  // Price calculations
+  const servicePrice = selectedService.price;
+  const prepayDiscountPercent = 5;
+  const discountedFullPrice = Math.round(servicePrice * (1 - prepayDiscountPercent / 100));
+
+  const depositValue = effectivePaymentMode === 'pre_pagamento_100'
+    ? (isInadimplente ? servicePrice : discountedFullPrice)
+    : 50;
+
+  const balanceRemaining = effectivePaymentMode === 'pre_pagamento_100'
+    ? 0
+    : Math.max(0, servicePrice - depositValue);
+
+  // Recurrence calculated preview dates
+  const calculateUpcomingDates = () => {
+    const list: string[] = [];
+    const baseDay = 14;
+    for (let i = 1; i < recurrenceTotalSessions; i++) {
+      const addedDays = i * recurrenceFreqDays;
+      const futureDateNum = baseDay + addedDays;
+      if (futureDateNum <= 30) {
+        list.push(`${futureDateNum} de Novembro às ${selectedTime}`);
+      } else {
+        const decDay = futureDateNum - 30;
+        list.push(`${decDay} de Dezembro às ${selectedTime}`);
+      }
+    }
+    return list;
+  };
+
+  const handleCopyPix = () => {
+    navigator.clipboard.writeText('+5512974062241');
+    setCopiedPix(true);
+    setTimeout(() => setCopiedPix(false), 3000);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setReceiptFileName(file.name);
+    }
+  };
+
+  const handleConfirmWhatsApp = () => {
+    if (!clientName.trim()) {
+      alert('Por favor informe seu nome completo para o agendamento.');
+      return;
+    }
+    if (!clientPhone.trim()) {
+      alert('Por favor informe seu telefone WhatsApp para contato.');
+      return;
+    }
+
+    const finalName = clientName.trim();
+    const finalPhone = clientPhone.trim();
+
+    const recurrenceConfig: RecurrenceConfig | undefined = isRecurring
+      ? {
+          frequencyDays: recurrenceFreqDays,
+          frequencyLabel:
+            recurrenceFreqDays === 15
+              ? 'Quinzenal (15 dias)'
+              : recurrenceFreqDays === 21
+              ? 'A cada 21 dias (Recomendado Fibra)'
+              : 'Mensal (30 dias)',
+          totalSessions: recurrenceTotalSessions,
+          seriesId: `series-${Date.now()}`,
+          currentSession: 1,
+          upcomingDates: calculateUpcomingDates()
+        }
+      : undefined;
+
+    // Register appointment in studio state as pendente_pix
+    const newAppointment: Appointment = {
+      id: `apt-${Date.now()}`,
+      clientName: finalName,
+      clientPhone: finalPhone,
+      clientInstagram: clientInstagram || undefined,
+      nailCondition,
+      notes: clientNotes || undefined,
+      serviceTitle: selectedService.title,
+      servicePrice: selectedService.priceFormatted,
+      serviceDuration: selectedService.duration,
+      date: selectedDate,
+      time: selectedTime,
+      status: 'pendente_pix',
+      depositAmount: depositValue,
+      depositStatus: 'pendente',
+      paymentMode: effectivePaymentMode,
+      requiresFullPrepayment: isInadimplente,
+      isBlacklisted: isInadimplente,
+      recurrence: recurrenceConfig,
+      receiptFileName: receiptFileName || undefined,
+      clientInitials: finalName
+        .split(' ')
+        .map(n => n[0])
+        .slice(0, 2)
+        .join('')
+        .toUpperCase()
+    };
+
+    onBookingConfirmed(newAppointment);
+
+    // Format WhatsApp message
+    const recurrenceText = isRecurring
+      ? `\n🔄 Agendamento Recorrente: Ciclo de ${recurrenceTotalSessions} sessões a cada ${recurrenceFreqDays} dias`
+      : '';
+
+    const paymentText = effectivePaymentMode === 'pre_pagamento_100'
+      ? `\n💎 Pagamento: Pré-pagamento Total (100% via Pix: R$ ${depositValue},00) ${isInadimplente ? '[Exigência de Protocolo]' : '[Com 5% de Desconto VIP]'}`
+      : `\n💰 Pagamento: Sinal de Reserva (R$ 50,00 via Pix) • Saldo no estúdio: R$ ${balanceRemaining},00`;
+
+    const receiptNotice = receiptFileName
+      ? `\n📎 Comprovante Pix anexado: ${receiptFileName}`
+      : `\n📎 Segue o comprovante Pix da chave +5512974062241:`;
+
+    const msg = encodeURIComponent(
+      `Olá, Angélica! Gostaria de agendar meu atendimento no Espaço Angelica do Carmo (São Sebastião - SP).\n\n` +
+      `✨ Procedimento: ${selectedService.title}\n` +
+      `🗓️ Data & Horário: ${selectedDate} às ${selectedTime}\n` +
+      `📍 Local: ${studioAddress.fullAddress}` +
+      paymentText +
+      recurrenceText +
+      `\n\n👤 Nome: ${finalName}\n` +
+      `📱 WhatsApp: ${finalPhone}\n` +
+      `📸 Instagram: ${clientInstagram || 'Não informado'}\n` +
+      `💅 Condição das unhas: ${nailCondition}\n` +
+      `📝 Obs: ${clientNotes || 'Nenhuma'}\n` +
+      receiptNotice
+    );
+
+    // Open WhatsApp URL (wa.me)
+    window.open(`https://wa.me/5512974062241?text=${msg}`, '_blank');
+    setBookingWhatsAppModal(true);
+  };
+
+  return (
+    <section className="relative w-full px-4 sm:px-8 lg:px-12 py-16 bg-[#FBF7F2]" id="wizard-agendamento">
+      <div className="max-w-6xl mx-auto">
+        {/* Header */}
+        <div className="text-center max-w-2xl mx-auto mb-10">
+          <span className="font-jakarta text-[11px] uppercase tracking-widest text-[#D4AF37] font-bold">
+            Reserva em 4 Etapas • Haute Protocol
+          </span>
+          <h2 className="font-syne text-2xl sm:text-3xl md:text-4xl text-[#49382E] font-bold mt-1">
+            Agendamento &amp; Escolha de Horário
+          </h2>
+          <p className="font-jakarta text-sm text-[#786C63] mt-2 leading-relaxed">
+            Selecione seu horário, defina a recorrência de manutenção e envie sua solicitação para atendimento privativo no Pontal da Cruz, São Sebastião - SP.
+          </p>
+        </div>
+
+        {/* 4-Step Progress Ribbon */}
+        <div className="mb-10 p-4 sm:p-5 rounded-2xl bg-[#FFFFFF] border border-[#E8D9B5] shadow-xs">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-[#D4AF37] text-[#3C2F00] flex items-center justify-center font-bold font-jakarta text-xs shadow-xs shrink-0">
+                1
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-[10px] font-jakarta text-[#D4AF37] uppercase tracking-wider font-bold">
+                  Procedimento
+                </span>
+                <span className="text-xs sm:text-sm font-jakarta text-[#49382E] truncate font-semibold">
+                  {selectedService.title}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-[#F7EFEA] text-[#49382E] flex items-center justify-center font-bold font-jakarta text-xs shrink-0 border border-[#E8D9B5]">
+                2
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-[10px] font-jakarta text-[#786C63] uppercase tracking-wider font-bold">
+                  Data &amp; Hora
+                </span>
+                <span className="text-xs sm:text-sm font-jakarta text-[#49382E] truncate font-semibold">
+                  {selectedDate} • {selectedTime}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-[#F7EFEA] text-[#786C63] flex items-center justify-center font-bold font-jakarta text-xs shrink-0 border border-[#E8D9B5]">
+                3
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-[10px] font-jakarta text-[#786C63] uppercase tracking-wider font-bold">
+                  Recorrência
+                </span>
+                <span className="text-xs sm:text-sm font-jakarta text-[#49382E] truncate font-semibold">
+                  {isRecurring ? `${recurrenceFreqDays} em ${recurrenceFreqDays} dias` : 'Sessão Única'}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-[#F7EFEA] text-[#786C63] flex items-center justify-center font-bold font-jakarta text-xs shrink-0 border border-[#E8D9B5]">
+                4
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-[10px] font-jakarta text-[#786C63] uppercase tracking-wider font-bold">
+                  Sinal Pix
+                </span>
+                <span className="text-xs sm:text-sm font-jakarta text-[#D4AF37] truncate font-semibold">
+                  R$ {depositValue},00
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Blacklist Delinquent Warning Banner */}
+        {isInadimplente && (
+          <div className="mb-8 p-4 sm:p-5 rounded-2xl bg-amber-50 border border-amber-300 shadow-md flex items-start gap-4">
+            <span className="material-symbols-outlined text-amber-700 text-[28px] shrink-0 mt-0.5">
+              gpp_maybe
+            </span>
+            <div className="flex-1 font-jakarta text-xs leading-relaxed">
+              <h4 className="font-syne text-sm sm:text-base font-bold text-amber-900">
+                Protocolo Especial de Agendamento Ativado
+              </h4>
+              <p className="text-amber-800 mt-1">
+                Identificamos uma restrição cadastral prévia para o número <strong>{clientPhone}</strong> ({matchedBlacklist?.reason || 'No-show / Pendência'}).
+              </p>
+              <p className="text-amber-950 mt-1.5 font-semibold">
+                Para confirmação deste horário na grade, é exigido o <strong>Pré-pagamento Integral (100% via Pix: R$ {servicePrice},00)</strong>.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Main 2-Col Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          {/* Left Flow (7 cols) */}
+          <div className="lg:col-span-7 space-y-6">
+            {/* Panel 1: Data e Horário */}
+            <div className="p-5 sm:p-7 rounded-2xl bg-[#FFFFFF] border border-[#E8D9B5] shadow-md space-y-5">
+              <div className="flex items-center justify-between pb-3 border-b border-[#E8D9B5]">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[#D4AF37]">calendar_today</span>
+                  <h3 className="font-syne text-lg text-[#49382E] font-semibold">
+                    1. Escolha a Data
+                  </h3>
+                </div>
+                <span className="font-jakarta text-[11px] text-[#786C63]">
+                  Atendimento Terça a Sábado
+                </span>
+              </div>
+
+              {/* Date Selector Strip */}
+              <div className="grid grid-cols-3 sm:grid-cols-7 gap-2">
+                {availableDates.map((item, idx) => {
+                  const isSelected = selectedDate === item.full;
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      disabled={!item.available}
+                      onClick={() => setSelectedDate(item.full)}
+                      className={`p-3 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer ${
+                        !item.available
+                          ? 'bg-[#F7EFEA] border border-[#E8D9B5]/40 opacity-40 cursor-not-allowed text-[#786C63]'
+                          : isSelected
+                          ? 'bg-[#D4AF37] text-[#3C2F00] font-bold shadow-md ring-2 ring-[#D4AF37]'
+                          : 'bg-[#FDFBF9] border border-[#E8D9B5] text-[#49382E] hover:border-[#D4AF37]/50'
+                      }`}
+                    >
+                      <span className="font-jakarta text-[11px] uppercase tracking-wider">
+                        {item.day}
+                      </span>
+                      <span className="font-syne text-lg font-bold mt-0.5">
+                        {item.num}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Time Slots Section */}
+              <div className="pt-3 border-t border-[#E8D9B5] space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-jakarta text-xs text-[#786C63] font-medium">
+                    Horários Disponíveis para {selectedDate}:
+                  </span>
+                  <span className="font-jakarta text-[10px] text-[#D4AF37] font-semibold">
+                    {timeSlots.filter(s => s.status === 'disponivel' && s.active).length} horários abertos
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
+                  {timeSlots.filter(s => s.active).map(slot => {
+                    const isBlocked = slot.status === 'bloqueado' || slot.status === 'autoclave' || slot.status === 'almoco';
+                    const isSelected = selectedTime === slot.time && !isBlocked;
+
+                    return (
+                      <button
+                        key={slot.id}
+                        type="button"
+                        disabled={isBlocked}
+                        onClick={() => setSelectedTime(slot.time)}
+                        className={`p-2.5 rounded-xl border text-center transition-all ${
+                          isBlocked
+                            ? 'bg-[#F7EFEA] border-rose-200 text-[#786C63]/50 cursor-not-allowed'
+                            : isSelected
+                            ? 'bg-[#D4AF37] text-[#3C2F00] border-[#D4AF37] font-bold shadow-xs cursor-pointer'
+                            : 'bg-[#FDFBF9] border-[#E8D9B5] text-[#49382E] hover:border-[#D4AF37]/50 cursor-pointer'
+                        }`}
+                        title={slot.note || (isBlocked ? 'Horário Bloqueado' : 'Horário Disponível')}
+                      >
+                        <span className="font-syne text-sm font-bold block">{slot.time}</span>
+                        <span className="text-[10px] block font-jakarta">
+                          {isBlocked ? (slot.note?.slice(0, 10) || 'Bloqueado') : 'Disponível'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Panel 2: Agendamento Recorrente */}
+            <div className="p-5 sm:p-7 rounded-2xl bg-[#FFFFFF] border border-[#E8D9B5] shadow-md space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[#D4AF37] text-[24px]">
+                    event_repeat
+                  </span>
+                  <div>
+                    <h3 className="font-syne text-lg text-[#49382E] font-semibold">
+                      Agendamento Recorrente
+                    </h3>
+                    <p className="font-jakarta text-xs text-[#786C63]">
+                      Garanta antecipadamente seus horários de manutenção preventiva de fibra/gel
+                    </p>
+                  </div>
+                </div>
+
+                {/* Toggle Switch */}
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isRecurring}
+                    onChange={e => setIsRecurring(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-[#E8D9B5] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#D4AF37]"></div>
+                </label>
+              </div>
+
+              {isRecurring && (
+                <div className="p-4 rounded-xl bg-[#FDFBF9] border border-[#E8D9B5] space-y-4 font-jakarta text-xs animate-fadeIn">
+                  <div>
+                    <label className="block text-[11px] text-[#49382E] uppercase tracking-wider font-bold mb-2">
+                      Intervalo entre Sessões:
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {[
+                        { days: 15, label: 'Quinzenal (15 dias)', note: 'Esmaltação & Spa' },
+                        { days: 21, label: 'A cada 21 dias', note: 'Ideal Fibra Slim' },
+                        { days: 30, label: 'Mensal (30 dias)', note: 'Blindagem Diamante' }
+                      ].map(freq => (
+                        <button
+                          key={freq.days}
+                          type="button"
+                          onClick={() => setRecurrenceFreqDays(freq.days)}
+                          className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                            recurrenceFreqDays === freq.days
+                              ? 'bg-[#FFFFFF] border-[#D4AF37] text-[#49382E] font-bold shadow-xs ring-1 ring-[#D4AF37]'
+                              : 'bg-[#F7EFEA] border-[#E8D9B5] text-[#786C63] hover:border-[#D4AF37]/40'
+                          }`}
+                        >
+                          <span className="block text-[#49382E] font-semibold">{freq.label}</span>
+                          <span className="text-[10px] text-[#786C63] block">{freq.note}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] text-[#49382E] uppercase tracking-wider font-bold mb-2">
+                      Quantidade de Manutenções no Ciclo:
+                    </label>
+                    <div className="flex gap-2">
+                      {[2, 3, 4, 6].map(num => (
+                        <button
+                          key={num}
+                          type="button"
+                          onClick={() => setRecurrenceTotalSessions(num)}
+                          className={`flex-1 py-2 rounded-lg border text-center font-bold cursor-pointer transition-all ${
+                            recurrenceTotalSessions === num
+                              ? 'bg-[#D4AF37] text-[#3C2F00] border-[#D4AF37]'
+                              : 'bg-[#F7EFEA] border-[#E8D9B5] text-[#49382E] hover:border-[#D4AF37]/40'
+                          }`}
+                        >
+                          {num} Sessões
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Calculated Upcoming Dates Preview */}
+                  <div className="p-3 rounded-lg bg-[#F7EFEA] border border-[#E8D9B5] space-y-1">
+                    <span className="text-[10px] uppercase tracking-wider text-[#49382E] font-bold block">
+                      Previsão de Datas do seu Ciclo:
+                    </span>
+                    <ul className="space-y-1 text-[#786C63] text-[11px]">
+                      <li className="text-[#49382E] font-semibold">
+                        • 1ª Sessão: {selectedDate} às {selectedTime} (Agendamento Imediato)
+                      </li>
+                      {calculateUpcomingDates().map((dt, i) => (
+                        <li key={i}>• {i + 2}ª Sessão prevista: {dt}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Panel 3: Dados da Cliente */}
+            <div className="p-5 sm:p-7 rounded-2xl bg-[#FFFFFF] border border-[#E8D9B5] shadow-md space-y-4">
+              <div className="flex items-center gap-2 pb-3 border-b border-[#E8D9B5]">
+                <span className="material-symbols-outlined text-[#D4AF37]">person</span>
+                <h3 className="font-syne text-lg text-[#49382E] font-semibold">
+                  3. Dados Pessoais &amp; Anamnese
+                </h3>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 font-jakarta text-xs">
+                <div>
+                  <label className="block text-[#49382E] font-medium mb-1">Nome Completo *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Vanessa Lima"
+                    value={clientName}
+                    onChange={e => setClientName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[#49382E] font-medium mb-1">WhatsApp com DDD *</label>
+                  <input
+                    type="tel"
+                    required
+                    placeholder="Ex: (12) 99123-4567"
+                    value={clientPhone}
+                    onChange={e => setClientPhone(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[#49382E] font-medium mb-1">Instagram (opcional)</label>
+                  <input
+                    type="text"
+                    placeholder="@seu.perfil"
+                    value={clientInstagram}
+                    onChange={e => setClientInstagram(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[#49382E] font-medium mb-1">Condição Atual das Unhas</label>
+                  <select
+                    value={nailCondition}
+                    onChange={e => setNailCondition(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
+                  >
+                    <option value="Unhas naturais sem nenhum produto">Unhas naturais sem produto</option>
+                    <option value="Alongamento de outro profissional (requer remoção)">Alongamento de outro espaço</option>
+                    <option value="Unhas roídas ou muito curtas">Unhas roídas ou muito curtas</option>
+                    <option value="Unhas com gel / blindagem atual">Unhas com gel / blindagem atual</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-[#49382E] font-medium mb-1">Observações ou Preferências de Nail Art</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Alguma alergia a esmaltes, formato preferido (Almond, Bailarina, Quadrada) ou referência de foto..."
+                    value={clientNotes}
+                    onChange={e => setClientNotes(e.target.value)}
+                    className="w-full px-3.5 py-2 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Panel 4: Escolha de Pagamento Pix (Sinal vs Pré-pagamento Total) */}
+            <div className="p-5 sm:p-7 rounded-2xl bg-[#FFFFFF] border border-[#E8D9B5] shadow-md relative overflow-hidden">
+              <div className="flex items-start justify-between gap-4 mb-4">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[#D4AF37] text-[26px]">
+                    payments
+                  </span>
+                  <div>
+                    <h3 className="font-syne text-lg sm:text-xl text-[#49382E] font-semibold">
+                      Opções de Pré-pagamento via Pix
+                    </h3>
+                    <p className="font-jakarta text-xs text-[#786C63]">
+                      Escolha como deseja garantir sua vaga no atelier privativo
+                    </p>
+                  </div>
+                </div>
+
+                <span className="px-3 py-1 rounded-full bg-[#FBF2D5] text-[#3C2F00] font-jakarta text-xs font-bold shrink-0 border border-[#E8D9B5]">
+                  Pix Banco Central
+                </span>
+              </div>
+
+              {/* Payment Mode Selector Tabs */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5 font-jakarta text-xs">
+                {/* Option A: Sinal Padrão */}
+                <button
+                  type="button"
+                  disabled={isInadimplente}
+                  onClick={() => setPaymentMode('sinal_50')}
+                  className={`p-4 rounded-xl border text-left transition-all ${
+                    effectivePaymentMode === 'sinal_50'
+                      ? 'bg-[#FDFBF9] border-[#D4AF37] shadow-xs ring-1 ring-[#D4AF37]'
+                      : isInadimplente
+                      ? 'bg-[#F7EFEA] border-[#E8D9B5]/40 opacity-30 cursor-not-allowed'
+                      : 'bg-[#FFFFFF] border-[#E8D9B5] hover:border-[#D4AF37]/40 cursor-pointer'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-syne text-sm font-bold text-[#49382E]">Sinal de Reserva</span>
+                    <span className="font-bold text-[#D4AF37] text-base">R$ 50,00</span>
+                  </div>
+                  <p className="text-[#786C63] leading-relaxed">
+                    Garante o horário. O restante de <strong>R$ {servicePrice - 50},00</strong> é quitado no dia do atendimento.
+                  </p>
+                  {isInadimplente && (
+                    <span className="text-[10px] text-red-500 font-bold block mt-1">
+                      Indisponível para números com restrição
+                    </span>
+                  )}
+                </button>
+
+                {/* Option B: Pré-pagamento Total 100% Pix */}
+                <button
+                  type="button"
+                  onClick={() => setPaymentMode('pre_pagamento_100')}
+                  className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
+                    effectivePaymentMode === 'pre_pagamento_100'
+                      ? 'bg-[#FDFBF9] border-[#D4AF37] shadow-xs ring-1 ring-[#D4AF37]'
+                      : 'bg-[#FFFFFF] border-[#E8D9B5] hover:border-[#D4AF37]/40'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-syne text-sm font-bold text-[#49382E]">Pré-pagamento Total (100%)</span>
+                      <span className="px-2 py-0.2 rounded-full bg-[#E8D3C7] text-[#49382E] text-[10px] font-bold">
+                        -5% OFF
+                      </span>
+                    </div>
+                    <span className="font-bold text-[#D4AF37] text-base">
+                      R$ {isInadimplente ? servicePrice : discountedFullPrice},00
+                    </span>
+                  </div>
+                  <p className="text-[#786C63] leading-relaxed">
+                    Procedimento quitado com prioridade VIP. Chegue ao atelier sem preocupações financeiras adicionais ao final.
+                  </p>
+                </button>
+              </div>
+
+              {/* Pix Details Box */}
+              <div className="p-4 rounded-xl bg-[#F7EFEA] border border-[#E8D9B5] space-y-4">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-14 h-14 rounded-xl bg-[#FFFFFF] flex items-center justify-center text-[#D4AF37] border border-[#E8D9B5] shrink-0 shadow-xs">
+                      <span className="material-symbols-outlined text-[30px]">qr_code_2</span>
+                    </div>
+
+                    <div>
+                      <span className="block font-jakarta text-[11px] text-[#786C63]">
+                        Chave Pix Oficial (Telefone Celular)
+                      </span>
+                      <span className="font-mono text-[#49382E] font-bold text-lg select-all tracking-wider">
+                        +5512974062241
+                      </span>
+                      <span className="block font-jakarta text-[11px] text-[#786C63]">
+                        (12) 97406-2241
+                      </span>
+                      <span className="block font-jakarta text-xs text-[#D4AF37] font-semibold">
+                        Favorecido: Angelica do Carmo E. Silva ME
+                      </span>
+                      <span className="block font-jakarta text-[11px] text-[#786C63]">
+                        Valor a Transferir: <strong className="text-[#49382E] text-sm">R$ {depositValue},00</strong>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+                    <button
+                      type="button"
+                      onClick={handleCopyPix}
+                      className="w-full sm:w-auto px-5 py-2.5 rounded-full bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">
+                        {copiedPix ? 'done' : 'content_copy'}
+                      </span>
+                      <span>{copiedPix ? 'Chave Copiada!' : 'Copiar Chave Pix'}</span>
+                    </button>
+
+                    <label className={`w-full sm:w-auto px-4 py-2.5 rounded-full border text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                      receiptFileName
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                        : 'bg-[#FFFFFF] text-[#49382E] border-[#E8D9B5] hover:bg-[#FDFBF9]'
+                    }`}>
+                      <span className="material-symbols-outlined text-[16px]">
+                        {receiptFileName ? 'check_circle' : 'attach_file'}
+                      </span>
+                      <span className="truncate max-w-[150px]">
+                        {receiptFileName ? receiptFileName : 'Selecionar Comprovante'}
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*,application/pdf"
+                        onChange={handleFileUpload}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="p-2.5 rounded-lg bg-[#FFFFFF] border border-[#E8D9B5] text-[11px] text-[#786C63] flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[#D4AF37] text-[16px] shrink-0">info</span>
+                  <span>
+                    O pagamento é conferido manualmente pela profissional no extrato bancário. Ao abrir o WhatsApp, você também pode compartilhar a imagem do comprovante.
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Summary Sticky Card (5 cols) */}
+          <div className="lg:col-span-5 space-y-4 lg:sticky lg:top-28">
+            <div className="p-6 rounded-2xl bg-[#FFFFFF] border border-[#E8D9B5] shadow-xl relative overflow-hidden">
+              <div className="flex items-center justify-between pb-3 border-b border-[#E8D9B5]">
+                <span className="font-jakarta text-[11px] uppercase tracking-widest text-[#D4AF37] font-bold">
+                  Resumo da Solicitação
+                </span>
+                <span className="font-jakarta text-[11px] text-[#786C63]">
+                  Pontal da Cruz, SP
+                </span>
+              </div>
+
+              {/* Selected Service Card */}
+              <div className="py-4 border-b border-[#E8D9B5] space-y-2.5">
+                <div className="flex items-center gap-3.5">
+                  <img
+                    src={selectedService.imageUrl}
+                    alt={selectedService.title}
+                    className="w-16 h-16 rounded-xl object-cover border border-[#E8D9B5] shadow-xs shrink-0"
+                  />
+                  <div className="flex flex-col min-w-0 flex-1">
+                    <span className="font-syne text-base font-bold text-[#49382E] truncate">
+                      {selectedService.title}
+                    </span>
+                    <span className="font-jakarta text-xs text-[#786C63]">
+                      Duração estimada: {selectedService.duration}
+                    </span>
+                    <span className="font-jakarta text-xs text-[#49382E] font-bold mt-0.5">
+                      {selectedService.priceFormatted}
+                    </span>
+                  </div>
+                </div>
+
+                {services.length > 1 && onSelectService && (
+                  <div className="pt-1">
+                    <label className="text-[10px] text-[#786C63] block mb-1">Trocar procedimento:</label>
+                    <select
+                      value={selectedService.id}
+                      onChange={e => {
+                        const match = services.find(s => s.id === e.target.value);
+                        if (match) onSelectService(match);
+                      }}
+                      className="w-full px-3 py-1.5 rounded-lg bg-[#FDFBF9] text-xs text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
+                    >
+                      {services.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.title} ({s.priceFormatted})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {/* Booking Specifications */}
+              <div className="py-4 space-y-2.5 font-jakarta text-xs">
+                <div className="flex justify-between text-[#786C63]">
+                  <span>Data Selecionada:</span>
+                  <span className="text-[#49382E] font-medium">{selectedDate}</span>
+                </div>
+
+                <div className="flex justify-between text-[#786C63]">
+                  <span>Horário Selecionado:</span>
+                  <span className="text-[#49382E] font-medium">{selectedTime}</span>
+                </div>
+
+                {isRecurring && (
+                  <div className="p-2.5 rounded-xl bg-[#F7EFEA] border border-[#E8D9B5] space-y-1">
+                    <div className="flex items-center justify-between text-[#49382E] font-bold">
+                      <span>Agendamento Recorrente:</span>
+                      <span>{recurrenceTotalSessions} sessões</span>
+                    </div>
+                    <span className="text-[#786C63] text-[11px] block">
+                      Intervalo: a cada {recurrenceFreqDays} dias
+                    </span>
+                  </div>
+                )}
+
+                {/* Price Breakdown */}
+                <div className="pt-2 border-t border-[#E8D9B5] space-y-1.5 text-xs">
+                  <div className="flex justify-between text-[#786C63]">
+                    <span>Procedimento</span>
+                    <span className="text-[#49382E] font-medium">{selectedService.priceFormatted}</span>
+                  </div>
+
+                  {effectivePaymentMode === 'pre_pagamento_100' ? (
+                    <>
+                      {!isInadimplente && (
+                        <div className="flex justify-between text-emerald-700 font-medium">
+                          <span>Desconto Pré-pagamento Total (5%)</span>
+                          <span>- R$ {servicePrice - discountedFullPrice},00</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-[#D4AF37] font-bold">
+                        <span>Valor via Pix Antecipado (100%)</span>
+                        <span>R$ {depositValue},00</span>
+                      </div>
+                      <div className="pt-2 flex justify-between font-syne text-base text-[#49382E] font-bold border-t border-[#E8D9B5]">
+                        <span>Saldo Restante no Estúdio</span>
+                        <span className="text-emerald-700">R$ 0,00 (Após validação do Pix)</span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex justify-between text-[#D4AF37]">
+                        <span>Sinal de Reserva (Pix)</span>
+                        <span className="font-bold">- R$ 50,00</span>
+                      </div>
+                      <div className="pt-2 flex justify-between font-syne text-base text-[#49382E] font-bold border-t border-[#E8D9B5]">
+                        <span>Saldo Restante no Estúdio</span>
+                        <span className="text-[#D4AF37]">R$ {balanceRemaining},00</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* CTA Final WhatsApp */}
+              <div className="mt-6 space-y-2">
+                <button
+                  type="button"
+                  onClick={handleConfirmWhatsApp}
+                  className="w-full py-3.5 rounded-full bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta text-sm font-bold transition-all duration-300 shadow-[0_12px_32px_-4px_rgba(212,175,55,0.35)] flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                >
+                  <span className="material-symbols-outlined text-[20px]">chat</span>
+                  <span>Abrir WhatsApp para Confirmar</span>
+                </button>
+                <p className="text-center font-jakarta text-[11px] text-[#786C63] leading-tight">
+                  Ao clicar, o WhatsApp será aberto com os dados prontos para envio. A reserva permanece como <strong>Pendente de Confirmação</strong> até a validação do Pix pela Angélica.
+                </p>
+              </div>
+            </div>
+
+            {/* Atelier Address Card */}
+            <div className="p-4 rounded-2xl bg-[#FFFFFF] border border-[#E8D9B5] flex items-start gap-3 shadow-xs">
+              <span className="material-symbols-outlined text-[#D4AF37] text-[22px] shrink-0 mt-0.5">
+                location_on
+              </span>
+              <div className="font-jakarta text-[11px] text-[#786C63] leading-snug">
+                <span className="text-[#49382E] font-bold block mb-0.5">Espaço Angelica do Carmo</span>
+                <span>{studioAddress.fullAddress}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* WhatsApp Open Confirmation Modal */}
+      {bookingWhatsAppModal && (
+        <div className="fixed inset-0 z-50 bg-[#49382E]/60 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#FFFFFF] p-6 sm:p-8 rounded-3xl max-w-md w-full border border-[#E8D9B5] shadow-2xl text-center">
+            <div className="w-16 h-16 rounded-full bg-[#FBF2D5] text-[#D4AF37] mx-auto flex items-center justify-center mb-4 border border-[#E8D9B5]">
+              <span className="material-symbols-outlined text-[36px]">schedule</span>
+            </div>
+            <h3 className="font-syne text-2xl text-[#49382E] font-bold">Solicitação Encaminhada</h3>
+            <p className="font-jakarta text-xs sm:text-sm text-[#786C63] mt-2 leading-relaxed">
+              Os dados para o agendamento de <strong>{selectedDate} às {selectedTime}</strong> ({selectedService.title}) foram preparados e o WhatsApp foi aberto.
+            </p>
+            <div className="my-3 py-2 px-3 rounded-lg bg-[#F7EFEA] border border-[#E8D9B5] text-xs text-[#49382E] font-bold">
+              Status: Pendente de Conferência do Pix &amp; Confirmação
+            </div>
+            <p className="font-jakarta text-[11px] text-[#786C63] text-left leading-relaxed">
+              <strong>Confirmação Automática:</strong> Conclua o envio da mensagem no WhatsApp e envie o comprovante Pix (R$ {depositValue},00 para a chave +5512974062241). Assim que o sinal for aprovado no sistema, você receberá a <strong>confirmação automática oficial via WhatsApp Business</strong> com todos os detalhes e orientações do atelier privativo diretamente no seu número cadastrado ({clientPhone}).
+            </p>
+            <button
+              type="button"
+              onClick={() => setBookingWhatsAppModal(false)}
+              className="mt-6 w-full py-3 rounded-full bg-[#D4AF37] text-[#3C2F00] font-jakarta text-xs font-bold hover:bg-[#E5C158] transition-all cursor-pointer"
+            >
+              Entendido &amp; Continuar Navegando
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+};

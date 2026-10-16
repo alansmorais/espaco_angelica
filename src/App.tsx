@@ -1,0 +1,695 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect } from 'react';
+import {
+  SERVICES_CATALOG,
+  INITIAL_TODAY_APPOINTMENTS,
+  INITIAL_CLIENTS,
+  INITIAL_TIME_SLOTS,
+  INITIAL_DAY_SCHEDULES,
+  INITIAL_BLACKLIST,
+  STUDIO_ADDRESS
+} from './data/mockData';
+import {
+  Service,
+  Appointment,
+  ClientProfile,
+  TimeSlotConfig,
+  DayScheduleConfig,
+  BlacklistEntry,
+  StudioAddressConfig,
+  WhatsAppConfig
+} from './types';
+import { sendAppointmentWhatsAppConfirmation } from './services/whatsappService';
+
+// Public Components
+import { HeaderPublic } from './components/HeaderPublic';
+import { HeroSection } from './components/HeroSection';
+import { ServiceCatalog } from './components/ServiceCatalog';
+import { BookingWizard } from './components/BookingWizard';
+import { GallerySection } from './components/GallerySection';
+import { LocationSection } from './components/LocationSection';
+import { FooterPublic } from './components/FooterPublic';
+import { AboutModal } from './components/Modals/AboutModal';
+import { FAQModal } from './components/Modals/FAQModal';
+
+// Admin Components
+import { AdminSidebar, AdminTab } from './components/Admin/AdminSidebar';
+import { AdminHeader } from './components/Admin/AdminHeader';
+import { OverviewTab } from './components/Admin/OverviewTab';
+import { CalendarTab } from './components/Admin/CalendarTab';
+import { PixReconciliationTab } from './components/Admin/PixReconciliationTab';
+import { ClientsTab } from './components/Admin/ClientsTab';
+import { FinancialTab } from './components/Admin/FinancialTab';
+import { SettingsTab } from './components/Admin/SettingsTab';
+
+// Modals
+import { ManualBookingModal } from './components/Modals/ManualBookingModal';
+import { BlockScheduleModal } from './components/Modals/BlockScheduleModal';
+import { ExtraEncaixeModal } from './components/Modals/ExtraEncaixeModal';
+import { NewClientModal } from './components/Modals/NewClientModal';
+
+export default function App() {
+  // Mode: 'public' (Client) vs 'admin' (Executive Atelier)
+  const [appMode, setAppMode] = useState<'public' | 'admin'>('public');
+
+  // Admin Active Tab
+  const [adminTab, setAdminTab] = useState<AdminTab>('visao-geral');
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
+  const [adminSearch, setAdminSearch] = useState<string>('');
+
+  // 1 & 2: Services State (Shared between Public Catalog & Admin Price/Photo Manager)
+  const [services, setServices] = useState<Service[]>(() => {
+    try {
+      const saved = localStorage.getItem('angelica_services');
+      return saved ? JSON.parse(saved) : SERVICES_CATALOG;
+    } catch {
+      return SERVICES_CATALOG;
+    }
+  });
+
+  const activeServices = services.filter(s => s.active !== false);
+  const [selectedService, setSelectedService] = useState<Service>(
+    activeServices[0] || services[0] || SERVICES_CATALOG[0]
+  );
+
+  // 4: Operating Hours & Time Slots State (Add, Edit, Delete, Block)
+  const [timeSlots, setTimeSlots] = useState<TimeSlotConfig[]>(() => {
+    try {
+      const saved = localStorage.getItem('angelica_timeslots');
+      return saved ? JSON.parse(saved) : INITIAL_TIME_SLOTS;
+    } catch {
+      return INITIAL_TIME_SLOTS;
+    }
+  });
+  const [daySchedules, setDaySchedules] = useState<DayScheduleConfig[]>(() => {
+    try {
+      const saved = localStorage.getItem('angelica_dayschedules');
+      return saved ? JSON.parse(saved) : INITIAL_DAY_SCHEDULES;
+    } catch {
+      return INITIAL_DAY_SCHEDULES;
+    }
+  });
+
+  // 6: Inadimplentes Blacklist State (Requires 100% Pre-payment via Pix)
+  const [blacklist, setBlacklist] = useState<BlacklistEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem('angelica_blacklist');
+      return saved ? JSON.parse(saved) : INITIAL_BLACKLIST;
+    } catch {
+      return INITIAL_BLACKLIST;
+    }
+  });
+
+  // 3: Studio Address State (Rua Vereador José Luiz Soares, 92 - Pontal da Cruz, São Sebastião - SP)
+  const [studioAddress, setStudioAddress] = useState<StudioAddressConfig>(() => {
+    try {
+      const saved = localStorage.getItem('angelica_address');
+      return saved ? JSON.parse(saved) : STUDIO_ADDRESS;
+    } catch {
+      return STUDIO_ADDRESS;
+    }
+  });
+
+  // Appointments & Clients State (Real data only, default empty)
+  const [appointments, setAppointments] = useState<Appointment[]>(() => {
+    try {
+      const saved = localStorage.getItem('angelica_appointments');
+      return saved ? JSON.parse(saved) : INITIAL_TODAY_APPOINTMENTS;
+    } catch {
+      return INITIAL_TODAY_APPOINTMENTS;
+    }
+  });
+
+  const [clients, setClients] = useState<ClientProfile[]>(() => {
+    try {
+      const saved = localStorage.getItem('angelica_clients');
+      return saved ? JSON.parse(saved) : INITIAL_CLIENTS;
+    } catch {
+      return INITIAL_CLIENTS;
+    }
+  });
+
+  // Save to localStorage whenever states change
+  useEffect(() => {
+    try {
+      localStorage.setItem('angelica_services', JSON.stringify(services));
+    } catch {}
+  }, [services]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('angelica_timeslots', JSON.stringify(timeSlots));
+    } catch {}
+  }, [timeSlots]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('angelica_dayschedules', JSON.stringify(daySchedules));
+    } catch {}
+  }, [daySchedules]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('angelica_blacklist', JSON.stringify(blacklist));
+    } catch {}
+  }, [blacklist]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('angelica_address', JSON.stringify(studioAddress));
+    } catch {}
+  }, [studioAddress]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('angelica_appointments', JSON.stringify(appointments));
+    } catch {}
+  }, [appointments]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('angelica_clients', JSON.stringify(clients));
+    } catch {}
+  }, [clients]);
+
+  // WhatsApp Business API Config State
+  const [whatsappConfig, setWhatsappConfig] = useState<WhatsAppConfig>(() => {
+    try {
+      const saved = localStorage.getItem('angelica_whatsapp_config');
+      return saved ? JSON.parse(saved) : { autoSendOnConfirm: true };
+    } catch {
+      return { autoSendOnConfirm: true };
+    }
+  });
+
+  const [waGlobalToast, setWaGlobalToast] = useState<{
+    message: string;
+    clientName: string;
+    clientPhone: string;
+    success: boolean;
+    fallbackUrl?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('angelica_whatsapp_config', JSON.stringify(whatsappConfig));
+    } catch {}
+  }, [whatsappConfig]);
+
+  // Modals state
+  const [aboutModalOpen, setAboutModalOpen] = useState<boolean>(false);
+  const [faqModalOpen, setFaqModalOpen] = useState<boolean>(false);
+  const [manualBookingModalOpen, setManualBookingModalOpen] = useState<boolean>(false);
+  const [blockModalOpen, setBlockModalOpen] = useState<boolean>(false);
+  const [encaixeModalOpen, setEncaixeModalOpen] = useState<boolean>(false);
+  const [newClientModalOpen, setNewClientModalOpen] = useState<boolean>(false);
+
+  // Handlers for Services Management
+  const handleUpdateService = (updated: Service) => {
+    setServices(prev => prev.map(s => (s.id === updated.id ? updated : s)));
+    if (selectedService.id === updated.id) {
+      setSelectedService(updated);
+    }
+  };
+
+  const handleAddService = (newService: Service) => {
+    setServices(prev => [newService, ...prev]);
+  };
+
+  const handleDeleteService = (id: string) => {
+    setServices(prev => {
+      const remaining = prev.filter(s => s.id !== id);
+      if (selectedService.id === id && remaining.length > 0) {
+        setSelectedService(remaining[0]);
+      }
+      return remaining;
+    });
+  };
+
+  // Handlers for client booking
+  const handleSelectService = (service: Service) => {
+    setSelectedService(service);
+    const el = document.getElementById('wizard-agendamento');
+    el?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const handleBookingConfirmed = (newApt: Appointment) => {
+    setAppointments(prev => [newApt, ...prev]);
+
+    // Automatically register or update client profile
+    setClients(prev => {
+      const normalizedPhone = newApt.clientPhone.replace(/\D/g, '');
+      const existingIndex = prev.findIndex(c => c.phone.replace(/\D/g, '') === normalizedPhone);
+      if (existingIndex >= 0) {
+        const updated = [...prev];
+        updated[existingIndex] = {
+          ...updated[existingIndex],
+          lastVisit: `${newApt.date} às ${newApt.time}`,
+          lastService: newApt.serviceTitle
+        };
+        return updated;
+      }
+
+      const initials = newApt.clientName
+        .split(' ')
+        .map(n => n[0])
+        .slice(0, 2)
+        .join('')
+        .toUpperCase();
+
+      const newClientProfile: ClientProfile = {
+        id: `client-${Date.now()}`,
+        name: newApt.clientName,
+        initials,
+        phone: newApt.clientPhone,
+        tier: '1ª Sessão',
+        status: 'nova',
+        lastVisit: `${newApt.date} às ${newApt.time}`,
+        lastService: newApt.serviceTitle,
+        nextMaintenanceDays: 21,
+        daysRemainingOrOverdue: '21 dias rest.',
+        isOverdue: false,
+        ltv: newApt.depositAmount,
+        ltvFormatted: `R$ ${newApt.depositAmount},00`,
+        laminaType: newApt.nailCondition || 'Natural',
+        oiliness: 'Média',
+        allergies: 'Nenhuma informada',
+        onycholysis: 'Lâmina íntegra',
+        preferredShape: 'Almond Clássica',
+        preferredColor: 'Tons Nude / Translúcidos',
+        products: {
+          preparer: 'Desidratador Max + Primer Sem Ácido',
+          baseGel: 'Fiber Base Gel Haute Pink',
+          tensionPoint: 'Gel Construtor Hard Classic',
+          topCoat: 'Diamond Brilho Espelhado'
+        },
+        privateNotes: newApt.notes || 'Cliente cadastrada via agendamento online.'
+      };
+
+      return [newClientProfile, ...prev];
+    });
+  };
+
+  const handleUpdateAppointment = async (updated: Appointment) => {
+    const prevApt = appointments.find(a => a.id === updated.id);
+    const isNowConfirmed = updated.status === 'confirmado' && (!prevApt || prevApt.status !== 'confirmado');
+
+    setAppointments(prev => prev.map(a => (a.id === updated.id ? updated : a)));
+
+    // If appointment became confirmed and auto-send is enabled
+    if (isNowConfirmed && whatsappConfig.autoSendOnConfirm && updated.whatsappStatus !== 'enviado') {
+      try {
+        const res = await sendAppointmentWhatsAppConfirmation(
+          updated,
+          whatsappConfig.customTemplate,
+          studioAddress.fullAddress
+        );
+        const withWa: Appointment = {
+          ...updated,
+          whatsappStatus: res.success ? 'enviado' : 'falha',
+          whatsappSentAt: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+          whatsappLastMessage: res.previewText || res.message
+        };
+        setAppointments(prev => prev.map(a => (a.id === updated.id ? withWa : a)));
+        setWaGlobalToast({
+          message: res.message,
+          clientName: updated.clientName,
+          clientPhone: updated.clientPhone,
+          success: res.success,
+          fallbackUrl: res.fallbackUrl
+        });
+        setTimeout(() => setWaGlobalToast(null), 6000);
+      } catch {}
+    }
+  };
+
+  const handleDeleteAppointment = (id: string) => {
+    setAppointments(prev => prev.filter(a => a.id !== id));
+  };
+
+  const handleUpdateClient = (updated: ClientProfile) => {
+    setClients(prev => prev.map(c => (c.id === updated.id ? updated : c)));
+  };
+
+  const handleManualBookingSave = (newApt: Appointment) => {
+    setAppointments(prev => [newApt, ...prev]);
+    if (newApt.whatsappStatus === 'enviado' || newApt.whatsappStatus === 'simulado') {
+      setWaGlobalToast({
+        message: `Confirmação de agendamento disparada via WhatsApp para ${newApt.clientName} (${newApt.clientPhone})!`,
+        clientName: newApt.clientName,
+        clientPhone: newApt.clientPhone,
+        success: true
+      });
+      setTimeout(() => setWaGlobalToast(null), 6000);
+    }
+  };
+
+  const handleNewClientSave = (newClient: ClientProfile) => {
+    setClients(prev => [newClient, ...prev]);
+  };
+
+  const handleBlockConfirm = (reason: string, timeSpan: string) => {
+    const blockApt: Appointment = {
+      id: `block-${Date.now()}`,
+      clientName: 'Protocolo Ateliê',
+      clientPhone: '',
+      serviceTitle: reason,
+      servicePrice: 'R$ 0,00',
+      serviceDuration: timeSpan,
+      date: 'Quarta, 13 Nov',
+      time: timeSpan.split(' ')[0] || '13:30',
+      status: 'bloqueado',
+      depositAmount: 0,
+      depositStatus: 'liquidado',
+      isAutoclave: true,
+      blockReason: reason
+    };
+    setAppointments(prev => [...prev, blockApt]);
+
+    // Mark corresponding slot as blocked
+    const timeMatch = timeSpan.split(' ')[0];
+    if (timeMatch) {
+      setTimeSlots(prev =>
+        prev.map(s =>
+          s.time.startsWith(timeMatch)
+            ? { ...s, status: 'bloqueado', note: reason }
+            : s
+        )
+      );
+    }
+  };
+
+  const handleExtraEncaixeConfirm = (name: string, procedure: string, dateTime: string, feeApplied: boolean) => {
+    const encaixeApt: Appointment = {
+      id: `encaixe-${Date.now()}`,
+      clientName: name,
+      clientPhone: '',
+      serviceTitle: `${procedure} ${feeApplied ? '(+ Taxa Urgência)' : ''}`,
+      servicePrice: feeApplied ? 'R$ 265,00' : 'R$ 220,00',
+      serviceDuration: '1h 30min',
+      date: dateTime.split('•')[0]?.trim() || 'Qua, 13 Nov',
+      time: dateTime.split('•')[1]?.trim() || '20:15',
+      status: 'pendente_pix',
+      depositAmount: 50,
+      depositStatus: 'pendente',
+      isVip: true,
+      clientInitials: name
+        .split(' ')
+        .map(n => n[0])
+        .slice(0, 2)
+        .join('')
+        .toUpperCase()
+    };
+    setAppointments(prev => [encaixeApt, ...prev]);
+  };
+
+  const pendingPixCount = appointments.filter(
+    a => a.status === 'pendente_pix' || a.depositStatus === 'pendente'
+  ).length;
+
+  return (
+    <div className="min-h-screen bg-[#FBF7F2] text-[#49382E] font-jakarta antialiased selection:bg-[#E8D3C7] selection:text-[#49382E]">
+      {/* ========================================================
+          PUBLIC CLIENT EXPERIENCE
+      ======================================================== */}
+      {appMode === 'public' && (
+        <div className="w-full min-h-screen bg-[#FBF7F2] flex flex-col">
+          {/* Public Header */}
+          <HeaderPublic
+            onOpenBooking={() => {
+              const el = document.getElementById('wizard-agendamento');
+              el?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            onOpenAdmin={() => setAppMode('admin')}
+            onOpenAbout={() => setAboutModalOpen(true)}
+            onOpenFAQ={() => setFaqModalOpen(true)}
+            onOpenGallery={() => {
+              const el = document.getElementById('galeria-nailart');
+              el?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            onOpenServices={() => {
+              const el = document.getElementById('catalogo-vitrine');
+              el?.scrollIntoView({ behavior: 'smooth' });
+            }}
+          />
+
+          {/* Main Public Content */}
+          <main className="w-full pt-20 flex-1">
+            {/* Hero Section with Official Gold Logo and Badges */}
+            <HeroSection
+              onStartBooking={() => {
+                const el = document.getElementById('wizard-agendamento');
+                el?.scrollIntoView({ behavior: 'smooth' });
+              }}
+              onViewServices={() => {
+                const el = document.getElementById('catalogo-vitrine');
+                el?.scrollIntoView({ behavior: 'smooth' });
+              }}
+            />
+
+            {/* Vitrine de Procedimentos (Uses Dynamic Services) */}
+            <ServiceCatalog
+              services={services}
+              onSelectService={handleSelectService}
+              selectedServiceId={selectedService.id}
+            />
+
+            {/* Fluxo de Agendamento Dinâmico (Wizard com Recorrência, Horários e Pré-pagamento Pix) */}
+            <BookingWizard
+              selectedService={activeServices.find(s => s.id === selectedService?.id) || activeServices[0] || services[0]}
+              onBookingConfirmed={handleBookingConfirmed}
+              timeSlots={timeSlots}
+              blacklist={blacklist}
+              studioAddress={studioAddress}
+              services={activeServices}
+              onSelectService={handleSelectService}
+            />
+
+            {/* Galeria de Criações Recentes */}
+            <GallerySection />
+
+            {/* Localização Nobre no Pontal da Cruz, São Sebastião SP */}
+            <LocationSection />
+          </main>
+
+          {/* Public Footer */}
+          <FooterPublic
+            onOpenAbout={() => setAboutModalOpen(true)}
+            onOpenFAQ={() => setFaqModalOpen(true)}
+            onOpenAdmin={() => setAppMode('admin')}
+          />
+
+          {/* ONLY ONE Floating Action Button on Public Website: Centered "Agendar" */}
+          <div className="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-40 pointer-events-auto">
+            <button
+              type="button"
+              onClick={() => {
+                const el = document.getElementById('wizard-agendamento');
+                el?.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="flex items-center gap-2 px-6 py-2.5 sm:py-3 rounded-full bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta font-bold text-xs sm:text-sm shadow-[0_10px_25px_-3px_rgba(212,175,55,0.45),0_4px_12px_rgba(73,56,46,0.15)] border border-[#E8D9B5] transition-all cursor-pointer transform active:scale-95 whitespace-nowrap"
+              style={{ paddingBottom: 'calc(0.625rem + env(safe-area-inset-bottom, 0px))' }}
+              title="Agendar Horário no Ateliê"
+            >
+              <span className="material-symbols-outlined text-[18px]">calendar_month</span>
+              <span>Agendar</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          ADMIN MASTER ARTIST EXPERIENCE
+      ======================================================== */}
+      {appMode === 'admin' && (
+        <div className="w-full min-h-screen bg-[#FBF7F2] text-[#49382E] flex">
+          {/* Admin Sidebar */}
+          <AdminSidebar
+            activeTab={adminTab}
+            onSelectTab={setAdminTab}
+            onSwitchToPublic={() => setAppMode('public')}
+            isOpenMobile={mobileSidebarOpen}
+            onCloseMobile={() => setMobileSidebarOpen(false)}
+            pendingPixCount={pendingPixCount}
+          />
+
+          {/* Admin Main Body Container */}
+          <div className="flex-1 xl:pl-72 flex flex-col min-w-0 min-h-screen">
+            {/* Admin Header */}
+            <AdminHeader
+              onOpenManualBooking={() => setManualBookingModalOpen(true)}
+              onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
+              onSwitchToPublic={() => setAppMode('public')}
+              searchQuery={adminSearch}
+              onSearchChange={setAdminSearch}
+            />
+
+            {/* Admin Tab View Content */}
+            <main className="flex-1 pt-24 px-4 sm:px-6 lg:px-8 pb-16">
+              {adminTab === 'visao-geral' && (
+                <OverviewTab
+                  onOpenManualBooking={() => setManualBookingModalOpen(true)}
+                  onNavigateToTab={setAdminTab}
+                  onSelectAppointmentForReview={_name => {
+                    setAdminTab('gestao-clientes');
+                  }}
+                  todayAppointments={appointments}
+                />
+              )}
+
+              {adminTab === 'agenda-bloqueios' && (
+                <CalendarTab
+                  onOpenBlockModal={() => setBlockModalOpen(true)}
+                  onOpenExtraEncaixeModal={() => setEncaixeModalOpen(true)}
+                  onSelectClientForDossier={_name => {
+                    setAdminTab('gestao-clientes');
+                  }}
+                  appointments={appointments}
+                  timeSlots={timeSlots}
+                  onUpdateAppointment={handleUpdateAppointment}
+                />
+              )}
+
+              {adminTab === 'confirmacao-sinais-pix' && (
+                <PixReconciliationTab
+                  appointments={appointments}
+                  onUpdateAppointment={handleUpdateAppointment}
+                  onDeleteAppointment={handleDeleteAppointment}
+                />
+              )}
+
+              {adminTab === 'gestao-clientes' && (
+                <ClientsTab
+                  clients={clients}
+                  onOpenNewClientModal={() => setNewClientModalOpen(true)}
+                  onBookNextForClient={_client => {
+                    setManualBookingModalOpen(true);
+                  }}
+                  onUpdateClient={handleUpdateClient}
+                />
+              )}
+
+              {adminTab === 'financeiro-servicos' && (
+                <FinancialTab
+                  services={services}
+                  onUpdateService={handleUpdateService}
+                  onAddService={handleAddService}
+                  onDeleteService={handleDeleteService}
+                  appointments={appointments}
+                />
+              )}
+
+              {adminTab === 'configuracoes' && (
+                <SettingsTab
+                  timeSlots={timeSlots}
+                  onUpdateTimeSlots={setTimeSlots}
+                  daySchedules={daySchedules}
+                  onUpdateDaySchedules={setDaySchedules}
+                  blacklist={blacklist}
+                  onUpdateBlacklist={setBlacklist}
+                  studioAddress={studioAddress}
+                  onUpdateStudioAddress={setStudioAddress}
+                  whatsappConfig={whatsappConfig}
+                  onUpdateWhatsappConfig={setWhatsappConfig}
+                />
+              )}
+            </main>
+          </div>
+        </div>
+      )}
+
+      {/* Global Modals */}
+      <AboutModal
+        isOpen={aboutModalOpen}
+        onClose={() => setAboutModalOpen(false)}
+        onBookNow={() => {
+          const el = document.getElementById('wizard-agendamento');
+          el?.scrollIntoView({ behavior: 'smooth' });
+        }}
+      />
+
+      <FAQModal
+        isOpen={faqModalOpen}
+        onClose={() => setFaqModalOpen(false)}
+        onBookNow={() => {
+          const el = document.getElementById('wizard-agendamento');
+          el?.scrollIntoView({ behavior: 'smooth' });
+        }}
+      />
+
+      <ManualBookingModal
+        isOpen={manualBookingModalOpen}
+        onClose={() => setManualBookingModalOpen(false)}
+        onSaveAppointment={handleManualBookingSave}
+        services={services}
+        blacklist={blacklist}
+      />
+
+      <BlockScheduleModal
+        isOpen={blockModalOpen}
+        onClose={() => setBlockModalOpen(false)}
+        onConfirmBlock={handleBlockConfirm}
+      />
+
+      <ExtraEncaixeModal
+        isOpen={encaixeModalOpen}
+        onClose={() => setEncaixeModalOpen(false)}
+        onConfirmEncaixe={handleExtraEncaixeConfirm}
+      />
+
+      <NewClientModal
+        isOpen={newClientModalOpen}
+        onClose={() => setNewClientModalOpen(false)}
+        onSaveClient={handleNewClientSave}
+      />
+
+      {/* WhatsApp Business Confirmation Notification Toast */}
+      {waGlobalToast && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-sm w-full bg-[#FFFFFF] border border-[#E8D9B5] shadow-2xl rounded-2xl p-4 flex items-start gap-3">
+          <div className="w-9 h-9 rounded-full bg-[#25D366]/15 text-[#25D366] flex items-center justify-center shrink-0 border border-[#25D366]/30">
+            <span className="material-symbols-outlined text-[20px]">
+              {waGlobalToast.success ? 'mark_chat_read' : 'info'}
+            </span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-1 mb-0.5">
+              <span className="font-syne text-xs font-bold text-[#49382E]">
+                WhatsApp Business API
+              </span>
+              <button
+                type="button"
+                onClick={() => setWaGlobalToast(null)}
+                className="text-[#786C63] hover:text-[#49382E] text-xs cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[14px]">close</span>
+              </button>
+            </div>
+            <p className="font-jakarta text-[11px] text-[#786C63] leading-snug">
+              {waGlobalToast.message}
+            </p>
+            <div className="mt-1.5 flex items-center gap-2">
+              <span className="text-[10px] font-bold text-[#D4AF37]">
+                {waGlobalToast.clientName} ({waGlobalToast.clientPhone})
+              </span>
+              {waGlobalToast.fallbackUrl && (
+                <a
+                  href={waGlobalToast.fallbackUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[10px] text-[#25D366] font-bold hover:underline inline-flex items-center gap-0.5"
+                >
+                  <span>Abrir conversa</span>
+                  <span className="material-symbols-outlined text-[10px]">open_in_new</span>
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
