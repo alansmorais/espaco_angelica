@@ -25,6 +25,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   const [selectedTime, setSelectedTime] = useState<string>('11:30');
   const [clientName, setClientName] = useState<string>('');
   const [clientPhone, setClientPhone] = useState<string>('');
+  const [clientEmail, setClientEmail] = useState<string>('');
   const [clientInstagram, setClientInstagram] = useState<string>('');
   const [nailCondition, setNailCondition] = useState<string>('Unhas naturais sem nenhum produto');
   const [clientNotes, setClientNotes] = useState<string>('');
@@ -130,7 +131,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
     }
   };
 
-  const handleConfirmWhatsApp = () => {
+  const handleConfirmBooking = () => {
     if (!clientName.trim()) {
       alert('Por favor informe seu nome completo para o agendamento.');
       return;
@@ -164,6 +165,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
       id: `apt-${Date.now()}`,
       clientName: finalName,
       clientPhone: finalPhone,
+      clientEmail: clientEmail.trim() || undefined,
       clientInstagram: clientInstagram || undefined,
       nailCondition,
       notes: clientNotes || undefined,
@@ -189,37 +191,6 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
     };
 
     onBookingConfirmed(newAppointment);
-
-    // Format WhatsApp message
-    const recurrenceText = isRecurring
-      ? `\n🔄 Agendamento Recorrente: Ciclo de ${recurrenceTotalSessions} sessões a cada ${recurrenceFreqDays} dias`
-      : '';
-
-    const paymentText = effectivePaymentMode === 'pre_pagamento_100'
-      ? `\n💎 Pagamento: Pré-pagamento Total (100% via Pix: R$ ${depositValue},00) ${isInadimplente ? '[Exigência de Protocolo]' : '[Com 5% de Desconto VIP]'}`
-      : `\n💰 Pagamento: Sinal de Reserva (R$ 50,00 via Pix) • Saldo no estúdio: R$ ${balanceRemaining},00`;
-
-    const receiptNotice = receiptFileName
-      ? `\n📎 Comprovante Pix anexado: ${receiptFileName}`
-      : `\n📎 Segue o comprovante Pix da chave +5512974062241:`;
-
-    const msg = encodeURIComponent(
-      `Olá, Angélica! Gostaria de agendar meu atendimento no Espaço Angelica do Carmo (São Sebastião - SP).\n\n` +
-      `✨ Procedimento: ${selectedService.title}\n` +
-      `🗓️ Data & Horário: ${selectedDate} às ${selectedTime}\n` +
-      `📍 Local: ${studioAddress.fullAddress}` +
-      paymentText +
-      recurrenceText +
-      `\n\n👤 Nome: ${finalName}\n` +
-      `📱 WhatsApp: ${finalPhone}\n` +
-      `📸 Instagram: ${clientInstagram || 'Não informado'}\n` +
-      `💅 Condição das unhas: ${nailCondition}\n` +
-      `📝 Obs: ${clientNotes || 'Nenhuma'}\n` +
-      receiptNotice
-    );
-
-    // Open WhatsApp URL (wa.me)
-    window.open(`https://wa.me/5512974062241?text=${msg}`, '_blank');
     setBookingWhatsAppModal(true);
   };
 
@@ -551,6 +522,17 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                 </div>
 
                 <div>
+                  <label className="block text-[#49382E] font-medium mb-1 text-xs">E-mail (para confirmação via Gmail)</label>
+                  <input
+                    type="email"
+                    placeholder="seu.email@exemplo.com"
+                    value={clientEmail}
+                    onChange={e => setClientEmail(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px]"
+                  />
+                </div>
+
+                <div>
                   <label className="block text-[#49382E] font-medium mb-1 text-xs">Instagram (opcional)</label>
                   <input
                     type="text"
@@ -857,18 +839,18 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                 </div>
               </div>
 
-              {/* CTA Final WhatsApp */}
+              {/* CTA Final Booking */}
               <div className="mt-6 space-y-2">
                 <button
                   type="button"
-                  onClick={handleConfirmWhatsApp}
+                  onClick={handleConfirmBooking}
                   className="w-full py-3.5 rounded-full bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta text-sm font-bold transition-all duration-300 shadow-[0_12px_32px_-4px_rgba(212,175,55,0.35)] flex items-center justify-center gap-2 cursor-pointer active:scale-95"
                 >
-                  <span className="material-symbols-outlined text-[20px]">chat</span>
-                  <span>Abrir WhatsApp para Confirmar</span>
+                  <span className="material-symbols-outlined text-[20px]">check_circle</span>
+                  <span>Confirmar &amp; Salvar Agendamento</span>
                 </button>
                 <p className="text-center font-jakarta text-[11px] text-[#786C63] leading-tight">
-                  Ao clicar, o WhatsApp será aberto com os dados prontos para envio. A reserva permanece como <strong>Pendente de Confirmação</strong> até a validação do Pix pela Angélica.
+                  O agendamento será salvo automaticamente no sistema e encaminhado para validação do Pix pela Angélica.
                 </p>
               </div>
             </div>
@@ -887,22 +869,22 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
         </div>
       </div>
 
-      {/* WhatsApp Open Confirmation Modal */}
+      {/* Booking Success Modal */}
       {bookingWhatsAppModal && (
         <div className="fixed inset-0 z-50 bg-[#49382E]/60 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-[#FFFFFF] p-6 sm:p-8 rounded-3xl max-w-md w-full border border-[#E8D9B5] shadow-2xl text-center">
-            <div className="w-16 h-16 rounded-full bg-[#FBF2D5] text-[#D4AF37] mx-auto flex items-center justify-center mb-4 border border-[#E8D9B5]">
-              <span className="material-symbols-outlined text-[36px]">schedule</span>
+            <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-700 mx-auto flex items-center justify-center mb-4 border border-emerald-300">
+              <span className="material-symbols-outlined text-[36px]">check_circle</span>
             </div>
-            <h3 className="font-syne text-2xl text-[#49382E] font-bold">Solicitação Encaminhada</h3>
+            <h3 className="font-syne text-2xl text-[#49382E] font-bold">Agendamento Salvo com Sucesso!</h3>
             <p className="font-jakarta text-xs sm:text-sm text-[#786C63] mt-2 leading-relaxed">
-              Os dados para o agendamento de <strong>{selectedDate} às {selectedTime}</strong> ({selectedService.title}) foram preparados e o WhatsApp foi aberto.
+              Sua solicitação para <strong>{selectedDate} às {selectedTime}</strong> ({selectedService.title}) foi registrada no sistema do atelier.
             </p>
             <div className="my-3 py-2 px-3 rounded-lg bg-[#F7EFEA] border border-[#E8D9B5] text-xs text-[#49382E] font-bold">
-              Status: Pendente de Conferência do Pix &amp; Confirmação
+              Status: Salvo • Aguardando Conferência do Pix (R$ {depositValue},00)
             </div>
             <p className="font-jakarta text-[11px] text-[#786C63] text-left leading-relaxed">
-              <strong>Confirmação Automática:</strong> Conclua o envio da mensagem no WhatsApp e envie o comprovante Pix (R$ {depositValue},00 para a chave +5512974062241). Assim que o sinal for aprovado no sistema, você receberá a <strong>confirmação automática oficial via WhatsApp Business</strong> com todos os detalhes e orientações do atelier privativo diretamente no seu número cadastrado ({clientPhone}).
+              Obrigada, <strong>{clientName}</strong>! Seu horário foi salvo na agenda da Angélica. Assim que o pagamento via Pix (chave <strong>+5512974062241</strong>) for conciliado no extrato, a vaga será 100% confirmada.
             </p>
             <button
               type="button"

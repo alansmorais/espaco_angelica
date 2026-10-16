@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Appointment } from '../../types';
 import { sendAppointmentWhatsAppConfirmation } from '../../services/whatsappService';
+import { signInWithGmail, getGmailAccessToken, sendGmailConfirmation } from '../../services/gmailService';
 
 interface PixReconciliationTabProps {
   appointments?: Appointment[];
@@ -16,6 +17,7 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
   const [showPolicy, setShowPolicy] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ text: string; isError?: boolean } | null>(null);
   const [isSendingWa, setIsSendingWa] = useState(false);
+  const [isSendingGmail, setIsSendingGmail] = useState(false);
 
   const showToast = (text: string, isError = false) => {
     setToastMessage({ text, isError });
@@ -86,6 +88,54 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
       showToast('Falha ao reenviar WhatsApp.', true);
     } finally {
       setIsSendingWa(false);
+    }
+  };
+
+  const handleSendGmailEmail = async (apt: Appointment) => {
+    let email = apt.clientEmail;
+    if (!email) {
+      email = prompt('Informe o e-mail da cliente para o envio da confirmação via Gmail:') || '';
+      if (!email || !email.includes('@')) return;
+    }
+
+    setIsSendingGmail(true);
+    try {
+      let token = await getGmailAccessToken();
+      if (!token) {
+        const authRes = await signInWithGmail();
+        if (!authRes) {
+          showToast('Autenticação com Google (Gmail) cancelada.', true);
+          setIsSendingGmail(false);
+          return;
+        }
+        token = authRes.accessToken;
+      }
+
+      await sendGmailConfirmation(
+        token,
+        email,
+        apt.clientName,
+        apt.serviceTitle,
+        apt.date,
+        apt.time,
+        apt.servicePrice,
+        apt.depositAmount
+      );
+
+      if (onUpdateAppointment) {
+        onUpdateAppointment({
+          ...apt,
+          clientEmail: email,
+          gmailStatus: 'enviado',
+          gmailSentAt: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+        });
+      }
+
+      showToast(`E-mail de confirmação enviado com sucesso via Gmail para ${email}!`);
+    } catch (err: any) {
+      showToast(err.message || 'Erro ao enviar e-mail via Gmail.', true);
+    } finally {
+      setIsSendingGmail(false);
     }
   };
 
@@ -372,6 +422,35 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
                   <span>Arquivo anexado pelo cliente: <strong>{selectedItem.receiptFileName}</strong></span>
                 </div>
               )}
+
+              {/* Gmail Confirmation Card */}
+              <div className="p-3.5 rounded-xl bg-[#FFFFFF] border border-[#E8D9B5] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[#EA4335] text-[20px]">mail</span>
+                  <div>
+                    <span className="font-bold text-[#49382E] block">
+                      Confirmação por E-mail (Google Gmail)
+                    </span>
+                    <span className="text-[11px] text-[#786C63]">
+                      {selectedItem.clientEmail
+                        ? `E-mail: ${selectedItem.clientEmail} ${selectedItem.gmailStatus === 'enviado' ? '(✓ Enviado via Gmail)' : ''}`
+                        : 'Nenhum e-mail cadastrado (será solicitado ao enviar)'}
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={isSendingGmail}
+                  onClick={() => handleSendGmailEmail(selectedItem)}
+                  className="px-4 py-2 rounded-full bg-[#EA4335] hover:bg-[#D93825] text-white text-xs font-bold transition-all shadow-xs shrink-0 cursor-pointer flex items-center gap-1.5 active:scale-95 min-h-[38px]"
+                >
+                  <span className="material-symbols-outlined text-[16px]">
+                    {isSendingGmail ? 'sync' : 'send'}
+                  </span>
+                  <span>{isSendingGmail ? 'Enviando Gmail...' : 'Enviar E-mail via Gmail'}</span>
+                </button>
+              </div>
 
               {/* WhatsApp Business API Automation Notice */}
               <div className="p-3.5 rounded-xl bg-[#F7EFEA] border border-[#E8D9B5] flex flex-col sm:flex-row sm:items-center justify-between gap-3">

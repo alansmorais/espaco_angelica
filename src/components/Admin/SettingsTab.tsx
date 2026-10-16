@@ -82,6 +82,34 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [prepayDiscount, setPrepayDiscount] = useState('5');
   const [savedSuccess, setSavedSuccess] = useState<string | null>(null);
 
+  // Admin Password Change State
+  const [currentPasswordInput, setCurrentPasswordInput] = useState('');
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
+  const [passwordChangeFeedback, setPasswordChangeFeedback] = useState<{ success: boolean; text: string } | null>(null);
+
+  const handleUpdateAdminPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    const stored = localStorage.getItem('angelica_admin_password') || 'angelica';
+    if (currentPasswordInput !== stored) {
+      setPasswordChangeFeedback({ success: false, text: 'Senha atual incorreta.' });
+      return;
+    }
+    if (!newPasswordInput || newPasswordInput.length < 4) {
+      setPasswordChangeFeedback({ success: false, text: 'A nova senha deve ter pelo menos 4 caracteres.' });
+      return;
+    }
+    if (newPasswordInput !== confirmPasswordInput) {
+      setPasswordChangeFeedback({ success: false, text: 'A nova senha e a confirmação não conferem.' });
+      return;
+    }
+    localStorage.setItem('angelica_admin_password', newPasswordInput);
+    setCurrentPasswordInput('');
+    setNewPasswordInput('');
+    setConfirmPasswordInput('');
+    setPasswordChangeFeedback({ success: true, text: 'Senha do painel administrativo alterada com sucesso!' });
+  };
+
   // Time Slot Management UI State
   const [newSlotTime, setNewSlotTime] = useState('');
   const [newSlotNote, setNewSlotNote] = useState('');
@@ -1112,6 +1140,79 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
             </div>
           )}
         </div>
+      </div>
+
+      {/* Admin Password Security Card */}
+      <div className="bg-[#FFFFFF] p-6 sm:p-8 rounded-2xl border border-[#E8D9B5] shadow-md space-y-6">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-xl bg-[#FBF2D5] text-[#D4AF37] flex items-center justify-center border border-[#E8D9B5]">
+            <span className="material-symbols-outlined text-[24px]">lock_reset</span>
+          </div>
+          <div>
+            <h3 className="font-syne text-lg sm:text-xl text-[#49382E] font-bold">
+              Segurança &amp; Senha do Painel Administrativo
+            </h3>
+            <p className="font-jakarta text-xs text-[#786C63]">
+              Altere a senha de acesso restrito ao painel de gestão do ateliê
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={handleUpdateAdminPassword} className="space-y-4 font-jakarta text-xs max-w-xl">
+          <div>
+            <label className="block text-[#49382E] font-semibold mb-1">Senha Atual do Painel</label>
+            <input
+              type="password"
+              required
+              placeholder="Digite a senha atual (padrão: angelica)"
+              value={currentPasswordInput}
+              onChange={e => setCurrentPasswordInput(e.target.value)}
+              className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-xs min-h-[44px]"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[#49382E] font-semibold mb-1">Nova Senha</label>
+              <input
+                type="password"
+                required
+                placeholder="Mínimo 4 caracteres"
+                value={newPasswordInput}
+                onChange={e => setNewPasswordInput(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-xs min-h-[44px]"
+              />
+            </div>
+            <div>
+              <label className="block text-[#49382E] font-semibold mb-1">Confirmar Nova Senha</label>
+              <input
+                type="password"
+                required
+                placeholder="Repita a nova senha"
+                value={confirmPasswordInput}
+                onChange={e => setConfirmPasswordInput(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-xs min-h-[44px]"
+              />
+            </div>
+          </div>
+
+          {passwordChangeFeedback && (
+            <div className={`p-3 rounded-xl border text-xs leading-relaxed ${
+              passwordChangeFeedback.success
+                ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                : 'bg-red-50 border-red-300 text-red-800'
+            }`}>
+              {passwordChangeFeedback.text}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            className="px-6 py-3 rounded-full bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta text-xs sm:text-sm font-bold transition-all shadow-xs cursor-pointer active:scale-95"
+          >
+            Atualizar Senha de Acesso
+          </button>
+        </form>
       </div>
 
       {/* Add Inadimplente Modal */}

@@ -56,6 +56,24 @@ export default function App() {
   // Mode: 'public' (Client) vs 'admin' (Executive Atelier)
   const [appMode, setAppMode] = useState<'public' | 'admin'>('public');
 
+  // Admin Login Modal State
+  const [adminLoginModalOpen, setAdminLoginModalOpen] = useState(false);
+  const [adminPasswordInput, setAdminPasswordInput] = useState('');
+  const [adminLoginError, setAdminLoginError] = useState<string | null>(null);
+
+  const handleAdminLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const stored = localStorage.getItem('angelica_admin_password') || 'angelica';
+    if (adminPasswordInput === stored) {
+      setAdminLoginModalOpen(false);
+      setAdminPasswordInput('');
+      setAdminLoginError(null);
+      setAppMode('admin');
+    } else {
+      setAdminLoginError('Senha incorreta. A senha padrão do painel é: angelica');
+    }
+  };
+
   // Admin Active Tab
   const [adminTab, setAdminTab] = useState<AdminTab>('visao-geral');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
@@ -424,7 +442,7 @@ export default function App() {
               const el = document.getElementById('wizard-agendamento');
               el?.scrollIntoView({ behavior: 'smooth' });
             }}
-            onOpenAdmin={() => setAppMode('admin')}
+            onOpenAdmin={() => setAdminLoginModalOpen(true)}
             onOpenAbout={() => setAboutModalOpen(true)}
             onOpenFAQ={() => setFaqModalOpen(true)}
             onOpenGallery={() => {
@@ -480,7 +498,7 @@ export default function App() {
           <FooterPublic
             onOpenAbout={() => setAboutModalOpen(true)}
             onOpenFAQ={() => setFaqModalOpen(true)}
-            onOpenAdmin={() => setAppMode('admin')}
+            onOpenAdmin={() => setAdminLoginModalOpen(true)}
           />
 
           {/* ONLY ONE Floating Action Button on Public Website: Centered "Agendar" */}
@@ -499,6 +517,68 @@ export default function App() {
               <span>Agendar</span>
             </button>
           </div>
+
+          {/* Admin Login Modal (Password Protected) */}
+          {adminLoginModalOpen && (
+            <div className="fixed inset-0 z-50 bg-[#49382E]/60 backdrop-blur-md flex items-center justify-center p-4">
+              <div className="bg-[#FFFFFF] p-6 sm:p-8 rounded-3xl max-w-md w-full border border-[#E8D9B5] shadow-2xl relative text-center animate-fadeIn">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdminLoginModalOpen(false);
+                    setAdminPasswordInput('');
+                    setAdminLoginError(null);
+                  }}
+                  className="absolute top-4 right-4 w-10 h-10 rounded-full bg-[#F7EFEA] border border-[#E8D9B5] flex items-center justify-center text-[#786C63] hover:text-[#49382E] cursor-pointer"
+                >
+                  <span className="material-symbols-outlined text-[20px]">close</span>
+                </button>
+
+                <div className="w-16 h-16 rounded-2xl bg-[#FBF2D5] text-[#D4AF37] mx-auto flex items-center justify-center mb-4 border border-[#E8D9B5]">
+                  <span className="material-symbols-outlined text-[32px]">admin_panel_settings</span>
+                </div>
+
+                <h3 className="font-syne text-xl sm:text-2xl text-[#49382E] font-bold">
+                  Painel Administrativo
+                </h3>
+                <p className="font-jakarta text-xs text-[#786C63] mt-1 mb-6">
+                  Acesso restrito à profissional responsável. Informe a senha de segurança para continuar.
+                </p>
+
+                <form onSubmit={handleAdminLogin} className="space-y-4 text-left font-jakarta text-xs">
+                  <div>
+                    <label className="block text-[#49382E] font-semibold mb-1">Senha de Acesso</label>
+                    <input
+                      type="password"
+                      required
+                      autoFocus
+                      placeholder="Digite a senha..."
+                      value={adminPasswordInput}
+                      onChange={e => setAdminPasswordInput(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px]"
+                    />
+                  </div>
+
+                  {adminLoginError && (
+                    <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-800 text-[11px] leading-relaxed">
+                      {adminLoginError}
+                    </div>
+                  )}
+
+                  <div className="p-3 rounded-xl bg-[#F7EFEA] border border-[#E8D9B5] text-[11px] text-[#786C63]">
+                    💡 <strong>Senha Padrão Inicial:</strong> <code className="font-mono bg-white px-1.5 py-0.5 rounded text-[#49382E] font-bold">angelica</code>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-3.5 rounded-full bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta text-sm font-bold transition-all shadow-md cursor-pointer active:scale-95"
+                  >
+                    Entrar no Painel do Ateliê
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -31,6 +31,7 @@ export interface Appointment {
   id: string;
   clientName: string;
   clientPhone: string;
+  clientEmail?: string;
   clientInstagram?: string;
   nailCondition?: string;
   notes?: string;
@@ -57,6 +58,8 @@ export interface Appointment {
   whatsappStatus?: 'enviado' | 'pendente' | 'falha' | 'simulado';
   whatsappSentAt?: string;
   whatsappLastMessage?: string;
+  gmailStatus?: 'enviado' | 'pendente' | 'falha' | 'simulado';
+  gmailSentAt?: string;
 }
 
 export interface WhatsAppConfig {
