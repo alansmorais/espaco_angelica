@@ -118,24 +118,24 @@ export const HeaderPublic: React.FC<HeaderPublicProps> = ({
               </div>
             </a>
 
-            {/* Primary "Agendar Horário" button - responsive and never cut off */}
+            {/* Primary "Agendar Horário" button - visible from sm+ screens to preserve header space on 320px/360px */}
             <button
               type="button"
               onClick={onOpenBooking}
-              className="inline-flex items-center justify-center px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-full bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta text-xs sm:text-[13px] font-bold shadow-[0_4px_16px_rgba(212,175,55,0.25)] transition-all cursor-pointer active:scale-95 shrink-0"
+              className="hidden sm:inline-flex items-center justify-center px-4 sm:px-5 py-2 sm:py-2.5 rounded-full bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta text-xs sm:text-[13px] font-bold shadow-[0_4px_16px_rgba(212,175,55,0.25)] transition-all cursor-pointer active:scale-95 shrink-0 min-h-[40px]"
             >
-              <span className="material-symbols-outlined text-[17px] mr-1 hidden sm:inline">calendar_month</span>
+              <span className="material-symbols-outlined text-[17px] mr-1">calendar_month</span>
               <span>Agendar Horário</span>
             </button>
 
-            {/* Mobile Hamburger / Navigation Menu Button */}
+            {/* Mobile Hamburger / Navigation Menu Button - 44x44px ergonomic touch target */}
             <button
               type="button"
               onClick={() => setMobileMenuOpen(prev => !prev)}
               aria-label="Abrir menu de navegação"
-              className="xl:hidden w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#FFFFFF] border border-[#E8D9B5] text-[#49382E] flex items-center justify-center hover:bg-[#F7EFEA] transition-colors cursor-pointer shrink-0 shadow-xs"
+              className="xl:hidden w-11 h-11 min-w-[44px] min-h-[44px] rounded-full bg-[#FFFFFF] border border-[#E8D9B5] text-[#49382E] flex items-center justify-center hover:bg-[#F7EFEA] transition-colors cursor-pointer shrink-0 shadow-xs active:scale-95"
             >
-              <span className="material-symbols-outlined text-[22px]">
+              <span className="material-symbols-outlined text-[24px]">
                 {mobileMenuOpen ? 'close' : 'menu'}
               </span>
             </button>
@@ -157,7 +157,7 @@ export const HeaderPublic: React.FC<HeaderPublicProps> = ({
             <div className="grid grid-cols-1 gap-2">
               <button
                 onClick={() => handleNavClick(onOpenBooking)}
-                className="w-full flex items-center justify-between p-3 rounded-xl bg-[#FBF2D5] border border-[#E8D9B5] text-[#3C2F00] font-jakarta text-sm font-bold cursor-pointer text-left"
+                className="w-full min-h-[44px] flex items-center justify-between p-3 rounded-xl bg-[#FBF2D5] border border-[#E8D9B5] text-[#3C2F00] font-jakarta text-sm font-bold cursor-pointer text-left active:scale-[0.99] transition-transform"
               >
                 <div className="flex items-center gap-2.5">
                   <span className="material-symbols-outlined text-[#D4AF37] text-[20px]">calendar_month</span>
@@ -168,7 +168,7 @@ export const HeaderPublic: React.FC<HeaderPublicProps> = ({
 
               <button
                 onClick={() => handleNavClick(onOpenServices)}
-                className="w-full flex items-center justify-between p-3 rounded-xl bg-[#FDFBF9] hover:bg-[#F7EFEA] border border-[#E8D9B5]/60 text-[#49382E] font-jakarta text-sm cursor-pointer text-left"
+                className="w-full min-h-[44px] flex items-center justify-between p-3 rounded-xl bg-[#FDFBF9] hover:bg-[#F7EFEA] border border-[#E8D9B5]/60 text-[#49382E] font-jakarta text-sm cursor-pointer text-left active:scale-[0.99] transition-transform"
               >
                 <div className="flex items-center gap-2.5">
                   <span className="material-symbols-outlined text-[#D4AF37] text-[20px]">palette</span>
@@ -179,7 +179,7 @@ export const HeaderPublic: React.FC<HeaderPublicProps> = ({
 
               <button
                 onClick={() => handleNavClick(onOpenGallery)}
-                className="w-full flex items-center justify-between p-3 rounded-xl bg-[#FDFBF9] hover:bg-[#F7EFEA] border border-[#E8D9B5]/60 text-[#49382E] font-jakarta text-sm cursor-pointer text-left"
+                className="w-full min-h-[44px] flex items-center justify-between p-3 rounded-xl bg-[#FDFBF9] hover:bg-[#F7EFEA] border border-[#E8D9B5]/60 text-[#49382E] font-jakarta text-sm cursor-pointer text-left active:scale-[0.99] transition-transform"
               >
                 <div className="flex items-center gap-2.5">
                   <span className="material-symbols-outlined text-[#D4AF37] text-[20px]">photo_library</span>
@@ -190,7 +190,7 @@ export const HeaderPublic: React.FC<HeaderPublicProps> = ({
 
               <button
                 onClick={() => handleNavClick(onOpenAbout)}
-                className="w-full flex items-center justify-between p-3 rounded-xl bg-[#FDFBF9] hover:bg-[#F7EFEA] border border-[#E8D9B5]/60 text-[#49382E] font-jakarta text-sm cursor-pointer text-left"
+                className="w-full min-h-[44px] flex items-center justify-between p-3 rounded-xl bg-[#FDFBF9] hover:bg-[#F7EFEA] border border-[#E8D9B5]/60 text-[#49382E] font-jakarta text-sm cursor-pointer text-left active:scale-[0.99] transition-transform"
               >
                 <div className="flex items-center gap-2.5">
                   <span className="material-symbols-outlined text-[#D4AF37] text-[20px]">person</span>
@@ -205,7 +205,7 @@ export const HeaderPublic: React.FC<HeaderPublicProps> = ({
                   const el = document.getElementById('localizacao-section');
                   el?.scrollIntoView({ behavior: 'smooth' });
                 }}
-                className="w-full flex items-center justify-between p-3 rounded-xl bg-[#FDFBF9] hover:bg-[#F7EFEA] border border-[#E8D9B5]/60 text-[#49382E] font-jakarta text-sm cursor-pointer text-left"
+                className="w-full min-h-[44px] flex items-center justify-between p-3 rounded-xl bg-[#FDFBF9] hover:bg-[#F7EFEA] border border-[#E8D9B5]/60 text-[#49382E] font-jakarta text-sm cursor-pointer text-left active:scale-[0.99] transition-transform"
               >
                 <div className="flex items-center gap-2.5">
                   <span className="material-symbols-outlined text-[#D4AF37] text-[20px]">location_on</span>
@@ -216,7 +216,7 @@ export const HeaderPublic: React.FC<HeaderPublicProps> = ({
 
               <button
                 onClick={() => handleNavClick(onOpenFAQ)}
-                className="w-full flex items-center justify-between p-3 rounded-xl bg-[#FDFBF9] hover:bg-[#F7EFEA] border border-[#E8D9B5]/60 text-[#49382E] font-jakarta text-sm cursor-pointer text-left"
+                className="w-full min-h-[44px] flex items-center justify-between p-3 rounded-xl bg-[#FDFBF9] hover:bg-[#F7EFEA] border border-[#E8D9B5]/60 text-[#49382E] font-jakarta text-sm cursor-pointer text-left active:scale-[0.99] transition-transform"
               >
                 <div className="flex items-center gap-2.5">
                   <span className="material-symbols-outlined text-[#D4AF37] text-[20px]">help</span>

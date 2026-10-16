@@ -42,12 +42,12 @@ export const ServiceCatalog: React.FC<ServiceCatalogProps> = ({
             </p>
           </div>
 
-          {/* Dynamic Filter Chips */}
-          <div className="flex flex-wrap items-center gap-1.5 bg-[#FFFFFF] p-1.5 rounded-full border border-[#E8D9B5] self-start md:self-auto overflow-x-auto max-w-full shadow-xs">
+          {/* Dynamic Filter Chips - Smooth horizontal scroll on mobile, wrap on tablet/desktop */}
+          <div className="flex flex-nowrap md:flex-wrap items-center gap-1.5 bg-[#FFFFFF] p-1.5 rounded-full border border-[#E8D9B5] self-stretch md:self-auto overflow-x-auto max-w-full shadow-xs scrollbar-none">
             <button
               type="button"
               onClick={() => setActiveCategory('all')}
-              className={`px-3.5 sm:px-4 py-1.5 rounded-full font-jakarta text-[11px] sm:text-[12px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
+              className={`px-3.5 sm:px-4 py-2 sm:py-1.5 rounded-full font-jakarta text-[11px] sm:text-[12px] font-semibold transition-all cursor-pointer whitespace-nowrap min-h-[38px] flex items-center shrink-0 active:scale-95 ${
                 activeCategory === 'all'
                   ? 'bg-[#D4AF37] text-[#3C2F00] shadow-xs font-bold'
                   : 'text-[#786C63] hover:text-[#49382E]'
@@ -58,7 +58,7 @@ export const ServiceCatalog: React.FC<ServiceCatalogProps> = ({
             <button
               type="button"
               onClick={() => setActiveCategory('alongamento')}
-              className={`px-3.5 sm:px-4 py-1.5 rounded-full font-jakarta text-[11px] sm:text-[12px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
+              className={`px-3.5 sm:px-4 py-2 sm:py-1.5 rounded-full font-jakarta text-[11px] sm:text-[12px] font-semibold transition-all cursor-pointer whitespace-nowrap min-h-[38px] flex items-center shrink-0 active:scale-95 ${
                 activeCategory === 'alongamento'
                   ? 'bg-[#D4AF37] text-[#3C2F00] shadow-xs font-bold'
                   : 'text-[#786C63] hover:text-[#49382E]'
@@ -69,7 +69,7 @@ export const ServiceCatalog: React.FC<ServiceCatalogProps> = ({
             <button
               type="button"
               onClick={() => setActiveCategory('blindagem')}
-              className={`px-3.5 sm:px-4 py-1.5 rounded-full font-jakarta text-[11px] sm:text-[12px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
+              className={`px-3.5 sm:px-4 py-2 sm:py-1.5 rounded-full font-jakarta text-[11px] sm:text-[12px] font-semibold transition-all cursor-pointer whitespace-nowrap min-h-[38px] flex items-center shrink-0 active:scale-95 ${
                 activeCategory === 'blindagem'
                   ? 'bg-[#D4AF37] text-[#3C2F00] shadow-xs font-bold'
                   : 'text-[#786C63] hover:text-[#49382E]'
@@ -80,7 +80,7 @@ export const ServiceCatalog: React.FC<ServiceCatalogProps> = ({
             <button
               type="button"
               onClick={() => setActiveCategory('nailart')}
-              className={`px-3.5 sm:px-4 py-1.5 rounded-full font-jakarta text-[11px] sm:text-[12px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
+              className={`px-3.5 sm:px-4 py-2 sm:py-1.5 rounded-full font-jakarta text-[11px] sm:text-[12px] font-semibold transition-all cursor-pointer whitespace-nowrap min-h-[38px] flex items-center shrink-0 active:scale-95 ${
                 activeCategory === 'nailart'
                   ? 'bg-[#D4AF37] text-[#3C2F00] shadow-xs font-bold'
                   : 'text-[#786C63] hover:text-[#49382E]'
@@ -91,7 +91,7 @@ export const ServiceCatalog: React.FC<ServiceCatalogProps> = ({
             <button
               type="button"
               onClick={() => setActiveCategory('spa')}
-              className={`px-3.5 sm:px-4 py-1.5 rounded-full font-jakarta text-[11px] sm:text-[12px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
+              className={`px-3.5 sm:px-4 py-2 sm:py-1.5 rounded-full font-jakarta text-[11px] sm:text-[12px] font-semibold transition-all cursor-pointer whitespace-nowrap min-h-[38px] flex items-center shrink-0 active:scale-95 ${
                 activeCategory === 'spa'
                   ? 'bg-[#D4AF37] text-[#3C2F00] shadow-xs font-bold'
                   : 'text-[#786C63] hover:text-[#49382E]'
@@ -238,7 +238,7 @@ export const ServiceCatalog: React.FC<ServiceCatalogProps> = ({
                       <button
                         type="button"
                         onClick={() => onSelectService(service)}
-                        className={`w-full py-2.5 sm:py-3 rounded-full font-jakarta text-xs sm:text-[13px] font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs ${
+                        className={`w-full py-2.5 sm:py-3 rounded-full font-jakarta text-xs sm:text-[13px] font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs min-h-[44px] active:scale-[0.99] ${
                           isSelected
                             ? 'bg-[#D4AF37] text-[#3C2F00]'
                             : 'bg-[#F7EFEA] hover:bg-[#D4AF37] text-[#49382E] hover:text-[#3C2F00] border border-[#E8D9B5]'

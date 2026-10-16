@@ -39,11 +39,11 @@ export const GallerySection: React.FC = () => {
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#49382E]/90 via-[#49382E]/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4">
-                <span className="text-[#FFE088] font-syne text-base font-bold">
+              <div className="absolute inset-0 bg-gradient-to-t from-[#49382E]/90 via-[#49382E]/20 to-transparent opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-3 sm:p-4">
+                <span className="text-[#FFE088] font-syne text-sm sm:text-base font-bold leading-tight">
                   {item.title}
                 </span>
-                <span className="text-[#FDFBF9] font-jakarta text-[11px]">
+                <span className="text-[#FDFBF9] font-jakarta text-[10px] sm:text-[11px] mt-0.5">
                   {item.subtitle}
                 </span>
               </div>

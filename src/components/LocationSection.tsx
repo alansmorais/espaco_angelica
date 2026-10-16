@@ -31,12 +31,12 @@ export const LocationSection: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 pt-4">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 pt-4">
             <a
               href={STUDIO_ADDRESS.mapsUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="px-6 py-2.5 rounded-full bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta text-xs font-bold inline-flex items-center gap-2 transition-all cursor-pointer shadow-xs border border-[#E8D9B5]"
+              className="w-full sm:w-auto px-6 py-3 rounded-full bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta text-xs font-bold inline-flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs border border-[#E8D9B5] min-h-[44px] active:scale-95"
             >
               <span className="material-symbols-outlined text-[18px]">navigation</span>
               <span>Abrir no Google Maps</span>
@@ -45,7 +45,7 @@ export const LocationSection: React.FC = () => {
               href={STUDIO_ADDRESS.wazeUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="px-6 py-2.5 rounded-full bg-[#FFFFFF] hover:bg-[#F7EFEA] text-[#49382E] border border-[#E8D9B5] font-jakarta text-xs font-semibold inline-flex items-center gap-2 transition-colors cursor-pointer shadow-xs"
+              className="w-full sm:w-auto px-6 py-3 rounded-full bg-[#FFFFFF] hover:bg-[#F7EFEA] text-[#49382E] border border-[#E8D9B5] font-jakarta text-xs font-semibold inline-flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-xs min-h-[44px] active:scale-95"
             >
               <span className="material-symbols-outlined text-[18px] text-[#D4AF37]">directions_car</span>
               <span>Traçar rota no Waze</span>
@@ -54,7 +54,7 @@ export const LocationSection: React.FC = () => {
         </div>
 
         <div className="lg:col-span-6">
-          <div className="w-full h-80 rounded-2xl overflow-hidden shadow-xl relative border border-[#E8D9B5] group">
+          <div className="w-full h-64 sm:h-80 rounded-2xl overflow-hidden shadow-xl relative border border-[#E8D9B5] group">
             <img
               src={BRAND_ASSETS.mapTexture}
               alt="Localização do Atelier Espaço Angelica do Carmo no Pontal da Cruz em São Sebastião SP"

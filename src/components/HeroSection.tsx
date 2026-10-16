@@ -29,12 +29,12 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
         </div>
 
         {/* Overline Tag */}
-        <div className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-[#FFFFFF] text-[#49382E] border border-[#E8D9B5] shadow-xs mb-4 sm:mb-5 max-w-full">
-          <span className="material-symbols-outlined text-[15px] sm:text-[16px] text-[#D4AF37] shrink-0">stars</span>
-          <span className="font-jakarta text-[10px] sm:text-xs uppercase tracking-wider text-[#49382E] font-bold truncate">
+        <div className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-1 sm:py-1.5 rounded-full bg-[#FFFFFF] text-[#49382E] border border-[#E8D9B5] shadow-xs mb-4 sm:mb-5 max-w-[95%]">
+          <span className="material-symbols-outlined text-[14px] sm:text-[16px] text-[#D4AF37] shrink-0">stars</span>
+          <span className="font-jakarta text-[9px] xs:text-[10px] sm:text-xs uppercase tracking-wider text-[#49382E] font-bold">
             Atelier de Alta Estética &amp; Escultura Manual
           </span>
-          <span className="material-symbols-outlined text-[15px] sm:text-[16px] text-[#D4AF37] shrink-0 hidden xs:inline">auto_awesome</span>
+          <span className="material-symbols-outlined text-[14px] sm:text-[16px] text-[#D4AF37] shrink-0 hidden xs:inline">auto_awesome</span>
         </div>
 
         {/* Main Headline */}
@@ -55,7 +55,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
           <button
             type="button"
             onClick={onStartBooking}
-            className="w-full sm:w-auto px-6 sm:px-8 py-3.5 rounded-full bg-[#D4AF37] text-[#3C2F00] font-jakarta text-sm font-bold hover:bg-[#E5C158] transition-all duration-300 shadow-[0_12px_32px_-4px_rgba(212,175,55,0.35)] flex items-center justify-center gap-2 group cursor-pointer active:scale-95"
+            className="w-full sm:w-auto px-6 sm:px-8 py-3.5 rounded-full bg-[#D4AF37] text-[#3C2F00] font-jakarta text-sm font-bold hover:bg-[#E5C158] transition-all duration-300 shadow-[0_12px_32px_-4px_rgba(212,175,55,0.35)] flex items-center justify-center gap-2 group cursor-pointer active:scale-95 min-h-[46px]"
           >
             <span>Iniciar Agendamento</span>
             <span className="material-symbols-outlined text-[18px] group-hover:translate-x-1 transition-transform">
@@ -65,7 +65,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
           <button
             type="button"
             onClick={onViewServices}
-            className="w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-3.5 rounded-full bg-[#FFFFFF] text-[#49382E] font-jakarta text-sm font-semibold hover:bg-[#F7EFEA] transition-all duration-300 border border-[#E8D9B5] shadow-xs flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-3.5 rounded-full bg-[#FFFFFF] text-[#49382E] font-jakarta text-sm font-semibold hover:bg-[#F7EFEA] transition-all duration-300 border border-[#E8D9B5] shadow-xs flex items-center justify-center gap-2 cursor-pointer min-h-[46px]"
           >
             <span className="material-symbols-outlined text-[#D4AF37] text-[18px]">palette</span>
             <span>Ver Procedimentos &amp; Valores</span>
@@ -74,27 +74,27 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
 
         {/* Trust Badges Strip */}
         <div className="w-full grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mt-8 sm:mt-12 pt-6 sm:pt-8 border-t border-[#E8D9B5] text-left">
-          <div className="flex items-center gap-2 p-2.5 sm:p-3 rounded-xl bg-[#FFFFFF] border border-[#E8D9B5] shadow-xs">
-            <span className="material-symbols-outlined text-[#D4AF37] text-[20px] shrink-0">timer</span>
-            <span className="font-jakarta text-[10px] sm:text-xs text-[#49382E] font-semibold tracking-wide">
+          <div className="flex items-center gap-2 p-2 sm:p-3 rounded-xl bg-[#FFFFFF] border border-[#E8D9B5] shadow-xs">
+            <span className="material-symbols-outlined text-[#D4AF37] text-[18px] sm:text-[20px] shrink-0">timer</span>
+            <span className="font-jakarta text-[9px] xs:text-[10px] sm:text-xs text-[#49382E] font-semibold tracking-wide leading-tight">
               Atendimento 1 a 1 Exclusivo
             </span>
           </div>
-          <div className="flex items-center gap-2 p-2.5 sm:p-3 rounded-xl bg-[#FFFFFF] border border-[#E8D9B5] shadow-xs">
-            <span className="material-symbols-outlined text-[#D4AF37] text-[20px] shrink-0">sanitizer</span>
-            <span className="font-jakarta text-[10px] sm:text-xs text-[#49382E] font-semibold tracking-wide">
+          <div className="flex items-center gap-2 p-2 sm:p-3 rounded-xl bg-[#FFFFFF] border border-[#E8D9B5] shadow-xs">
+            <span className="material-symbols-outlined text-[#D4AF37] text-[18px] sm:text-[20px] shrink-0">sanitizer</span>
+            <span className="font-jakarta text-[9px] xs:text-[10px] sm:text-xs text-[#49382E] font-semibold tracking-wide leading-tight">
               Biossegurança (Autoclave)
             </span>
           </div>
-          <div className="flex items-center gap-2 p-2.5 sm:p-3 rounded-xl bg-[#FFFFFF] border border-[#E8D9B5] shadow-xs">
-            <span className="material-symbols-outlined text-[#D4AF37] text-[20px] shrink-0">health_and_safety</span>
-            <span className="font-jakarta text-[10px] sm:text-xs text-[#49382E] font-semibold tracking-wide">
+          <div className="flex items-center gap-2 p-2 sm:p-3 rounded-xl bg-[#FFFFFF] border border-[#E8D9B5] shadow-xs">
+            <span className="material-symbols-outlined text-[#D4AF37] text-[18px] sm:text-[20px] shrink-0">health_and_safety</span>
+            <span className="font-jakarta text-[9px] xs:text-[10px] sm:text-xs text-[#49382E] font-semibold tracking-wide leading-tight">
               Géis Hipoalergênicos Vòlia
             </span>
           </div>
-          <div className="flex items-center gap-2 p-2.5 sm:p-3 rounded-xl bg-[#FFFFFF] border border-[#E8D9B5] shadow-xs">
-            <span className="material-symbols-outlined text-[#D4AF37] text-[20px] shrink-0">local_bar</span>
-            <span className="font-jakarta text-[10px] sm:text-xs text-[#49382E] font-semibold tracking-wide">
+          <div className="flex items-center gap-2 p-2 sm:p-3 rounded-xl bg-[#FFFFFF] border border-[#E8D9B5] shadow-xs">
+            <span className="material-symbols-outlined text-[#D4AF37] text-[18px] sm:text-[20px] shrink-0">local_bar</span>
+            <span className="font-jakarta text-[9px] xs:text-[10px] sm:text-xs text-[#49382E] font-semibold tracking-wide leading-tight">
               Café Gourmet &amp; Espumante
             </span>
           </div>

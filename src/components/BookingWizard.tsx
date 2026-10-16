@@ -213,60 +213,60 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
           </p>
         </div>
 
-        {/* 4-Step Progress Ribbon */}
-        <div className="mb-10 p-4 sm:p-5 rounded-2xl bg-[#FFFFFF] border border-[#E8D9B5] shadow-xs">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-[#D4AF37] text-[#3C2F00] flex items-center justify-center font-bold font-jakarta text-xs shadow-xs shrink-0">
+        {/* 4-Step Progress Ribbon - Compact & Responsive on Mobile */}
+        <div className="mb-8 sm:mb-10 p-3 sm:p-5 rounded-2xl bg-[#FFFFFF] border border-[#E8D9B5] shadow-xs">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
+            <div className="flex items-center gap-2 sm:gap-3 p-1.5 rounded-xl bg-[#FDFBF9] sm:bg-transparent border sm:border-0 border-[#E8D9B5]/40">
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#D4AF37] text-[#3C2F00] flex items-center justify-center font-bold font-jakarta text-xs shadow-xs shrink-0">
                 1
               </div>
               <div className="flex flex-col min-w-0">
-                <span className="text-[10px] font-jakarta text-[#D4AF37] uppercase tracking-wider font-bold">
+                <span className="text-[9px] sm:text-[10px] font-jakarta text-[#D4AF37] uppercase tracking-wider font-bold">
                   Procedimento
                 </span>
-                <span className="text-xs sm:text-sm font-jakarta text-[#49382E] truncate font-semibold">
+                <span className="text-[11px] sm:text-sm font-jakarta text-[#49382E] truncate font-semibold">
                   {selectedService.title}
                 </span>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-[#F7EFEA] text-[#49382E] flex items-center justify-center font-bold font-jakarta text-xs shrink-0 border border-[#E8D9B5]">
+            <div className="flex items-center gap-2 sm:gap-3 p-1.5 rounded-xl bg-[#FDFBF9] sm:bg-transparent border sm:border-0 border-[#E8D9B5]/40">
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#F7EFEA] text-[#49382E] flex items-center justify-center font-bold font-jakarta text-xs shrink-0 border border-[#E8D9B5]">
                 2
               </div>
               <div className="flex flex-col min-w-0">
-                <span className="text-[10px] font-jakarta text-[#786C63] uppercase tracking-wider font-bold">
+                <span className="text-[9px] sm:text-[10px] font-jakarta text-[#786C63] uppercase tracking-wider font-bold">
                   Data &amp; Hora
                 </span>
-                <span className="text-xs sm:text-sm font-jakarta text-[#49382E] truncate font-semibold">
+                <span className="text-[11px] sm:text-sm font-jakarta text-[#49382E] truncate font-semibold">
                   {selectedDate} • {selectedTime}
                 </span>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-[#F7EFEA] text-[#786C63] flex items-center justify-center font-bold font-jakarta text-xs shrink-0 border border-[#E8D9B5]">
+            <div className="flex items-center gap-2 sm:gap-3 p-1.5 rounded-xl bg-[#FDFBF9] sm:bg-transparent border sm:border-0 border-[#E8D9B5]/40">
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#F7EFEA] text-[#786C63] flex items-center justify-center font-bold font-jakarta text-xs shrink-0 border border-[#E8D9B5]">
                 3
               </div>
               <div className="flex flex-col min-w-0">
-                <span className="text-[10px] font-jakarta text-[#786C63] uppercase tracking-wider font-bold">
+                <span className="text-[9px] sm:text-[10px] font-jakarta text-[#786C63] uppercase tracking-wider font-bold">
                   Recorrência
                 </span>
-                <span className="text-xs sm:text-sm font-jakarta text-[#49382E] truncate font-semibold">
+                <span className="text-[11px] sm:text-sm font-jakarta text-[#49382E] truncate font-semibold">
                   {isRecurring ? `${recurrenceFreqDays} em ${recurrenceFreqDays} dias` : 'Sessão Única'}
                 </span>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-[#F7EFEA] text-[#786C63] flex items-center justify-center font-bold font-jakarta text-xs shrink-0 border border-[#E8D9B5]">
+            <div className="flex items-center gap-2 sm:gap-3 p-1.5 rounded-xl bg-[#FDFBF9] sm:bg-transparent border sm:border-0 border-[#E8D9B5]/40">
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#F7EFEA] text-[#786C63] flex items-center justify-center font-bold font-jakarta text-xs shrink-0 border border-[#E8D9B5]">
                 4
               </div>
               <div className="flex flex-col min-w-0">
-                <span className="text-[10px] font-jakarta text-[#786C63] uppercase tracking-wider font-bold">
+                <span className="text-[9px] sm:text-[10px] font-jakarta text-[#786C63] uppercase tracking-wider font-bold">
                   Sinal Pix
                 </span>
-                <span className="text-xs sm:text-sm font-jakarta text-[#D4AF37] truncate font-semibold">
+                <span className="text-[11px] sm:text-sm font-jakarta text-[#D4AF37] truncate font-semibold">
                   R$ {depositValue},00
                 </span>
               </div>
@@ -312,8 +312,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                 </span>
               </div>
 
-              {/* Date Selector Strip */}
-              <div className="grid grid-cols-3 sm:grid-cols-7 gap-2">
+              {/* Date Selector Strip - Horizontal snap-scroll on mobile, 7-col grid on tablet/desktop */}
+              <div className="flex sm:grid sm:grid-cols-7 gap-2 overflow-x-auto pb-1.5 scrollbar-none snap-x">
                 {availableDates.map((item, idx) => {
                   const isSelected = selectedDate === item.full;
                   return (
@@ -322,7 +322,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                       type="button"
                       disabled={!item.available}
                       onClick={() => setSelectedDate(item.full)}
-                      className={`p-3 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer ${
+                      className={`min-w-[68px] sm:min-w-0 flex-1 p-2 sm:p-3 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer min-h-[54px] snap-center shrink-0 sm:shrink active:scale-95 ${
                         !item.available
                           ? 'bg-[#F7EFEA] border border-[#E8D9B5]/40 opacity-40 cursor-not-allowed text-[#786C63]'
                           : isSelected
@@ -330,10 +330,10 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                           : 'bg-[#FDFBF9] border border-[#E8D9B5] text-[#49382E] hover:border-[#D4AF37]/50'
                       }`}
                     >
-                      <span className="font-jakarta text-[11px] uppercase tracking-wider">
+                      <span className="font-jakarta text-[10px] sm:text-[11px] uppercase tracking-wider font-semibold">
                         {item.day}
                       </span>
-                      <span className="font-syne text-lg font-bold mt-0.5">
+                      <span className="font-syne text-base sm:text-lg font-bold mt-0.5">
                         {item.num}
                       </span>
                     </button>
@@ -352,7 +352,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                   </span>
                 </div>
 
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-2.5">
                   {timeSlots.filter(s => s.active).map(slot => {
                     const isBlocked = slot.status === 'bloqueado' || slot.status === 'autoclave' || slot.status === 'almoco';
                     const isSelected = selectedTime === slot.time && !isBlocked;
@@ -363,7 +363,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                         type="button"
                         disabled={isBlocked}
                         onClick={() => setSelectedTime(slot.time)}
-                        className={`p-2.5 rounded-xl border text-center transition-all ${
+                        className={`p-2 sm:p-2.5 rounded-xl border text-center transition-all min-h-[46px] flex flex-col items-center justify-center active:scale-95 ${
                           isBlocked
                             ? 'bg-[#F7EFEA] border-rose-200 text-[#786C63]/50 cursor-not-allowed'
                             : isSelected
@@ -373,7 +373,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                         title={slot.note || (isBlocked ? 'Horário Bloqueado' : 'Horário Disponível')}
                       >
                         <span className="font-syne text-sm font-bold block">{slot.time}</span>
-                        <span className="text-[10px] block font-jakarta">
+                        <span className="text-[10px] block font-jakarta truncate max-w-full px-1">
                           {isBlocked ? (slot.note?.slice(0, 10) || 'Bloqueado') : 'Disponível'}
                         </span>
                       </button>
@@ -492,46 +492,46 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 font-jakarta text-xs">
                 <div>
-                  <label className="block text-[#49382E] font-medium mb-1">Nome Completo *</label>
+                  <label className="block text-[#49382E] font-medium mb-1 text-xs">Nome Completo *</label>
                   <input
                     type="text"
                     required
                     placeholder="Ex: Vanessa Lima"
                     value={clientName}
                     onChange={e => setClientName(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-xs min-h-[44px]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[#49382E] font-medium mb-1">WhatsApp com DDD *</label>
+                  <label className="block text-[#49382E] font-medium mb-1 text-xs">WhatsApp com DDD *</label>
                   <input
                     type="tel"
                     required
                     placeholder="Ex: (12) 99123-4567"
                     value={clientPhone}
                     onChange={e => setClientPhone(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-xs min-h-[44px]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[#49382E] font-medium mb-1">Instagram (opcional)</label>
+                  <label className="block text-[#49382E] font-medium mb-1 text-xs">Instagram (opcional)</label>
                   <input
                     type="text"
                     placeholder="@seu.perfil"
                     value={clientInstagram}
                     onChange={e => setClientInstagram(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-xs min-h-[44px]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[#49382E] font-medium mb-1">Condição Atual das Unhas</label>
+                  <label className="block text-[#49382E] font-medium mb-1 text-xs">Condição Atual das Unhas</label>
                   <select
                     value={nailCondition}
                     onChange={e => setNailCondition(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-xs min-h-[44px]"
                   >
                     <option value="Unhas naturais sem nenhum produto">Unhas naturais sem produto</option>
                     <option value="Alongamento de outro profissional (requer remoção)">Alongamento de outro espaço</option>
@@ -541,13 +541,13 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[#49382E] font-medium mb-1">Observações ou Preferências de Nail Art</label>
+                  <label className="block text-[#49382E] font-medium mb-1 text-xs">Observações ou Preferências de Nail Art</label>
                   <textarea
                     rows={2}
                     placeholder="Alguma alergia a esmaltes, formato preferido (Almond, Bailarina, Quadrada) ou referência de foto..."
                     value={clientNotes}
                     onChange={e => setClientNotes(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
+                    className="w-full px-3.5 py-2 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-xs min-h-[70px]"
                   />
                 </div>
               </div>
@@ -662,20 +662,24 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                     <button
                       type="button"
                       onClick={handleCopyPix}
-                      className="w-full sm:w-auto px-5 py-2.5 rounded-full bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                      className={`w-full sm:w-auto px-5 py-2.5 rounded-full font-jakarta text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs min-h-[44px] active:scale-95 ${
+                        copiedPix
+                          ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400'
+                          : 'bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00]'
+                      }`}
                     >
-                      <span className="material-symbols-outlined text-[16px]">
-                        {copiedPix ? 'done' : 'content_copy'}
+                      <span className="material-symbols-outlined text-[18px]">
+                        {copiedPix ? 'check_circle' : 'content_copy'}
                       </span>
-                      <span>{copiedPix ? 'Chave Copiada!' : 'Copiar Chave Pix'}</span>
+                      <span>{copiedPix ? 'Chave Copiada com Sucesso!' : 'Copiar Chave Pix'}</span>
                     </button>
 
-                    <label className={`w-full sm:w-auto px-4 py-2.5 rounded-full border text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                    <label className={`w-full sm:w-auto px-4 py-2.5 rounded-full border text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer min-h-[44px] active:scale-95 ${
                       receiptFileName
                         ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                         : 'bg-[#FFFFFF] text-[#49382E] border-[#E8D9B5] hover:bg-[#FDFBF9]'
                     }`}>
-                      <span className="material-symbols-outlined text-[16px]">
+                      <span className="material-symbols-outlined text-[18px] text-[#D4AF37]">
                         {receiptFileName ? 'check_circle' : 'attach_file'}
                       </span>
                       <span className="truncate max-w-[150px]">
