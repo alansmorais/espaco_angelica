@@ -354,7 +354,7 @@ export default function App() {
   };
 
   const handleManualBookingSave = (newApt: Appointment) => {
-    setAppointments(prev => [newApt, ...prev]);
+    handleBookingConfirmed(newApt);
     if (newApt.whatsappStatus === 'enviado' || newApt.whatsappStatus === 'simulado') {
       setWaGlobalToast({
         message: `Confirmação de agendamento disparada via WhatsApp para ${newApt.clientName} (${newApt.clientPhone})!`,
@@ -564,10 +564,6 @@ export default function App() {
                       {adminLoginError}
                     </div>
                   )}
-
-                  <div className="p-3 rounded-xl bg-[#F7EFEA] border border-[#E8D9B5] text-[11px] text-[#786C63]">
-                    💡 <strong>Senha Padrão Inicial:</strong> <code className="font-mono bg-white px-1.5 py-0.5 rounded text-[#49382E] font-bold">angelica</code>
-                  </div>
 
                   <button
                     type="submit"
