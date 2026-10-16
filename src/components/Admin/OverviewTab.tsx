@@ -93,49 +93,49 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       {/* 4 KPIs Cards (Calculated from Real Data) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {/* KPI 1: Faturamento Confirmado */}
-        <div className="p-5 rounded-2xl bg-[#FFFFFF] flex flex-col justify-between shadow-xs border border-[#E8D9B5] transition-all hover:shadow-md">
-          <div className="flex items-start justify-between">
-            <span className="font-jakarta text-[11px] uppercase tracking-widest text-[#786C63] font-bold">
+        <div className="p-5 rounded-2xl bg-[#FFFFFF] flex flex-col justify-between shadow-xs border border-[#E8D9B5] transition-all hover:shadow-md min-w-0 box-border">
+          <div className="flex items-start justify-between gap-2">
+            <span className="font-jakarta text-[11px] uppercase tracking-widest text-[#786C63] font-bold truncate">
               Receita Confirmada
             </span>
-            <div className="w-9 h-9 rounded-full bg-[#F7EFEA] flex items-center justify-center text-[#D4AF37] border border-[#E8D9B5]">
+            <div className="w-9 h-9 rounded-full bg-[#F7EFEA] flex items-center justify-center text-[#D4AF37] border border-[#E8D9B5] shrink-0">
               <span className="material-symbols-outlined text-[20px]">diamond</span>
             </div>
           </div>
-          <div className="mt-4 flex flex-col gap-1">
-            <span className="font-syne text-2xl sm:text-3xl text-[#49382E] font-bold">
+          <div className="mt-4 flex flex-col gap-1 min-w-0">
+            <span className="font-syne text-2xl sm:text-3xl text-[#49382E] font-bold truncate">
               R$ {totalLiquidatedRevenue.toFixed(2).replace('.', ',')}
             </span>
-            <div className="flex items-center gap-1.5 font-jakarta text-xs">
-              <span className="text-[#D4AF37] font-bold">
+            <div className="flex items-center gap-1.5 font-jakarta text-xs min-w-0">
+              <span className="text-[#D4AF37] font-bold shrink-0">
                 {confirmedAppointments.length}
               </span>
-              <span className="text-[#786C63]">atendimento(s) confirmado(s)</span>
+              <span className="text-[#786C63] truncate">atendimento(s) confirmado(s)</span>
             </div>
           </div>
         </div>
 
         {/* KPI 2: Atendimentos Hoje */}
-        <div className="p-5 rounded-2xl bg-[#FFFFFF] flex flex-col justify-between shadow-xs border border-[#E8D9B5] transition-all hover:shadow-md">
-          <div className="flex items-start justify-between">
-            <span className="font-jakarta text-[11px] uppercase tracking-widest text-[#786C63] font-bold">
+        <div className="p-5 rounded-2xl bg-[#FFFFFF] flex flex-col justify-between shadow-xs border border-[#E8D9B5] transition-all hover:shadow-md min-w-0 box-border">
+          <div className="flex items-start justify-between gap-2">
+            <span className="font-jakarta text-[11px] uppercase tracking-widest text-[#786C63] font-bold truncate">
               Atendimentos Registrados
             </span>
-            <div className="w-9 h-9 rounded-full bg-[#F7EFEA] flex items-center justify-center text-[#D4AF37] border border-[#E8D9B5]">
+            <div className="w-9 h-9 rounded-full bg-[#F7EFEA] flex items-center justify-center text-[#D4AF37] border border-[#E8D9B5] shrink-0">
               <span className="material-symbols-outlined text-[20px]">spa</span>
             </div>
           </div>
-          <div className="mt-4 flex flex-col gap-1">
-            <span className="font-syne text-2xl sm:text-3xl text-[#49382E] font-bold">
+          <div className="mt-4 flex flex-col gap-1 min-w-0">
+            <span className="font-syne text-2xl sm:text-3xl text-[#49382E] font-bold truncate">
               {todayAppointments.length} {todayAppointments.length === 1 ? 'Sessão' : 'Sessões'}
             </span>
-            <div className="flex items-center gap-1.5 font-jakarta text-xs">
-              <span className="w-2 h-2 rounded-full bg-[#D4AF37]" />
-              <span className="text-[#49382E] font-semibold">
+            <div className="flex items-center gap-1.5 font-jakarta text-xs min-w-0 flex-wrap">
+              <span className="w-2 h-2 rounded-full bg-[#D4AF37] shrink-0" />
+              <span className="text-[#49382E] font-semibold shrink-0">
                 {confirmedAppointments.length} confirmada(s)
               </span>
-              <span className="text-[#786C63]">•</span>
-              <span className="text-[#D4AF37] font-semibold">
+              <span className="text-[#786C63] shrink-0">•</span>
+              <span className="text-[#D4AF37] font-semibold shrink-0">
                 {pendingPixAppointments.length} pendente(s)
               </span>
             </div>
@@ -143,44 +143,51 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
 
         {/* KPI 3: Sinais Pix Pendentes */}
-        <div className="p-5 rounded-2xl bg-[#FFFFFF] flex flex-col justify-between shadow-xs border border-[#E8D9B5] transition-all hover:shadow-md">
-          <div className="flex items-start justify-between">
-            <span className="font-jakarta text-[11px] uppercase tracking-widest text-[#786C63] font-bold">
+        <div className="p-5 rounded-2xl bg-[#FFFFFF] flex flex-col justify-between shadow-xs border border-[#E8D9B5] transition-all hover:shadow-md min-w-0 box-border">
+          <div className="flex items-start justify-between gap-2">
+            <span className="font-jakarta text-[11px] uppercase tracking-widest text-[#786C63] font-bold truncate">
               Sinais Pix Pendentes
             </span>
-            <div className="w-9 h-9 rounded-full bg-[#F7EFEA] flex items-center justify-center text-[#D4AF37] border border-[#E8D9B5]">
+            <div className="w-9 h-9 rounded-full bg-[#F7EFEA] flex items-center justify-center text-[#D4AF37] border border-[#E8D9B5] shrink-0">
               <span className="material-symbols-outlined text-[20px]">mark_email_unread</span>
             </div>
           </div>
-          <div className="mt-4 flex flex-col gap-1">
-            <span className="font-syne text-2xl sm:text-3xl text-[#49382E] font-bold">
-              {pendingPixAppointments.length} Comprovante(s)
-            </span>
-            <div className="flex items-center gap-1.5 font-jakarta text-xs">
-              <span className="text-[#D4AF37] font-bold">
+          <div className="mt-4 flex flex-col gap-1.5 min-w-0">
+            <div className="flex items-baseline gap-2 flex-wrap min-w-0">
+              <span className="font-syne text-2xl sm:text-3xl text-[#49382E] font-bold shrink-0">
+                {pendingPixAppointments.length}
+              </span>
+              <span className="font-jakarta text-xs sm:text-sm text-[#49382E] font-semibold break-words">
+                {pendingPixAppointments.length === 1 ? 'Comprovante' : 'Comprovantes'}
+              </span>
+            </div>
+            <div className="flex flex-col gap-0.5 font-jakarta text-xs min-w-0">
+              <span className="text-[#D4AF37] font-bold truncate">
                 R$ {pendingPixSum.toFixed(2).replace('.', ',')}
               </span>
-              <span className="text-[#786C63]">aguardando conferência bancária</span>
+              <span className="text-[#786C63] text-[11px] leading-tight break-words">
+                aguardando conferência bancária
+              </span>
             </div>
           </div>
         </div>
 
         {/* KPI 4: Ocupação Real */}
-        <div className="p-5 rounded-2xl bg-[#FFFFFF] flex flex-col justify-between shadow-xs border border-[#E8D9B5] transition-all hover:shadow-md">
-          <div className="flex items-start justify-between">
-            <span className="font-jakarta text-[11px] uppercase tracking-widest text-[#786C63] font-bold">
+        <div className="p-5 rounded-2xl bg-[#FFFFFF] flex flex-col justify-between shadow-xs border border-[#E8D9B5] transition-all hover:shadow-md min-w-0 box-border">
+          <div className="flex items-start justify-between gap-2">
+            <span className="font-jakarta text-[11px] uppercase tracking-widest text-[#786C63] font-bold truncate">
               Ocupação da Grade
             </span>
-            <div className="w-9 h-9 rounded-full bg-[#F7EFEA] flex items-center justify-center text-[#D4AF37] border border-[#E8D9B5]">
+            <div className="w-9 h-9 rounded-full bg-[#F7EFEA] flex items-center justify-center text-[#D4AF37] border border-[#E8D9B5] shrink-0">
               <span className="material-symbols-outlined text-[20px]">calendar_view_week</span>
             </div>
           </div>
-          <div className="mt-4 flex flex-col gap-1.5">
-            <div className="flex items-baseline justify-between font-jakarta">
-              <span className="font-syne text-2xl sm:text-3xl text-[#49382E] font-bold">
+          <div className="mt-4 flex flex-col gap-1.5 min-w-0">
+            <div className="flex items-baseline justify-between font-jakarta min-w-0">
+              <span className="font-syne text-2xl sm:text-3xl text-[#49382E] font-bold truncate">
                 {occupancyPercent}%
               </span>
-              <span className="text-[11px] text-[#D4AF37] uppercase font-bold tracking-wider">
+              <span className="text-[11px] text-[#D4AF37] uppercase font-bold tracking-wider truncate pl-2">
                 {todayAppointments.length === 0 ? 'Livre' : `${todayAppointments.length} agendamento(s)`}
               </span>
             </div>
