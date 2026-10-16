@@ -44,7 +44,8 @@ export const FAQModal: React.FC<FAQModalProps> = ({
         <button
           type="button"
           onClick={onClose}
-          className="absolute top-5 right-5 w-9 h-9 rounded-full bg-[#F7EFEA] border border-[#E8D9B5] flex items-center justify-center text-[#786C63] hover:text-[#49382E] transition-colors cursor-pointer"
+          aria-label="Fechar modal"
+          className="absolute top-4 right-4 w-11 h-11 min-w-[44px] min-h-[44px] rounded-full bg-[#F7EFEA] border border-[#E8D9B5] flex items-center justify-center text-[#786C63] hover:text-[#49382E] transition-colors cursor-pointer active:scale-95"
         >
           <span className="material-symbols-outlined text-[20px]">close</span>
         </button>

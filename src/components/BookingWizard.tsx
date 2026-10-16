@@ -91,10 +91,36 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
     return list;
   };
 
-  const handleCopyPix = () => {
-    navigator.clipboard.writeText('+5512974062241');
-    setCopiedPix(true);
-    setTimeout(() => setCopiedPix(false), 3000);
+  const handleCopyPix = async () => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText('+5512974062241');
+        setCopiedPix(true);
+        setTimeout(() => setCopiedPix(false), 3000);
+        return;
+      }
+    } catch {
+      // Fallback below
+    }
+
+    try {
+      const textArea = document.createElement('textarea');
+      textArea.value = '+5512974062241';
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-9999px';
+      textArea.style.top = '0';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      const successful = document.execCommand('copy');
+      document.body.removeChild(textArea);
+      if (successful) {
+        setCopiedPix(true);
+        setTimeout(() => setCopiedPix(false), 3000);
+      }
+    } catch {
+      // Silent error handling
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -313,6 +339,15 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
               </div>
 
               {/* Date Selector Strip - Horizontal snap-scroll on mobile, 7-col grid on tablet/desktop */}
+              <div className="flex items-center justify-between pb-1 sm:hidden">
+                <span className="font-jakarta text-[11px] text-[#786C63]">
+                  7 dias na agenda:
+                </span>
+                <span className="font-jakarta text-[10px] text-[#D4AF37] font-semibold flex items-center gap-0.5">
+                  <span>Deslize para ver</span>
+                  <span className="material-symbols-outlined text-[13px]">arrow_forward</span>
+                </span>
+              </div>
               <div className="flex sm:grid sm:grid-cols-7 gap-2 overflow-x-auto pb-1.5 scrollbar-none snap-x">
                 {availableDates.map((item, idx) => {
                   const isSelected = selectedDate === item.full;
@@ -499,7 +534,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                     placeholder="Ex: Vanessa Lima"
                     value={clientName}
                     onChange={e => setClientName(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-xs min-h-[44px]"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px]"
                   />
                 </div>
 
@@ -511,7 +546,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                     placeholder="Ex: (12) 99123-4567"
                     value={clientPhone}
                     onChange={e => setClientPhone(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-xs min-h-[44px]"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px]"
                   />
                 </div>
 
@@ -522,7 +557,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                     placeholder="@seu.perfil"
                     value={clientInstagram}
                     onChange={e => setClientInstagram(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-xs min-h-[44px]"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px]"
                   />
                 </div>
 
@@ -531,7 +566,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                   <select
                     value={nailCondition}
                     onChange={e => setNailCondition(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-xs min-h-[44px]"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px]"
                   >
                     <option value="Unhas naturais sem nenhum produto">Unhas naturais sem produto</option>
                     <option value="Alongamento de outro profissional (requer remoção)">Alongamento de outro espaço</option>
@@ -547,7 +582,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                     placeholder="Alguma alergia a esmaltes, formato preferido (Almond, Bailarina, Quadrada) ou referência de foto..."
                     value={clientNotes}
                     onChange={e => setClientNotes(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-xs min-h-[70px]"
+                    className="w-full px-3.5 py-2 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[70px]"
                   />
                 </div>
               </div>
@@ -747,7 +782,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                         const match = services.find(s => s.id === e.target.value);
                         if (match) onSelectService(match);
                       }}
-                      className="w-full px-3 py-1.5 rounded-lg bg-[#FDFBF9] text-xs text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
+                      className="w-full px-3 py-2 rounded-lg bg-[#FDFBF9] text-base sm:text-xs text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] min-h-[44px]"
                     >
                       {services.map(s => (
                         <option key={s.id} value={s.id}>

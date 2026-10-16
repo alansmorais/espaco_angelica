@@ -100,13 +100,13 @@ export const FooterPublic: React.FC<FooterPublicProps> = ({
                 <span>@angelicadocarmo_nails</span>
               </a>
               <a
-                href="https://wa.me/5531984521920"
+                href="https://wa.me/5512974062241"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 hover:text-[#D4AF37] text-[#49382E] transition-colors"
               >
                 <span className="material-symbols-outlined text-[#D4AF37] text-[18px]">call</span>
-                <span>(31) 98452-1920 (WhatsApp Studio)</span>
+                <span>(12) 97406 2241 (WhatsApp Studio)</span>
               </a>
             </div>
             <p className="font-jakarta text-xs text-[#786C63] leading-relaxed pt-1">

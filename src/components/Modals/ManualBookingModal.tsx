@@ -141,7 +141,7 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
               value={clientName}
               onChange={e => setClientName(e.target.value)}
               placeholder="Ex: Amanda Rezende"
-              className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:outline-none focus:border-[#D4AF37]"
+              className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px]"
             />
           </div>
 
@@ -153,7 +153,7 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
                 value={clientPhone}
                 onChange={e => setClientPhone(e.target.value)}
                 placeholder="(12) 98888-7777"
-                className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:outline-none focus:border-[#D4AF37]"
+                className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px]"
               />
             </div>
             <div>
@@ -161,7 +161,7 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
               <select
                 value={selectedServiceId}
                 onChange={e => setSelectedServiceId(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:outline-none focus:border-[#D4AF37]"
+                className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px]"
               >
                 {services.map(s => (
                   <option key={s.id} value={s.id}>
@@ -180,7 +180,7 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
                 value={date}
                 onChange={e => setDate(e.target.value)}
                 placeholder="Ex: Quinta, 14 Nov"
-                className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:outline-none focus:border-[#D4AF37]"
+                className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px]"
               />
             </div>
             <div>
@@ -190,7 +190,7 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
                 value={time}
                 onChange={e => setTime(e.target.value)}
                 placeholder="Ex: 14:30"
-                className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:outline-none focus:border-[#D4AF37]"
+                className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px]"
               />
             </div>
           </div>

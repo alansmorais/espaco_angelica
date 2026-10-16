@@ -48,8 +48,8 @@ export const HeaderPublic: React.FC<HeaderPublicProps> = ({
               <span className="font-syne text-[14px] sm:text-[18px] text-[#49382E] tracking-tight uppercase font-bold truncate">
                 Angelica do Carmo
               </span>
-              <span className="font-jakarta text-[9px] sm:text-[10px] uppercase tracking-wider text-[#D4AF37] font-semibold truncate hidden xs:inline">
-                Haute Nail Atelier
+              <span className="font-jakarta text-[9px] sm:text-[10px] uppercase tracking-wider text-[#D4AF37] font-semibold truncate hidden sm:inline">
+                Manicure | Nail Designer
               </span>
             </div>
           </div>

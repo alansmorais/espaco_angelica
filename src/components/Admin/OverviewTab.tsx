@@ -51,7 +51,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-2">
               <span className="font-jakarta text-[11px] uppercase tracking-widest text-[#D4AF37] font-bold">
-                Painel Executivo • Haute Nail Atelier
+                Painel Executivo • Manicure | Nail Designer
               </span>
               <span className="w-1.5 h-1.5 rounded-full bg-[#D4AF37]" />
               <span className="font-jakarta text-[11px] text-[#786C63]">

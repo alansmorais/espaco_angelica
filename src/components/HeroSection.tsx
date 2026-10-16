@@ -31,10 +31,10 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
         {/* Overline Tag */}
         <div className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-1 sm:py-1.5 rounded-full bg-[#FFFFFF] text-[#49382E] border border-[#E8D9B5] shadow-xs mb-4 sm:mb-5 max-w-[95%]">
           <span className="material-symbols-outlined text-[14px] sm:text-[16px] text-[#D4AF37] shrink-0">stars</span>
-          <span className="font-jakarta text-[9px] xs:text-[10px] sm:text-xs uppercase tracking-wider text-[#49382E] font-bold">
+          <span className="font-jakarta text-[10px] sm:text-xs uppercase tracking-wider text-[#49382E] font-bold">
             Atelier de Alta Estética &amp; Escultura Manual
           </span>
-          <span className="material-symbols-outlined text-[14px] sm:text-[16px] text-[#D4AF37] shrink-0 hidden xs:inline">auto_awesome</span>
+          <span className="material-symbols-outlined text-[14px] sm:text-[16px] text-[#D4AF37] shrink-0 hidden sm:inline">auto_awesome</span>
         </div>
 
         {/* Main Headline */}
@@ -76,25 +76,25 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
         <div className="w-full grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mt-8 sm:mt-12 pt-6 sm:pt-8 border-t border-[#E8D9B5] text-left">
           <div className="flex items-center gap-2 p-2 sm:p-3 rounded-xl bg-[#FFFFFF] border border-[#E8D9B5] shadow-xs">
             <span className="material-symbols-outlined text-[#D4AF37] text-[18px] sm:text-[20px] shrink-0">timer</span>
-            <span className="font-jakarta text-[9px] xs:text-[10px] sm:text-xs text-[#49382E] font-semibold tracking-wide leading-tight">
+            <span className="font-jakarta text-[10px] sm:text-xs text-[#49382E] font-semibold tracking-wide leading-tight">
               Atendimento 1 a 1 Exclusivo
             </span>
           </div>
           <div className="flex items-center gap-2 p-2 sm:p-3 rounded-xl bg-[#FFFFFF] border border-[#E8D9B5] shadow-xs">
             <span className="material-symbols-outlined text-[#D4AF37] text-[18px] sm:text-[20px] shrink-0">sanitizer</span>
-            <span className="font-jakarta text-[9px] xs:text-[10px] sm:text-xs text-[#49382E] font-semibold tracking-wide leading-tight">
+            <span className="font-jakarta text-[10px] sm:text-xs text-[#49382E] font-semibold tracking-wide leading-tight">
               Biossegurança (Autoclave)
             </span>
           </div>
           <div className="flex items-center gap-2 p-2 sm:p-3 rounded-xl bg-[#FFFFFF] border border-[#E8D9B5] shadow-xs">
             <span className="material-symbols-outlined text-[#D4AF37] text-[18px] sm:text-[20px] shrink-0">health_and_safety</span>
-            <span className="font-jakarta text-[9px] xs:text-[10px] sm:text-xs text-[#49382E] font-semibold tracking-wide leading-tight">
+            <span className="font-jakarta text-[10px] sm:text-xs text-[#49382E] font-semibold tracking-wide leading-tight">
               Géis Hipoalergênicos Vòlia
             </span>
           </div>
           <div className="flex items-center gap-2 p-2 sm:p-3 rounded-xl bg-[#FFFFFF] border border-[#E8D9B5] shadow-xs">
             <span className="material-symbols-outlined text-[#D4AF37] text-[18px] sm:text-[20px] shrink-0">local_bar</span>
-            <span className="font-jakarta text-[9px] xs:text-[10px] sm:text-xs text-[#49382E] font-semibold tracking-wide leading-tight">
+            <span className="font-jakarta text-[10px] sm:text-xs text-[#49382E] font-semibold tracking-wide leading-tight">
               Café Gourmet &amp; Espumante
             </span>
           </div>

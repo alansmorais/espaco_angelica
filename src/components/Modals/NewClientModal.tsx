@@ -97,7 +97,7 @@ export const NewClientModal: React.FC<NewClientModalProps> = ({
               value={name}
               onChange={e => setName(e.target.value)}
               placeholder="Ex: Priscila Guimarães"
-              className="w-full bg-[#FDFBF9] text-[#49382E] px-3.5 py-2.5 rounded-xl border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
+              className="w-full bg-[#FDFBF9] text-[#49382E] px-3.5 py-2.5 rounded-xl border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-xs min-h-[44px]"
             />
           </div>
 
@@ -108,8 +108,8 @@ export const NewClientModal: React.FC<NewClientModalProps> = ({
                 type="tel"
                 value={phone}
                 onChange={e => setPhone(e.target.value)}
-                placeholder="(31) 99876-1234"
-                className="w-full bg-[#FDFBF9] text-[#49382E] px-3.5 py-2.5 rounded-xl border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
+                placeholder="(12) 98765-4321"
+                className="w-full bg-[#FDFBF9] text-[#49382E] px-3.5 py-2.5 rounded-xl border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-xs min-h-[44px]"
               />
             </div>
             <div>
@@ -117,7 +117,7 @@ export const NewClientModal: React.FC<NewClientModalProps> = ({
               <select
                 value={tier}
                 onChange={e => setTier(e.target.value as any)}
-                className="w-full bg-[#FDFBF9] text-[#49382E] px-3 py-2.5 rounded-xl border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
+                className="w-full bg-[#FDFBF9] text-[#49382E] px-3 py-2.5 rounded-xl border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-xs min-h-[44px]"
               >
                 <option value="1ª Sessão">1ª Sessão</option>
                 <option value="Frequente">Frequente</option>
@@ -134,7 +134,7 @@ export const NewClientModal: React.FC<NewClientModalProps> = ({
                 value={preferredShape}
                 onChange={e => setPreferredShape(e.target.value)}
                 placeholder="Ex: Almond Fina"
-                className="w-full bg-[#FDFBF9] text-[#49382E] px-3.5 py-2.5 rounded-xl border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
+                className="w-full bg-[#FDFBF9] text-[#49382E] px-3.5 py-2.5 rounded-xl border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-xs min-h-[44px]"
               />
             </div>
             <div>
@@ -144,7 +144,7 @@ export const NewClientModal: React.FC<NewClientModalProps> = ({
                 value={laminaType}
                 onChange={e => setLaminaType(e.target.value)}
                 placeholder="Ex: Levemente côncava / frágil"
-                className="w-full bg-[#FDFBF9] text-[#49382E] px-3.5 py-2.5 rounded-xl border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
+                className="w-full bg-[#FDFBF9] text-[#49382E] px-3.5 py-2.5 rounded-xl border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-xs min-h-[44px]"
               />
             </div>
           </div>
@@ -155,7 +155,7 @@ export const NewClientModal: React.FC<NewClientModalProps> = ({
               <select
                 value={oiliness}
                 onChange={e => setOiliness(e.target.value)}
-                className="w-full bg-[#FDFBF9] text-[#49382E] px-3 py-2.5 rounded-xl border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
+                className="w-full bg-[#FDFBF9] text-[#49382E] px-3 py-2.5 rounded-xl border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-xs min-h-[44px]"
               >
                 <option value="Baixa">Baixa</option>
                 <option value="Média">Média</option>
@@ -169,7 +169,7 @@ export const NewClientModal: React.FC<NewClientModalProps> = ({
                 value={allergies}
                 onChange={e => setAllergies(e.target.value)}
                 placeholder="Ex: Nenhuma alergia relatada"
-                className="w-full bg-[#FDFBF9] text-[#49382E] px-3.5 py-2.5 rounded-xl border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
+                className="w-full bg-[#FDFBF9] text-[#49382E] px-3.5 py-2.5 rounded-xl border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-xs min-h-[44px]"
               />
             </div>
           </div>
