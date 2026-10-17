@@ -30,6 +30,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   const [nailCondition, setNailCondition] = useState<string>('Unhas naturais sem nenhum produto');
   const [clientNotes, setClientNotes] = useState<string>('');
   const [copiedPix, setCopiedPix] = useState<boolean>(false);
+  const [pixCopyError, setPixCopyError] = useState<boolean>(false);
   const [receiptFileName, setReceiptFileName] = useState<string | null>(null);
   const [bookingWhatsAppModal, setBookingWhatsAppModal] = useState<boolean>(false);
 
@@ -97,11 +98,12 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText('+5512974062241');
         setCopiedPix(true);
+        setPixCopyError(false);
         setTimeout(() => setCopiedPix(false), 3000);
         return;
       }
     } catch {
-      // Fallback below
+      // Fallback to execCommand below
     }
 
     try {
@@ -117,11 +119,17 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
       document.body.removeChild(textArea);
       if (successful) {
         setCopiedPix(true);
+        setPixCopyError(false);
         setTimeout(() => setCopiedPix(false), 3000);
+        return;
       }
     } catch {
-      // Silent error handling
+      // Error handled below
     }
+
+    setPixCopyError(true);
+    setCopiedPix(false);
+    setTimeout(() => setPixCopyError(false), 4000);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -319,7 +327,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                   <span className="material-symbols-outlined text-[13px]">arrow_forward</span>
                 </span>
               </div>
-              <div className="flex sm:grid sm:grid-cols-7 gap-2 overflow-x-auto pb-1.5 scrollbar-none snap-x">
+              <div className="flex sm:grid sm:grid-cols-7 gap-2 overflow-x-auto pb-2 scrollbar-none snap-x touch-pan-x -mx-1 px-1">
                 {availableDates.map((item, idx) => {
                   const isSelected = selectedDate === item.full;
                   return (
@@ -328,12 +336,12 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                       type="button"
                       disabled={!item.available}
                       onClick={() => setSelectedDate(item.full)}
-                      className={`min-w-[68px] sm:min-w-0 flex-1 p-2 sm:p-3 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer min-h-[54px] snap-center shrink-0 sm:shrink active:scale-95 ${
+                      className={`min-w-[62px] sm:min-w-0 flex-1 p-2 sm:p-2.5 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer min-h-[58px] snap-center shrink-0 active:scale-95 ${
                         !item.available
                           ? 'bg-[#F7EFEA] border border-[#E8D9B5]/40 opacity-40 cursor-not-allowed text-[#786C63]'
                           : isSelected
                           ? 'bg-[#D4AF37] text-[#3C2F00] font-bold shadow-md ring-2 ring-[#D4AF37]'
-                          : 'bg-[#FDFBF9] border border-[#E8D9B5] text-[#49382E] hover:border-[#D4AF37]/50'
+                          : 'bg-[#FDFBF9] border border-[#E8D9B5] text-[#49382E] hover:border-[#D4AF37]/50 hover:bg-[#FFFFFF]'
                       }`}
                     >
                       <span className="font-jakarta text-[10px] sm:text-[11px] uppercase tracking-wider font-semibold">
@@ -369,7 +377,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                         type="button"
                         disabled={isBlocked}
                         onClick={() => setSelectedTime(slot.time)}
-                        className={`p-2 sm:p-2.5 rounded-xl border text-center transition-all min-h-[46px] flex flex-col items-center justify-center active:scale-95 ${
+                        className={`p-2 sm:p-2.5 rounded-xl border text-center transition-all min-h-[48px] flex flex-col items-center justify-center active:scale-95 ${
                           isBlocked
                             ? 'bg-[#F7EFEA] border-rose-200 text-[#786C63]/50 cursor-not-allowed'
                             : isSelected
@@ -650,26 +658,26 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
 
               {/* Pix Details Box */}
               <div className="p-4 rounded-xl bg-[#F7EFEA] border border-[#E8D9B5] space-y-4">
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-14 h-14 rounded-xl bg-[#FFFFFF] flex items-center justify-center text-[#D4AF37] border border-[#E8D9B5] shrink-0 shadow-xs">
-                      <span className="material-symbols-outlined text-[30px]">qr_code_2</span>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
+                    <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-[#FFFFFF] flex items-center justify-center text-[#D4AF37] border border-[#E8D9B5] shrink-0 shadow-xs">
+                      <span className="material-symbols-outlined text-[26px] sm:text-[30px]">qr_code_2</span>
                     </div>
 
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <span className="block font-jakarta text-[11px] text-[#786C63]">
                         Chave Pix Oficial (Telefone Celular)
                       </span>
-                      <span className="font-mono text-[#49382E] font-bold text-lg select-all tracking-wider">
+                      <span className="font-mono text-[#49382E] font-bold text-base sm:text-lg select-all tracking-wider break-all">
                         +5512974062241
                       </span>
                       <span className="block font-jakarta text-[11px] text-[#786C63]">
                         (12) 97406-2241
                       </span>
-                      <span className="block font-jakarta text-xs text-[#D4AF37] font-semibold">
+                      <span className="block font-jakarta text-xs text-[#D4AF37] font-semibold truncate">
                         Favorecido: Angelica do Carmo E. Silva ME
                       </span>
-                      <span className="block font-jakarta text-[11px] text-[#786C63]">
+                      <span className="block font-jakarta text-[11px] text-[#786C63] mt-0.5">
                         Valor a Transferir: <strong className="text-[#49382E] text-sm">R$ {depositValue},00</strong>
                       </span>
                     </div>
@@ -679,19 +687,27 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                     <button
                       type="button"
                       onClick={handleCopyPix}
-                      className={`w-full sm:w-auto px-5 py-2.5 rounded-full font-jakarta text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs min-h-[44px] active:scale-95 ${
+                      className={`w-full sm:w-auto px-5 py-2.5 sm:py-3 rounded-full font-jakarta text-xs sm:text-[13px] font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs min-h-[46px] active:scale-95 ${
                         copiedPix
                           ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400'
+                          : pixCopyError
+                          ? 'bg-rose-600 text-white shadow-md ring-2 ring-rose-400'
                           : 'bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00]'
                       }`}
                     >
                       <span className="material-symbols-outlined text-[18px]">
-                        {copiedPix ? 'check_circle' : 'content_copy'}
+                        {copiedPix ? 'check_circle' : pixCopyError ? 'error' : 'content_copy'}
                       </span>
-                      <span>{copiedPix ? 'Chave Copiada com Sucesso!' : 'Copiar Chave Pix'}</span>
+                      <span>
+                        {copiedPix
+                          ? 'Chave Copiada com Sucesso!'
+                          : pixCopyError
+                          ? 'Erro ao copiar - Selecione acima'
+                          : 'Copiar Chave Pix'}
+                      </span>
                     </button>
 
-                    <label className={`w-full sm:w-auto px-4 py-2.5 rounded-full border text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer min-h-[44px] active:scale-95 ${
+                    <label className={`w-full sm:w-auto px-4 py-2.5 sm:py-3 rounded-full border text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer min-h-[46px] active:scale-95 ${
                       receiptFileName
                         ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                         : 'bg-[#FFFFFF] text-[#49382E] border-[#E8D9B5] hover:bg-[#FDFBF9]'
@@ -844,7 +860,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                 <button
                   type="button"
                   onClick={handleConfirmBooking}
-                  className="w-full py-3.5 rounded-full bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta text-sm font-bold transition-all duration-300 shadow-[0_12px_32px_-4px_rgba(212,175,55,0.35)] flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                  className="w-full py-3.5 sm:py-4 rounded-full bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta text-sm sm:text-base font-bold transition-all duration-300 shadow-[0_12px_32px_-4px_rgba(212,175,55,0.35)] flex items-center justify-center gap-2 cursor-pointer active:scale-98 min-h-[50px]"
                 >
                   <span className="material-symbols-outlined text-[20px]">check_circle</span>
                   <span>Confirmar &amp; Salvar Agendamento</span>

@@ -509,11 +509,11 @@ export default function App() {
                 const el = document.getElementById('wizard-agendamento');
                 el?.scrollIntoView({ behavior: 'smooth' });
               }}
-              className="flex items-center gap-2 px-6 py-2.5 sm:py-3 rounded-full bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta font-bold text-xs sm:text-sm shadow-[0_10px_25px_-3px_rgba(212,175,55,0.45),0_4px_12px_rgba(73,56,46,0.15)] border border-[#E8D9B5] transition-all cursor-pointer transform active:scale-95 whitespace-nowrap min-h-[44px]"
-              style={{ paddingBottom: 'calc(0.625rem + env(safe-area-inset-bottom, 0px))' }}
+              className="flex items-center gap-2 px-6 py-3 rounded-full bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta font-bold text-xs sm:text-sm shadow-[0_10px_25px_-3px_rgba(212,175,55,0.45),0_4px_12px_rgba(73,56,46,0.15)] border border-[#E8D9B5] transition-all cursor-pointer transform active:scale-95 whitespace-nowrap min-h-[46px]"
+              style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}
               title="Agendar Horário no Ateliê"
             >
-              <span className="material-symbols-outlined text-[18px]">calendar_month</span>
+              <span className="material-symbols-outlined text-[19px]">calendar_month</span>
               <span>Agendar</span>
             </button>
           </div>

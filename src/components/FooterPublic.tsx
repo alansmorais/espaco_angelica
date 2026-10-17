@@ -81,12 +81,12 @@ export const FooterPublic: React.FC<FooterPublicProps> = ({
             <h4 className="font-syne text-base text-[#49382E] font-bold">
               Conexão &amp; Social
             </h4>
-            <div className="flex flex-col gap-2 font-jakarta text-xs sm:text-sm text-[#786C63]">
+            <div className="flex flex-col gap-2.5 font-jakarta text-xs sm:text-sm text-[#786C63]">
               <a
                 href="https://instagram.com"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 hover:text-[#D4AF37] text-[#49382E] transition-colors"
+                className="inline-flex items-center gap-2 hover:text-[#D4AF37] text-[#49382E] transition-colors min-h-[44px] py-1"
               >
                 <span className="material-symbols-outlined text-[#D4AF37] text-[18px]">camera</span>
                 <span>@angelicadocarmo_nails</span>
@@ -95,7 +95,7 @@ export const FooterPublic: React.FC<FooterPublicProps> = ({
                 href="https://wa.me/5512974062241"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 hover:text-[#D4AF37] text-[#49382E] transition-colors"
+                className="inline-flex items-center gap-2 hover:text-[#D4AF37] text-[#49382E] transition-colors min-h-[44px] py-1"
               >
                 <span className="material-symbols-outlined text-[#D4AF37] text-[18px]">call</span>
                 <span>(12) 97406 2241 (WhatsApp Studio)</span>
@@ -116,7 +116,7 @@ export const FooterPublic: React.FC<FooterPublicProps> = ({
           <button
             type="button"
             onClick={onOpenAdmin}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#FFFFFF] hover:bg-[#FDFBF9] border border-[#E8D9B5] hover:border-[#D4AF37] text-[#49382E] hover:text-[#D4AF37] font-jakarta text-xs font-semibold transition-all cursor-pointer shadow-xs"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#FFFFFF] hover:bg-[#FDFBF9] border border-[#E8D9B5] hover:border-[#D4AF37] text-[#49382E] hover:text-[#D4AF37] font-jakarta text-xs font-semibold transition-all cursor-pointer shadow-xs min-h-[44px] active:scale-95"
           >
             <span className="material-symbols-outlined text-[17px] text-[#D4AF37]">admin_panel_settings</span>
             <span>Acesso ao Painel do Ateliê (Admin)</span>
@@ -127,13 +127,13 @@ export const FooterPublic: React.FC<FooterPublicProps> = ({
         <div className="mt-8 pt-6 border-t border-[#E8D9B5] flex flex-col md:flex-row items-center justify-between gap-4 text-[#786C63] font-jakarta text-xs">
           <p>© 2024 Espaço Angelica do Carmo • São Sebastião SP. Todos os direitos reservados.</p>
           <div className="flex items-center gap-4 sm:gap-6 flex-wrap">
-            <button type="button" onClick={onOpenAbout} className="hover:text-[#D4AF37] transition-colors cursor-pointer">
+            <button type="button" onClick={onOpenAbout} className="hover:text-[#D4AF37] transition-colors cursor-pointer min-h-[36px] flex items-center">
               Sobre o Atelier
             </button>
-            <button type="button" onClick={onOpenFAQ} className="hover:text-[#D4AF37] transition-colors cursor-pointer">
+            <button type="button" onClick={onOpenFAQ} className="hover:text-[#D4AF37] transition-colors cursor-pointer min-h-[36px] flex items-center">
               Biossegurança &amp; Autoclave
             </button>
-            <button type="button" onClick={onOpenFAQ} className="hover:text-[#D4AF37] transition-colors cursor-pointer">
+            <button type="button" onClick={onOpenFAQ} className="hover:text-[#D4AF37] transition-colors cursor-pointer min-h-[36px] flex items-center">
               Dúvidas Frequentes
             </button>
           </div>

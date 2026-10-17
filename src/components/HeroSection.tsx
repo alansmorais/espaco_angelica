@@ -17,7 +17,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
 
       <div className="max-w-5xl mx-auto flex flex-col items-center text-center pt-4">
         {/* Overline Tag */}
-        <div className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-1 sm:py-1.5 rounded-full bg-[#FFFFFF] text-[#49382E] border border-[#E8D9B5] shadow-xs mb-4 sm:mb-5 max-w-[95%]">
+        <div className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 rounded-full bg-[#FFFFFF] text-[#49382E] border border-[#E8D9B5] shadow-xs mb-4 sm:mb-5 max-w-[95%]">
           <span className="material-symbols-outlined text-[14px] sm:text-[16px] text-[#D4AF37] shrink-0">stars</span>
           <span className="font-jakarta text-[10px] sm:text-xs uppercase tracking-wider text-[#49382E] font-bold">
             Atelier de Alta Estética &amp; Escultura Manual
@@ -26,7 +26,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
         </div>
 
         {/* Main Headline */}
-        <h1 className="font-syne text-2xl sm:text-4xl md:text-5xl lg:text-[52px] text-[#49382E] max-w-4xl tracking-tight leading-[1.2] sm:leading-[1.15] font-bold">
+        <h1 className="font-syne text-[22px] sm:text-4xl md:text-5xl lg:text-[52px] text-[#49382E] max-w-4xl tracking-tight leading-[1.25] sm:leading-[1.15] font-bold">
           Elegância em cada detalhe,{' '}
           <span className="text-[#D4AF37]">
             exclusividade para suas mãos.
@@ -43,7 +43,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
           <button
             type="button"
             onClick={onStartBooking}
-            className="w-full sm:w-auto px-6 sm:px-8 py-3.5 rounded-full bg-[#D4AF37] text-[#3C2F00] font-jakarta text-sm font-bold hover:bg-[#E5C158] transition-all duration-300 shadow-[0_12px_32px_-4px_rgba(212,175,55,0.35)] flex items-center justify-center gap-2 group cursor-pointer active:scale-95 min-h-[46px]"
+            className="w-full sm:w-auto px-6 sm:px-8 py-3.5 rounded-full bg-[#D4AF37] text-[#3C2F00] font-jakarta text-sm font-bold hover:bg-[#E5C158] transition-all duration-300 shadow-[0_12px_32px_-4px_rgba(212,175,55,0.35)] flex items-center justify-center gap-2 group cursor-pointer active:scale-95 min-h-[48px]"
           >
             <span>Iniciar Agendamento</span>
             <span className="material-symbols-outlined text-[18px] group-hover:translate-x-1 transition-transform">
@@ -53,7 +53,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
           <button
             type="button"
             onClick={onViewServices}
-            className="w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-3.5 rounded-full bg-[#FFFFFF] text-[#49382E] font-jakarta text-sm font-semibold hover:bg-[#F7EFEA] transition-all duration-300 border border-[#E8D9B5] shadow-xs flex items-center justify-center gap-2 cursor-pointer min-h-[46px]"
+            className="w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-3.5 rounded-full bg-[#FFFFFF] text-[#49382E] font-jakarta text-sm font-semibold hover:bg-[#F7EFEA] transition-all duration-300 border border-[#E8D9B5] shadow-xs flex items-center justify-center gap-2 cursor-pointer active:scale-95 min-h-[48px]"
           >
             <span className="material-symbols-outlined text-[#D4AF37] text-[18px]">palette</span>
             <span>Ver Procedimentos &amp; Valores</span>
