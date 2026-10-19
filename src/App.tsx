@@ -24,6 +24,7 @@ import {
   WhatsAppConfig
 } from './types';
 import { sendAppointmentWhatsAppConfirmation } from './services/whatsappService';
+import { playDiscreteAdminNotificationSound, registerUserInteraction } from './services/soundNotificationService';
 
 // Public Components
 import { HeaderPublic } from './components/HeaderPublic';
@@ -218,6 +219,77 @@ export default function App() {
     } catch {}
   }, [whatsappConfig]);
 
+  // Admin Real-time Pre-Booking Notification Toast State
+  const [adminNewBookingToast, setAdminNewBookingToast] = useState<{
+    id: string;
+    clientName: string;
+    serviceTitle: string;
+    date: string;
+    time: string;
+    depositAmount: number;
+  } | null>(null);
+
+  // Set of appointment IDs already notified to avoid repeating alerts
+  const seenNotificationIdsRef = React.useRef<Set<string>>(new Set());
+
+  // On mount: mark existing appointments as already seen so we never trigger alerts for historical data
+  useEffect(() => {
+    appointments.forEach(a => seenNotificationIdsRef.current.add(a.id));
+  }, []);
+
+  // Helper to trigger alert when a new pre-booking arrives
+  const notifyNewPreBooking = (apt: Appointment) => {
+    if (seenNotificationIdsRef.current.has(apt.id)) return;
+    seenNotificationIdsRef.current.add(apt.id);
+
+    setAdminNewBookingToast({
+      id: apt.id,
+      clientName: apt.clientName,
+      serviceTitle: apt.serviceTitle,
+      date: apt.date,
+      time: apt.time,
+      depositAmount: apt.depositAmount
+    });
+
+    playDiscreteAdminNotificationSound();
+  };
+
+  // Real-time synchronization across browser tabs via storage event
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'angelica_appointments' && e.newValue) {
+        try {
+          const updatedList: Appointment[] = JSON.parse(e.newValue);
+          const newPending = updatedList.filter(
+            a => a.status === 'pendente_pix' && !seenNotificationIdsRef.current.has(a.id)
+          );
+
+          setAppointments(updatedList);
+
+          if (newPending.length > 0) {
+            notifyNewPreBooking(newPending[0]);
+          }
+        } catch {}
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  // Register user interaction to unlock Web Audio API seamlessly
+  useEffect(() => {
+    const handleInteraction = () => {
+      registerUserInteraction();
+    };
+    window.addEventListener('click', handleInteraction, { once: true });
+    window.addEventListener('touchstart', handleInteraction, { once: true });
+    return () => {
+      window.removeEventListener('click', handleInteraction);
+      window.removeEventListener('touchstart', handleInteraction);
+    };
+  }, []);
+
   // Modals state
   const [aboutModalOpen, setAboutModalOpen] = useState<boolean>(false);
   const [faqModalOpen, setFaqModalOpen] = useState<boolean>(false);
@@ -257,6 +329,7 @@ export default function App() {
 
   const handleBookingConfirmed = (newApt: Appointment) => {
     setAppointments(prev => [newApt, ...prev]);
+    notifyNewPreBooking(newApt);
 
     // Automatically register or update client profile
     setClients(prev => {
@@ -603,6 +676,52 @@ export default function App() {
               searchQuery={adminSearch}
               onSearchChange={setAdminSearch}
             />
+
+            {/* Visual Notification Toast for New Pre-Booking */}
+            {adminNewBookingToast && (
+              <div className="fixed top-20 right-4 sm:right-6 z-50 max-w-md w-full bg-[#FFFFFF] border-2 border-[#D4AF37] shadow-2xl rounded-2xl p-4 flex items-start gap-3.5 animate-fadeIn">
+                <div className="w-10 h-10 rounded-full bg-[#FBF2D5] text-[#D4AF37] flex items-center justify-center shrink-0 border border-[#E8D9B5]">
+                  <span className="material-symbols-outlined text-[24px]">notifications_active</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-1 mb-1">
+                    <span className="font-syne text-xs font-bold text-[#3C2F00] uppercase tracking-wider">
+                      Novo Pré-Agendamento!
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setAdminNewBookingToast(null)}
+                      className="text-[#786C63] hover:text-[#49382E] text-xs cursor-pointer p-0.5"
+                      title="Dispensar aviso"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">close</span>
+                    </button>
+                  </div>
+                  <p className="font-jakarta text-xs text-[#49382E] font-bold">
+                    {adminNewBookingToast.clientName}
+                  </p>
+                  <p className="font-jakarta text-[11px] text-[#786C63] mt-0.5">
+                    {adminNewBookingToast.serviceTitle} • <strong>{adminNewBookingToast.date} às {adminNewBookingToast.time}</strong>
+                  </p>
+                  <div className="mt-2.5 flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-full bg-[#F7EFEA] border border-[#E8D9B5] text-[10px] font-bold text-[#D4AF37]">
+                      Sinal Pix: R$ {adminNewBookingToast.depositAmount},00
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAdminTab('confirmacao-sinais-pix');
+                        setAdminNewBookingToast(null);
+                      }}
+                      className="text-[11px] font-bold text-[#D4AF37] hover:underline flex items-center gap-0.5 cursor-pointer ml-auto"
+                    >
+                      <span>Conferir no Extrato</span>
+                      <span className="material-symbols-outlined text-[12px]">arrow_forward</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Admin Tab View Content */}
             <main className="flex-1 pt-24 px-4 sm:px-6 lg:px-8 pb-16">

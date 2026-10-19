@@ -2,6 +2,24 @@ import React, { useState, useEffect } from 'react';
 import { STUDIO_ADDRESS } from '../../data/mockData';
 import { TimeSlotConfig, DayScheduleConfig, BlacklistEntry, StudioAddressConfig, WhatsAppConfig } from '../../types';
 import { checkWhatsAppStatus, testWhatsAppMessage, fetchWhatsAppLogs, WhatsAppStatus } from '../../services/whatsappService';
+import {
+  DEFAULT_APPS_SCRIPT_WEBHOOK_URL,
+  getNotificationWebhookUrl,
+  setNotificationWebhookUrl,
+  getNotificationWebhookToken,
+  setNotificationWebhookToken,
+  testNotificationWebhook,
+  getBackendApiUrl,
+  setBackendApiUrl
+} from '../../services/emailNotificationService';
+import {
+  AUTHORIZED_SENDER_EMAIL,
+  TARGET_NOTIFICATION_EMAIL,
+  signInWithGmail,
+  logoutGmail,
+  getConnectedSenderEmail,
+  sendDirectGmailFromBrowser
+} from '../../services/gmailService';
 
 interface SettingsTabProps {
   timeSlots?: TimeSlotConfig[];
@@ -164,9 +182,165 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
   const [testWaFeedback, setTestWaFeedback] = useState<{ message: string; success: boolean; fallbackUrl?: string } | null>(null);
   const [showWaPreview, setShowWaPreview] = useState<boolean>(false);
 
+  // Webhook de Notificações por E-mail (Google Apps Script / Sheets)
+  const [webhookUrlInput, setWebhookUrlInput] = useState<string>(() => getNotificationWebhookUrl() || DEFAULT_APPS_SCRIPT_WEBHOOK_URL);
+  const [webhookTokenInput, setWebhookTokenInput] = useState<string>(() => getNotificationWebhookToken() || '');
+  const [isTestingWebhook, setIsTestingWebhook] = useState<boolean>(false);
+  const [webhookFeedback, setWebhookFeedback] = useState<{ message: string; success: boolean } | null>(null);
+  const [showScriptDetails, setShowScriptDetails] = useState<boolean>(false);
+
+  // Gmail OAuth Remetente no Navegador (kontakt@alansmsolutions.com)
+  const [gmailConnectedUser, setGmailConnectedUser] = useState<string | null>(() => getConnectedSenderEmail());
+  const [isSigningInGmail, setIsSigningInGmail] = useState<boolean>(false);
+  const [isTestingDirectGmail, setIsTestingDirectGmail] = useState<boolean>(false);
+  const [gmailOAuthFeedback, setGmailOAuthFeedback] = useState<{ message: string; success: boolean } | null>(null);
+
+  const handleConnectGmailOAuth = async () => {
+    setIsSigningInGmail(true);
+    setGmailOAuthFeedback(null);
+    try {
+      const res = await signInWithGmail();
+      if (res) {
+        setGmailConnectedUser(res.userEmail);
+        if (res.isAuthorizedSender) {
+          setGmailOAuthFeedback({
+            success: true,
+            message: `Conta autorizada conectada com sucesso: ${res.userEmail}!`
+          });
+        } else {
+          setGmailOAuthFeedback({
+            success: false,
+            message: `Atenção: A conta conectada foi ${res.userEmail}. O remetente oficial autorizado é ${AUTHORIZED_SENDER_EMAIL}.`
+          });
+        }
+      }
+    } catch (err: any) {
+      setGmailOAuthFeedback({
+        success: false,
+        message: err.message || 'Erro ao conectar conta Google via OAuth.'
+      });
+    } finally {
+      setIsSigningInGmail(false);
+    }
+  };
+
+  const handleDisconnectGmailOAuth = async () => {
+    await logoutGmail();
+    setGmailConnectedUser(null);
+    setGmailOAuthFeedback(null);
+    notify('Sessão do Gmail desconectada do navegador.');
+  };
+
+  const handleTestDirectGmail = async () => {
+    setIsTestingDirectGmail(true);
+    setGmailOAuthFeedback(null);
+    try {
+      const res = await sendDirectGmailFromBrowser({
+        clientName: 'Cliente Teste (Sistema)',
+        clientPhone: '(12) 97406-2241',
+        clientEmail: 'angelikm19@gmail.com',
+        serviceTitle: 'Teste Direto Gmail API',
+        date: 'Hoje',
+        time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        depositAmount: 50,
+        appointmentId: `test-${Date.now()}`,
+        notes: `Disparo de verificação direta pelo navegador via Gmail API (${AUTHORIZED_SENDER_EMAIL} -> ${TARGET_NOTIFICATION_EMAIL}).`
+      });
+      setGmailOAuthFeedback({ success: res.success, message: res.message });
+    } catch (err: any) {
+      setGmailOAuthFeedback({
+        success: false,
+        message: err.message || 'Falha no disparo direto via Gmail API.'
+      });
+    } finally {
+      setIsTestingDirectGmail(false);
+    }
+  };
+
+  const handleSaveWebhook = (e: React.FormEvent) => {
+    e.preventDefault();
+    setNotificationWebhookUrl(webhookUrlInput);
+    setNotificationWebhookToken(webhookTokenInput);
+    notify('Parâmetros do Webhook e Chave de Autorização salvos!');
+  };
+
+  const handleTestWebhook = async () => {
+    if (!webhookUrlInput.trim()) {
+      setWebhookFeedback({ message: 'Informe a URL do Webhook antes de testar.', success: false });
+      return;
+    }
+    setIsTestingWebhook(true);
+    setWebhookFeedback(null);
+    try {
+      const res = await testNotificationWebhook(webhookUrlInput.trim(), webhookTokenInput.trim());
+      setWebhookFeedback({ message: res.message, success: res.success });
+    } catch (err: any) {
+      setWebhookFeedback({ message: err.message || 'Erro ao conectar ao Webhook.', success: false });
+    } finally {
+      setIsTestingWebhook(false);
+    }
+  };
+
+  // Backend Seguro Server-Side Proxy State
+  const [backendUrlInput, setBackendUrlInput] = useState<string>(() => getBackendApiUrl());
+  const [backendStatus, setBackendStatus] = useState<{
+    status?: string;
+    mode?: string;
+    configured?: boolean;
+    webhookUrlConfigured?: boolean;
+    tokenConfigured?: boolean;
+  } | null>(null);
+  const [isCheckingBackend, setIsCheckingBackend] = useState<boolean>(false);
+  const [backendFeedback, setBackendFeedback] = useState<{ message: string; success: boolean } | null>(null);
+
+  const handleSaveBackend = (e: React.FormEvent) => {
+    e.preventDefault();
+    setBackendApiUrl(backendUrlInput);
+    notify('Configuração do Backend Seguro salva!');
+    handleCheckBackend(backendUrlInput);
+  };
+
+  const handleCheckBackend = async (urlOverride?: string) => {
+    setIsCheckingBackend(true);
+    setBackendFeedback(null);
+    try {
+      const base = (urlOverride !== undefined ? urlOverride : backendUrlInput).trim().replace(/\/$/, '');
+      const endpoint = base ? `${base}/api/notifications/status` : '/api/notifications/status';
+      const res = await fetch(endpoint);
+      if (res.ok) {
+        const data = await res.json();
+        setBackendStatus(data);
+        if (data.tokenConfigured) {
+          setBackendFeedback({
+            success: true,
+            message: 'Backend seguro ativo! APPS_SCRIPT_TOKEN configurado no servidor (secrets mantidos 100% server-side).'
+          });
+        } else {
+          setBackendFeedback({
+            success: false,
+            message: 'Backend conectado, mas a variável APPS_SCRIPT_TOKEN ainda não foi definida no arquivo .env do servidor.'
+          });
+        }
+      } else {
+        setBackendFeedback({
+          success: false,
+          message: `HTTP ${res.status} ao conectar com o endpoint de status do backend.`
+        });
+      }
+    } catch (err: any) {
+      setBackendFeedback({
+        success: false,
+        message: `Não foi possível conectar ao backend local (${err.message || 'servidor offline'}). Se o site estiver no GitHub Pages, informe a URL do seu backend Node / Cloud Run.`
+      });
+    } finally {
+      setIsCheckingBackend(false);
+    }
+  };
+
   useEffect(() => {
     checkWhatsAppStatus().then(setWaStatus);
     fetchWhatsAppLogs().then(setWaLogs);
+    handleCheckBackend();
   }, []);
 
   const handleSaveWaConfig = () => {
@@ -1137,6 +1311,405 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* E-mail & Google Apps Script Webhook Notification Card */}
+      <div className="bg-[#FFFFFF] p-6 sm:p-8 rounded-2xl border border-[#E8D9B5] shadow-md space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#E8D9B5]">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-[#FBF2D5] text-[#D4AF37] flex items-center justify-center border border-[#E8D9B5]">
+              <span className="material-symbols-outlined text-[24px]">mark_email_read</span>
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-syne text-lg sm:text-xl text-[#49382E] font-bold">
+                  Notificações por E-mail
+                </h3>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  {AUTHORIZED_SENDER_EMAIL} &rarr; {TARGET_NOTIFICATION_EMAIL}
+                </span>
+              </div>
+              <p className="font-jakarta text-xs text-[#786C63]">
+                Envio automático de novos pré-agendamentos da cliente para a Angélica sem depender de acesso à conta da Angélica.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowScriptDetails(!showScriptDetails)}
+            className="px-3.5 py-2 rounded-xl bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-jakarta text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer self-start sm:self-auto"
+          >
+            <span className="material-symbols-outlined text-[16px]">code</span>
+            <span>{showScriptDetails ? 'Ocultar Script' : 'Ver Código Apps Script (20 linhas)'}</span>
+          </button>
+        </div>
+
+        {/* Resumo de Configuração e Permissões */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 font-jakarta text-xs">
+          <div className="p-3.5 rounded-xl bg-[#FDFBF9] border border-[#E8D9B5] space-y-1">
+            <span className="text-[10px] uppercase font-bold text-[#786C63] tracking-wider block">Remetente Autorizado</span>
+            <div className="font-bold text-[#49382E] flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-emerald-600 text-[18px]">verified</span>
+              <span>{AUTHORIZED_SENDER_EMAIL}</span>
+            </div>
+            <p className="text-[11px] text-[#786C63]">
+              Conta autorizada pela Gmail API. Não requer senha nem autorização da Angélica.
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-[#FDFBF9] border border-[#E8D9B5] space-y-1">
+            <span className="text-[10px] uppercase font-bold text-[#786C63] tracking-wider block">Destinatária dos Alertas</span>
+            <div className="font-bold text-[#49382E] flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-[#D4AF37] text-[18px]">inbox</span>
+              <span>{TARGET_NOTIFICATION_EMAIL}</span>
+            </div>
+            <p className="text-[11px] text-[#786C63]">
+              Recebe os dados do pré-agendamento, dados da cliente e instruções de validação do Pix.
+            </p>
+          </div>
+        </div>
+
+        {/* MÓDULO 1: Backend Seguro Server-Side Proxy (Secrets Mantidos no Servidor) */}
+        <div className="p-5 rounded-2xl bg-[#FFFFFF] border-2 border-[#D4AF37] space-y-4 font-jakarta text-xs shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-[#D4AF37] text-[22px]">shield_person</span>
+                <h4 className="font-syne text-sm font-bold text-[#49382E]">
+                  Opção 1: Backend Seguro Server-Side Proxy (Secrets no Servidor)
+                </h4>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                  backendStatus?.tokenConfigured
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    : 'bg-amber-100 text-amber-800 border border-amber-300'
+                }`}>
+                  {backendStatus?.tokenConfigured ? 'Ativo & Autenticado' : 'Pendente de APPS_SCRIPT_TOKEN'}
+                </span>
+              </div>
+              <p className="text-[#786C63] mt-1 leading-relaxed">
+                As reservas salvas no site são transmitidas ao backend Node (<code>server.ts</code>), que injeta a chave <strong>APPS_SCRIPT_TOKEN</strong> diretamente no servidor antes de despachar ao Google Apps Script. <strong>Nenhum segredo ou token é exposto no navegador da cliente.</strong>
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={handleSaveBackend} className="space-y-3">
+            <div>
+              <label className="block text-[#49382E] font-semibold mb-1">
+                URL Base do Backend Seguro (Node / Express / Cloud Run)
+              </label>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="url"
+                  placeholder="Deixe em branco para usar o mesmo host (/api/notifications/new-booking)"
+                  value={backendUrlInput}
+                  onChange={e => setBackendUrlInput(e.target.value)}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-xs min-h-[44px]"
+                />
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95 whitespace-nowrap min-h-[44px]"
+                >
+                  Salvar URL Backend
+                </button>
+              </div>
+              <p className="text-[11px] text-[#786C63] mt-1">
+                Ao rodar com <code>npm run dev</code> ou no servidor próprio, deixe em branco. Se o site estiver no GitHub Pages com backend separado na nuvem, informe a URL do backend.
+              </p>
+            </div>
+          </form>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <button
+              type="button"
+              disabled={isCheckingBackend}
+              onClick={() => handleCheckBackend()}
+              className="px-4 py-2.5 rounded-xl bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-jakarta text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 min-h-[44px]"
+            >
+              <span className="material-symbols-outlined text-[18px]">
+                {isCheckingBackend ? 'sync' : 'network_check'}
+              </span>
+              <span>{isCheckingBackend ? 'Verificando Backend...' : 'Verificar Status do Backend'}</span>
+            </button>
+
+            {backendFeedback && (
+              <div
+                className={`p-3 rounded-xl text-xs flex items-center gap-2 flex-1 ${
+                  backendFeedback.success
+                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                    : 'bg-amber-50 text-amber-900 border border-amber-200'
+                }`}
+              >
+                <span className="material-symbols-outlined text-[18px]">
+                  {backendFeedback.success ? 'verified_user' : 'info'}
+                </span>
+                <span>{backendFeedback.message}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* MÓDULO 2: Envio Autônomo 24/7 via Webhook Apps Script na conta do Remetente */}
+        <div className="p-5 rounded-2xl bg-[#FDFBF9] border border-[#E8D9B5] space-y-4 font-jakarta text-xs">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-[#D4AF37] text-[20px]">cloud_sync</span>
+                <h4 className="font-syne text-sm font-bold text-[#49382E]">
+                  Opção 2: Envio Autônomo Direto (Google Apps Script Webhook)
+                </h4>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#FBF2D5] text-[#3C2F00] border border-[#E8D9B5]">
+                  Requer Script sem Senha ou Token Local
+                </span>
+              </div>
+              <p className="text-[#786C63] mt-1 leading-relaxed">
+                Executa na nuvem da Google diretamente sob a sua conta <strong>{AUTHORIZED_SENDER_EMAIL}</strong>.
+                Funciona 24 horas por dia, 7 dias por semana, <strong>mesmo quando o painel administrativo estiver fechado</strong>, sem expor tokens no frontend.
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={handleSaveWebhook} className="space-y-3">
+            <div>
+              <label className="block text-[#49382E] font-semibold mb-1">
+                URL do Webhook do Google Apps Script (implantado na conta {AUTHORIZED_SENDER_EMAIL})
+              </label>
+              <input
+                type="url"
+                placeholder={DEFAULT_APPS_SCRIPT_WEBHOOK_URL}
+                value={webhookUrlInput}
+                onChange={e => setWebhookUrlInput(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-xl bg-[#FFFFFF] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-xs min-h-[44px]"
+              />
+              <p className="text-[11px] text-[#786C63] mt-1">
+                Endpoint oficial padrão pré-configurado.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-[#49382E] font-semibold mb-1">
+                Chave / Token de Autorização do Webhook (Opcional)
+              </label>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="text"
+                  placeholder="Ex: seu-token-secreto (se exigido pelo script)"
+                  value={webhookTokenInput}
+                  onChange={e => setWebhookTokenInput(e.target.value)}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-[#FFFFFF] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-xs min-h-[44px]"
+                />
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95 whitespace-nowrap min-h-[44px]"
+                >
+                  Salvar Parâmetros
+                </button>
+              </div>
+              <p className="text-[11px] text-[#786C63] mt-1">
+                Se o script do Apps Script contiver verificação de token, digite-o aqui. Ele fica salvo apenas no navegador local do painel administrativo.
+              </p>
+            </div>
+          </form>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <button
+              type="button"
+              disabled={isTestingWebhook}
+              onClick={handleTestWebhook}
+              className="px-4 py-2.5 rounded-xl bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-jakarta text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 min-h-[44px]"
+            >
+              <span className="material-symbols-outlined text-[18px]">
+                {isTestingWebhook ? 'sync' : 'send_and_archive'}
+              </span>
+              <span>{isTestingWebhook ? 'Enviando Teste...' : 'Testar Conexão com o Webhook'}</span>
+            </button>
+
+            {webhookFeedback && (
+              <div
+                className={`p-3 rounded-xl text-xs flex items-center gap-2 flex-1 ${
+                  webhookFeedback.success
+                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                    : 'bg-amber-50 text-amber-900 border border-amber-200'
+                }`}
+              >
+                <span className="material-symbols-outlined text-[18px]">
+                  {webhookFeedback.success ? 'check_circle' : 'info'}
+                </span>
+                <span>{webhookFeedback.message}</span>
+              </div>
+            )}
+          </div>
+
+          {showScriptDetails && (
+            <div className="mt-4 p-5 rounded-xl bg-[#2A231F] text-[#FDFBF9] border border-[#49382E] space-y-4 font-mono text-[11px] leading-relaxed">
+              <div className="flex items-center justify-between text-xs text-[#E8D9B5] font-sans pb-2 border-b border-[#49382E]">
+                <span className="font-bold">Diagnóstico &amp; Código do Google Apps Script</span>
+                <span>script.google.com</span>
+              </div>
+
+              <div className="p-3.5 rounded-lg bg-[#382F2A] border border-[#52443C] font-sans text-xs space-y-2 text-[#E8D9B5]">
+                <div className="flex items-center gap-2 font-bold text-amber-300">
+                  <span className="material-symbols-outlined text-[18px]">info</span>
+                  <span>Diagnóstico do Endpoint Publicado:</span>
+                </div>
+                <p>
+                  O teste no endpoint retornou: <code className="text-amber-300 font-mono">{"{\"status\":\"error\",\"message\":\"Não autorizado.\"}"}</code>.
+                  Isso indica que dentro da função <code className="text-amber-300 font-mono">doPost(e)</code> há uma linha verificando uma chave ou token de autorização.
+                </p>
+                <p className="font-bold text-white pt-1">O que verificar no editor do Apps Script:</p>
+                <ol className="list-decimal list-inside space-y-1 text-[11px] text-[#C4B5A5]">
+                  <li>Abra o script em <a href="https://script.google.com" target="_blank" rel="noreferrer" className="text-[#D4AF37] underline">script.google.com</a>.</li>
+                  <li>Localize a verificação que retorna <em>"Não autorizado."</em>:
+                    <ul className="list-disc list-inside ml-4 mt-0.5 text-stone-300">
+                      <li>Se desejar manter o token, preencha o valor no campo <strong>Chave / Token de Autorização</strong> acima.</li>
+                      <li>Para simplificar, remova essa checagem e use o código modelo aberto abaixo.</li>
+                    </ul>
+                  </li>
+                  <li><strong>Atenção Obrigatória ao Salvar no Apps Script:</strong> Após qualquer edição no código, clique em <strong>Implantar &gt; Gerenciar implantações &gt; Editar (ícone de lápis) &gt; Versão: Nova versão &gt; Implantar</strong>. <em>(Apenas salvar no editor não atualiza o endpoint em execução!)</em></li>
+                </ol>
+              </div>
+
+              <pre className="overflow-x-auto p-3 bg-[#1E1916] rounded-lg text-emerald-300">
+{`function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+
+    // 1. Grava no Google Sheets (se o script for vinculado a uma planilha)
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (ss) {
+      var sheet = ss.getActiveSheet();
+      sheet.appendRow([
+        new Date(),
+        data.clientName,
+        data.clientPhone,
+        data.clientEmail || '',
+        data.serviceTitle,
+        data.date,
+        data.time,
+        data.depositAmount,
+        data.status,
+        data.appointmentId,
+        data.notes || ''
+      ]);
+    }
+
+    // 2. Dispara e-mail oficial de kontakt@alansmsolutions.com para angelikm19@gmail.com
+    var subject = "Novo pré-agendamento — " + data.clientName + " — " + data.date + " às " + data.time;
+    var body = "Olá Angélica,\\n\\nUm novo pré-agendamento foi realizado pelo site!\\n\\n" +
+      "• Cliente: " + data.clientName + "\\n" +
+      "• Telefone: " + data.clientPhone + "\\n" +
+      (data.clientEmail ? "• E-mail: " + data.clientEmail + "\\n" : "") +
+      "• Procedimento: " + data.serviceTitle + "\\n" +
+      "• Data & Horário: " + data.date + " às " + data.time + "\\n" +
+      "• Sinal Pix: R$ " + data.depositAmount + ",00\\n" +
+      "• ID da Reserva: " + data.appointmentId + "\\n" +
+      (data.notes ? "• Observações: " + data.notes + "\\n\\n" : "\\n") +
+      "Verifique o recebimento do Pix de R$ " + data.depositAmount + ",00 na sua conta bancária para confirmar a vaga.";
+
+    MailApp.sendEmail({
+      to: "angelikm19@gmail.com",
+      replyTo: data.clientEmail || "kontakt@alansmsolutions.com",
+      subject: subject,
+      body: body
+    });
+
+    return ContentService.createTextOutput(JSON.stringify({ status: "success" }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}`}
+              </pre>
+            </div>
+          )}
+        </div>
+
+        {/* MÓDULO 3: Envio Direto via Gmail OAuth no Navegador */}
+        <div className="p-5 rounded-2xl bg-[#FFFFFF] border border-[#E8D9B5] space-y-4 font-jakarta text-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-emerald-600 text-[20px]">web</span>
+                <h4 className="font-syne text-sm font-bold text-[#49382E]">
+                  Opção 3: Envio Direto via Gmail OAuth no Navegador
+                </h4>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                  gmailConnectedUser ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-stone-100 text-stone-600 border border-stone-200'
+                }`}>
+                  {gmailConnectedUser ? 'Sessão Ativa' : 'Desconectado'}
+                </span>
+              </div>
+              <p className="text-[#786C63] mt-1 leading-relaxed">
+                Utiliza a Gmail API autorizada diretamente a partir do seu navegador através do Firebase Auth.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              {gmailConnectedUser ? (
+                <button
+                  type="button"
+                  onClick={handleDisconnectGmailOAuth}
+                  className="px-4 py-2 rounded-xl bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 font-bold transition-colors cursor-pointer"
+                >
+                  Desconectar Sessão
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={isSigningInGmail}
+                  onClick={handleConnectGmailOAuth}
+                  className="px-4 py-2 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-[16px]">login</span>
+                  <span>{isSigningInGmail ? 'Conectando...' : `Conectar ${AUTHORIZED_SENDER_EMAIL}`}</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Banner de Esclarecimento Transparente (Requisito 4) */}
+          <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 space-y-1 text-[11px] leading-relaxed">
+            <div className="flex items-center gap-1.5 font-bold">
+              <span className="material-symbols-outlined text-amber-700 text-[18px]">info</span>
+              <span>Funcionamento no Navegador vs. Painel Fechado:</span>
+            </div>
+            <p>
+              Esta integração OAuth utiliza o token de sessão do seu navegador. O envio direto pela Gmail API <strong>só ocorre enquanto o painel administrativo estiver aberto com esta sessão ativa</strong>. Quando o painel estiver fechado ou se a cliente agendar de outro aparelho, o envio automático autônomo é delegado à <strong>Opção 1 (Webhook Apps Script)</strong>.
+            </p>
+          </div>
+
+          {gmailConnectedUser && (
+            <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <button
+                type="button"
+                disabled={isTestingDirectGmail}
+                onClick={handleTestDirectGmail}
+                className="px-4 py-2.5 rounded-xl bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-jakarta text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 min-h-[44px]"
+              >
+                <span className="material-symbols-outlined text-[18px]">
+                  {isTestingDirectGmail ? 'sync' : 'forward_to_inbox'}
+                </span>
+                <span>{isTestingDirectGmail ? 'Disparando...' : 'Testar Envio Direto via Gmail API'}</span>
+              </button>
+
+              {gmailOAuthFeedback && (
+                <div
+                  className={`p-3 rounded-xl text-xs flex items-center gap-2 flex-1 ${
+                    gmailOAuthFeedback.success
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                      : 'bg-red-50 text-red-800 border border-red-200'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[18px]">
+                    {gmailOAuthFeedback.success ? 'check_circle' : 'error'}
+                  </span>
+                  <span>{gmailOAuthFeedback.message}</span>
+                </div>
+              )}
             </div>
           )}
         </div>

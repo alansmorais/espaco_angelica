@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -12,6 +13,68 @@ const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
 app.use(express.json());
+
+// -----------------------------------------------------------------------------
+// CORS Configuration for Production Frontend (GitHub Pages) & Development
+// -----------------------------------------------------------------------------
+const allowedOrigins = [
+  process.env.FRONTEND_ORIGIN,
+  'https://alansmorais.github.io',
+  'https://alanp.github.io',
+  'http://localhost:5173',
+  'http://localhost:3000'
+].filter(Boolean) as string[];
+
+app.use((req: Request, res: Response, next) => {
+  const origin = req.headers.origin;
+
+  if (origin) {
+    const isAllowed =
+      allowedOrigins.includes(origin) ||
+      process.env.NODE_ENV !== 'production';
+
+    if (isAllowed) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.setHeader('Access-Control-Max-Age', '86400');
+    }
+  }
+
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+
+  next();
+});
+
+// -----------------------------------------------------------------------------
+// In-Memory Rate Limiter for Booking Notifications (max 10 requests / 60 seconds per IP)
+// -----------------------------------------------------------------------------
+const notificationRateLimitMap = new Map<string, number[]>();
+
+function checkNotificationRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const windowMs = 60 * 1000;
+  const maxRequests = 10;
+
+  const timestamps = notificationRateLimitMap.get(ip) || [];
+  const recent = timestamps.filter(t => now - t < windowMs);
+
+  if (recent.length >= maxRequests) {
+    return false;
+  }
+
+  recent.push(now);
+  notificationRateLimitMap.set(ip, recent);
+  return true;
+}
+
+// -----------------------------------------------------------------------------
+// Server-Side Anti-Duplication Store for Booking Notifications
+// Prevents duplicate dispatches to Google Apps Script and duplicate Google Sheets writes
+// -----------------------------------------------------------------------------
+const processedAppointmentIds = new Set<string>();
 
 // In-memory message dispatch log
 export interface WhatsAppMessageLog {
@@ -134,6 +197,205 @@ app.get('/api/whatsapp/logs', (_req: Request, res: Response) => {
   res.json({
     logs: messageLogs.slice(0, 50)
   });
+});
+
+app.get('/health', (_req: Request, res: Response) => {
+  res.json({
+    status: 'ok',
+    service: 'espaco-angelica-backend',
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/api/notifications/status', (_req: Request, res: Response) => {
+  const webhookUrl = process.env.APPS_SCRIPT_WEBHOOK_URL || 'https://script.google.com/macros/s/AKfycby3s6UC86UjTAJtAjtyQF634z8NMv9LORG_IrzxCb4X_RQx0lLCyetz__QGT0-9B3jJ/exec';
+  const hasToken = Boolean(process.env.APPS_SCRIPT_TOKEN || process.env.WEBHOOK_SECRET);
+  res.json({
+    status: 'ok',
+    mode: 'secure_server_proxy',
+    configured: Boolean(webhookUrl && hasToken),
+    webhookUrlConfigured: Boolean(webhookUrl),
+    tokenConfigured: hasToken,
+    targetSender: 'kontakt@alansmsolutions.com',
+    targetRecipient: 'angelikm19@gmail.com'
+  });
+});
+
+app.post('/api/notifications/new-booking', async (req: Request, res: Response) => {
+  try {
+    const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+
+    // 1. Rate Limiting Check (Anti-spam/abuse)
+    if (!checkNotificationRateLimit(clientIp)) {
+      console.warn(`[Notification Warning] Rate limit excedido para IP ${clientIp}`);
+      return res.status(429).json({
+        success: false,
+        error: 'Limite de requisições excedido. Por favor, aguarde alguns instantes.'
+      });
+    }
+
+    const payload = req.body;
+
+    // 2. Strict Request Validation
+    if (!payload || typeof payload !== 'object') {
+      return res.status(400).json({
+        success: false,
+        error: 'Carga de requisição inválida.'
+      });
+    }
+
+    const { clientName, clientPhone, date, time, depositAmount, appointmentId } = payload;
+
+    if (!clientName || typeof clientName !== 'string' || clientName.trim().length < 2) {
+      return res.status(400).json({
+        success: false,
+        error: 'Nome da cliente inválido ou ausente.'
+      });
+    }
+
+    if (!clientPhone || typeof clientPhone !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Telefone da cliente ausente.'
+      });
+    }
+
+    const { valid } = normalizePhone(clientPhone);
+    if (!valid) {
+      return res.status(400).json({
+        success: false,
+        error: 'Telefone da cliente possui formato inválido.'
+      });
+    }
+
+    if (!date || typeof date !== 'string' || !time || typeof time !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Data ou horário de atendimento ausentes.'
+      });
+    }
+
+    if (depositAmount !== undefined && (typeof depositAmount !== 'number' || depositAmount !== 50)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valor do sinal divergente da política oficial (R$ 50,00).'
+      });
+    }
+
+    if (!appointmentId || typeof appointmentId !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'ID da reserva ausente.'
+      });
+    }
+
+    // 3. Server-Side Anti-Duplication Protection
+    // Evita chamadas repetidas ao Google Apps Script e gravações duplicadas no Google Sheets
+    if (processedAppointmentIds.has(appointmentId)) {
+      console.log(`[Notification Info] Notificação duplicada evitada para reserva ${appointmentId}`);
+      return res.json({
+        success: true,
+        delivered: false,
+        duplicate: true,
+        message: `Notificação para a reserva ${appointmentId} já havia sido processada anteriormente. Gravação duplicada no Sheets prevenida.`,
+        from: 'kontakt@alansmsolutions.com',
+        to: 'angelikm19@gmail.com'
+      });
+    }
+
+    processedAppointmentIds.add(appointmentId);
+    if (processedAppointmentIds.size > 1000) {
+      const first = processedAppointmentIds.values().next().value;
+      if (first) processedAppointmentIds.delete(first);
+    }
+
+    console.log(`[Notification] Novo pré-agendamento recebido no servidor: ${clientName.trim()} (${clientPhone.trim()}) • ${payload.serviceTitle || 'Nail Design'} • ${date} às ${time}`);
+
+    const webhookUrl =
+      process.env.APPS_SCRIPT_WEBHOOK_URL ||
+      'https://script.google.com/macros/s/AKfycby3s6UC86UjTAJtAjtyQF634z8NMv9LORG_IrzxCb4X_RQx0lLCyetz__QGT0-9B3jJ/exec';
+    const serverToken = process.env.APPS_SCRIPT_TOKEN || process.env.WEBHOOK_SECRET || '';
+
+    // If Google Apps Script webhook URL is available, forward securely server-to-server
+    if (webhookUrl) {
+      const authorizedBody = {
+        ...payload,
+        from: 'kontakt@alansmsolutions.com',
+        to: 'angelikm19@gmail.com',
+        depositAmount: depositAmount || 50,
+        status: payload.status || 'pendente_pix',
+        // Injeta os tokens e credenciais apenas no lado do servidor
+        ...(serverToken ? { token: serverToken, authToken: serverToken, key: serverToken } : {})
+      };
+
+      try {
+        const scriptResponse = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8'
+          },
+          body: JSON.stringify(authorizedBody),
+          signal: AbortSignal.timeout(15000)
+        });
+
+        if (scriptResponse.ok) {
+          const responseText = await scriptResponse.text();
+          let jsonRes: any = null;
+          try {
+            jsonRes = JSON.parse(responseText);
+          } catch {}
+
+          if (jsonRes && jsonRes.status === 'error') {
+            console.warn(`[Notification Warning] Google Apps Script recusou a notificação: ${jsonRes.message}`);
+            return res.status(200).json({
+              success: false,
+              delivered: false,
+              error: `Google Apps Script recusou: ${jsonRes.message || 'Erro não especificado'}`
+            });
+          }
+
+          console.log(`[Notification Success] Google Apps Script confirmou o disparo para angelikm19@gmail.com!`);
+          return res.json({
+            success: true,
+            delivered: true,
+            message: `Notificação enviada com sucesso para angelikm19@gmail.com via Google Apps Script (remetente: kontakt@alansmsolutions.com).`,
+            from: 'kontakt@alansmsolutions.com',
+            to: 'angelikm19@gmail.com'
+          });
+        } else {
+          return res.status(200).json({
+            success: false,
+            delivered: false,
+            error: `HTTP ${scriptResponse.status} retornado pelo Google Apps Script.`
+          });
+        }
+      } catch (scriptErr: any) {
+        console.error(`[Notification Error] Falha ao conectar ao Google Apps Script:`, scriptErr);
+        const isTimeout = scriptErr.name === 'TimeoutError' || scriptErr.name === 'AbortError' || scriptErr.message?.includes('timeout');
+        return res.status(200).json({
+          success: false,
+          delivered: false,
+          error: isTimeout
+            ? 'Tempo limite esgotado (15s) ao aguardar resposta do Google Apps Script.'
+            : `Falha de rede ao conectar com o Google Apps Script: ${scriptErr.message}`
+        });
+      }
+    }
+
+    return res.json({
+      success: true,
+      delivered: false,
+      message: `Pré-agendamento registrado no servidor. Notificação gravada (nenhum Webhook configurado).`,
+      from: 'kontakt@alansmsolutions.com',
+      to: 'angelikm19@gmail.com'
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: 'Erro interno ao processar notificação de agendamento.',
+      details: err.message
+    });
+  }
 });
 
 app.post('/api/whatsapp/send-confirmation', async (req: Request, res: Response) => {
@@ -311,14 +573,29 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
+    const distDir = path.resolve(__dirname, 'dist');
+    const indexPath = path.resolve(distDir, 'index.html');
+    app.use(express.static(distDir));
     app.get('*', (_req: Request, res: Response) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.json({
+          status: 'ok',
+          service: 'espaco-angelica-backend',
+          message: 'Espaço Angélica do Carmo API Server is online.',
+          endpoints: {
+            health: '/health',
+            notificationStatus: '/api/notifications/status',
+            whatsappStatus: '/api/whatsapp/status'
+          }
+        });
+      }
     });
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[WhatsApp Business Server] Running on http://0.0.0.0:${PORT}`);
+    console.log(`[Espaço Angélica Server] Running on http://0.0.0.0:${PORT}`);
   });
 }
 

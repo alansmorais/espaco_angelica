@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Service, Appointment, TimeSlotConfig, BlacklistEntry, StudioAddressConfig, RecurrenceConfig } from '../types';
 import { INITIAL_TIME_SLOTS, INITIAL_BLACKLIST, STUDIO_ADDRESS } from '../data/mockData';
+import { buildOfficialWhatsAppUrl } from '../services/notificationTemplates';
+import { triggerNewPreBookingEmailNotification } from '../services/emailNotificationService';
 
 interface BookingWizardProps {
   selectedService: Service;
@@ -33,6 +35,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   const [pixCopyError, setPixCopyError] = useState<boolean>(false);
   const [receiptFileName, setReceiptFileName] = useState<string | null>(null);
   const [bookingWhatsAppModal, setBookingWhatsAppModal] = useState<boolean>(false);
+  const [confirmedAppointment, setConfirmedAppointment] = useState<Appointment | null>(null);
+  const [isSubmittingBooking, setIsSubmittingBooking] = useState<boolean>(false);
 
   // Requirement 5: Agendamento Recorrente
   const [isRecurring, setIsRecurring] = useState<boolean>(false);
@@ -140,6 +144,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   };
 
   const handleConfirmBooking = () => {
+    if (isSubmittingBooking) return;
+
     if (!clientName.trim()) {
       alert('Por favor informe seu nome completo para o agendamento.');
       return;
@@ -148,6 +154,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
       alert('Por favor informe seu telefone WhatsApp para contato.');
       return;
     }
+
+    setIsSubmittingBooking(true);
 
     const finalName = clientName.trim();
     const finalPhone = clientPhone.trim();
@@ -199,6 +207,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
     };
 
     onBookingConfirmed(newAppointment);
+    setConfirmedAppointment(newAppointment);
+    triggerNewPreBookingEmailNotification(newAppointment).catch(() => {});
     setBookingWhatsAppModal(true);
   };
 
@@ -859,11 +869,14 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
               <div className="mt-6 space-y-2">
                 <button
                   type="button"
+                  disabled={isSubmittingBooking}
                   onClick={handleConfirmBooking}
-                  className="w-full py-3.5 sm:py-4 rounded-full bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta text-sm sm:text-base font-bold transition-all duration-300 shadow-[0_12px_32px_-4px_rgba(212,175,55,0.35)] flex items-center justify-center gap-2 cursor-pointer active:scale-98 min-h-[50px]"
+                  className={`w-full py-3.5 sm:py-4 rounded-full bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta text-sm sm:text-base font-bold transition-all duration-300 shadow-[0_12px_32px_-4px_rgba(212,175,55,0.35)] flex items-center justify-center gap-2 min-h-[50px] ${
+                    isSubmittingBooking ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer active:scale-98'
+                  }`}
                 >
                   <span className="material-symbols-outlined text-[20px]">check_circle</span>
-                  <span>Confirmar &amp; Salvar Agendamento</span>
+                  <span>{isSubmittingBooking ? 'Registrando agendamento...' : 'Confirmar & Salvar Agendamento'}</span>
                 </button>
                 <p className="text-center font-jakarta text-[11px] text-[#786C63] leading-tight">
                   O agendamento será salvo automaticamente no sistema e encaminhado para validação do Pix pela Angélica.
@@ -888,26 +901,64 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
       {/* Booking Success Modal */}
       {bookingWhatsAppModal && (
         <div className="fixed inset-0 z-50 bg-[#49382E]/60 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#FFFFFF] p-6 sm:p-8 rounded-3xl max-w-md w-full border border-[#E8D9B5] shadow-2xl text-center">
-            <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-700 mx-auto flex items-center justify-center mb-4 border border-emerald-300">
+          <div className="bg-[#FFFFFF] p-6 sm:p-8 rounded-3xl max-w-md w-full border border-[#E8D9B5] shadow-2xl text-center space-y-4">
+            <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-700 mx-auto flex items-center justify-center border border-emerald-300">
               <span className="material-symbols-outlined text-[36px]">check_circle</span>
             </div>
-            <h3 className="font-syne text-2xl text-[#49382E] font-bold">Agendamento Salvo com Sucesso!</h3>
-            <p className="font-jakarta text-xs sm:text-sm text-[#786C63] mt-2 leading-relaxed">
-              Sua solicitação para <strong>{selectedDate} às {selectedTime}</strong> ({selectedService.title}) foi registrada no sistema do atelier.
-            </p>
-            <div className="my-3 py-2 px-3 rounded-lg bg-[#F7EFEA] border border-[#E8D9B5] text-xs text-[#49382E] font-bold">
-              Status: Salvo • Aguardando Conferência do Pix (R$ {depositValue},00)
+
+            <div>
+              <h3 className="font-syne text-2xl text-[#49382E] font-bold">Pré-Agendamento Registrado!</h3>
+              <p className="font-jakarta text-xs sm:text-sm text-[#786C63] mt-1.5 leading-relaxed">
+                Sua solicitação para <strong>{selectedDate} às {selectedTime}</strong> ({selectedService.title}) foi salva no sistema.
+              </p>
             </div>
+
+            <div className="py-2.5 px-3.5 rounded-xl bg-[#F7EFEA] border border-[#E8D9B5] text-xs text-[#49382E] text-left space-y-1">
+              <div className="font-bold flex items-center justify-between">
+                <span>Status: Pendente de Conferência</span>
+                <span className="text-[#D4AF37]">Sinal: R$ {depositValue},00</span>
+              </div>
+              <div className="text-[11px] text-[#786C63]">
+                Chave PIX: <strong>12974062241</strong> • Titular: <strong>Angelica do Carmo Costa Santos</strong>
+              </div>
+            </div>
+
             <p className="font-jakarta text-[11px] text-[#786C63] text-left leading-relaxed">
-              Obrigada, <strong>{clientName}</strong>! Seu horário foi salvo na agenda da Angélica. Assim que o pagamento via Pix (chave <strong>+5512974062241</strong>) for conciliado no extrato, a vaga será 100% confirmada.
+              Obrigada, <strong>{clientName}</strong>! Seu horário está reservado mediante o sinal. Envie seu comprovante para que possamos confirmar seu atendimento.
             </p>
+
+            {/* Optional WhatsApp Button */}
+            <div className="pt-2 space-y-2">
+              <a
+                href={buildOfficialWhatsAppUrl({
+                  clientName: confirmedAppointment?.clientName || clientName,
+                  serviceTitle: confirmedAppointment?.serviceTitle || selectedService.title,
+                  date: confirmedAppointment?.date || selectedDate,
+                  time: confirmedAppointment?.time || selectedTime,
+                  depositAmount: confirmedAppointment?.depositAmount || depositValue
+                })}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-3 px-4 rounded-full bg-[#25D366] hover:bg-[#20bd5a] text-white font-jakarta text-xs sm:text-sm font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer active:scale-95 min-h-[46px]"
+              >
+                <span className="material-symbols-outlined text-[20px]">chat</span>
+                <span>Enviar mensagem pelo WhatsApp</span>
+              </a>
+
+              <p className="text-[10px] text-[#786C63] text-center leading-tight">
+                Abre o WhatsApp com a mensagem oficial e política do atelier pronta para você revisar e enviar.
+              </p>
+            </div>
+
             <button
               type="button"
-              onClick={() => setBookingWhatsAppModal(false)}
-              className="mt-6 w-full py-3 rounded-full bg-[#D4AF37] text-[#3C2F00] font-jakarta text-xs font-bold hover:bg-[#E5C158] transition-all cursor-pointer"
+              onClick={() => {
+                setBookingWhatsAppModal(false);
+                setIsSubmittingBooking(false);
+              }}
+              className="w-full py-2.5 rounded-full bg-[#F7EFEA] hover:bg-[#E8D9B5] text-[#49382E] font-jakarta text-xs font-semibold transition-all cursor-pointer border border-[#E8D9B5]"
             >
-              Entendido &amp; Continuar Navegando
+              Continuar Navegando no Site
             </button>
           </div>
         </div>
