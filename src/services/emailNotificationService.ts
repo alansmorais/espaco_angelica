@@ -19,10 +19,13 @@ export interface EmailNotificationPayload {
   clientName: string;
   clientPhone: string;
   clientEmail?: string;
+  serviceId?: string;
   serviceTitle: string;
+  servicePrice?: string;
   date: string;
   time: string;
   depositAmount: number;
+  paymentMode?: 'sinal_40' | 'sinal_50' | 'pre_pagamento_100';
   status: string;
   appointmentId: string;
   nailCondition?: string;
@@ -92,10 +95,13 @@ export function buildPreBookingEmailPayload(apt: Appointment): EmailNotification
     clientName: apt.clientName,
     clientPhone: apt.clientPhone,
     clientEmail: apt.clientEmail,
+    serviceId: apt.serviceId,
     serviceTitle: apt.serviceTitle,
+    servicePrice: apt.servicePrice,
     date: apt.date,
     time: apt.time,
     depositAmount: apt.depositAmount,
+    paymentMode: apt.paymentMode,
     status: apt.status || 'pendente_pix',
     appointmentId: apt.id,
     nailCondition: apt.nailCondition,
@@ -104,17 +110,36 @@ export function buildPreBookingEmailPayload(apt: Appointment): EmailNotification
   };
 }
 
+export function isLocalOrStagingFrontend(): boolean {
+  const envMode = (import.meta as any).env?.VITE_APP_ENV || (import.meta as any).env?.MODE;
+  if (envMode === 'staging') return true;
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') return true;
+  }
+  return false;
+}
+
 /**
  * Obtém a URL do Webhook configurada para envio de notificações por e-mail e Sheets.
- * Usa o endpoint oficial publicado por padrão.
+ * Em ambiente local/staging, nunca faz fallback para a URL de produção.
  */
 export function getNotificationWebhookUrl(): string {
-  if (typeof window === 'undefined') return DEFAULT_APPS_SCRIPT_WEBHOOK_URL;
-  return (
+  if (typeof window === 'undefined') {
+    return isLocalOrStagingFrontend() ? '' : DEFAULT_APPS_SCRIPT_WEBHOOK_URL;
+  }
+  const explicitUrl = (
     (import.meta as any).env?.VITE_NOTIFICATION_WEBHOOK_URL ||
     localStorage.getItem(NOTIFICATION_WEBHOOK_STORAGE_KEY) ||
-    DEFAULT_APPS_SCRIPT_WEBHOOK_URL
-  );
+    ''
+  ).trim();
+  if (isLocalOrStagingFrontend()) {
+    if (!explicitUrl || explicitUrl === DEFAULT_APPS_SCRIPT_WEBHOOK_URL) {
+      return '';
+    }
+    return explicitUrl;
+  }
+  return explicitUrl || DEFAULT_APPS_SCRIPT_WEBHOOK_URL;
 }
 
 /**
@@ -162,18 +187,24 @@ export const BACKEND_API_URL_STORAGE_KEY = 'angelica_backend_api_url';
 
 /**
  * Obtém a URL base do backend seguro (Node server / Cloud Run) configurada.
- * Prioridade:
- * 1. Variável de build do Vite (VITE_BACKEND_API_URL)
- * 2. Sobrescrita manual configurada pelo admin no localStorage
- * 3. URL oficial padrão do Cloud Run em produção
+ * Em ambiente local/staging, usa o servidor local ('') por padrão e nunca faz fallback para produção.
  */
 export function getBackendApiUrl(): string {
-  if (typeof window === 'undefined') return DEFAULT_BACKEND_API_URL;
-  return (
+  if (typeof window === 'undefined') {
+    return isLocalOrStagingFrontend() ? '' : DEFAULT_BACKEND_API_URL;
+  }
+  const explicitBackend = (
     (import.meta as any).env?.VITE_BACKEND_API_URL ||
     localStorage.getItem(BACKEND_API_URL_STORAGE_KEY) ||
-    DEFAULT_BACKEND_API_URL
-  );
+    ''
+  ).trim();
+  if (isLocalOrStagingFrontend()) {
+    if (!explicitBackend || explicitBackend === DEFAULT_BACKEND_API_URL) {
+      return '';
+    }
+    return explicitBackend;
+  }
+  return explicitBackend || DEFAULT_BACKEND_API_URL;
 }
 
 /**
@@ -302,10 +333,13 @@ export async function testNotificationWebhook(
     clientName: 'Cliente Teste (Sistema)',
     clientPhone: '(12) 97406-2241',
     clientEmail: 'angelikm19@gmail.com',
+    serviceId: 'alongamento-fibra-slim',
     serviceTitle: 'Teste de Integração E-mail (kontakt@alansmsolutions.com)',
+    servicePrice: 'R$ 220,00',
     date: 'Hoje',
     time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-    depositAmount: 50,
+    depositAmount: 88,
+    paymentMode: 'sinal_40',
     status: 'teste_sistema',
     appointmentId: `test-${Date.now()}`,
     notes: `Disparo de verificação realizado pelo painel com remetente ${AUTHORIZED_SENDER_EMAIL}.`,
@@ -365,8 +399,26 @@ export async function triggerNewPreBookingEmailNotification(apt: Appointment): P
           payload
         };
       }
+      if (isLocalOrStagingFrontend()) {
+        return {
+          success: false,
+          appointmentId: apt.id,
+          mode: 'webhook_rejected',
+          message: data.error || 'Envio bloqueado no ambiente de staging (verifique .env.staging).',
+          payload
+        };
+      }
     }
   } catch {
+    if (isLocalOrStagingFrontend()) {
+      return {
+        success: false,
+        appointmentId: apt.id,
+        mode: 'static_recorded',
+        message: 'Servidor local/staging indisponível. Nenhum fallback para produção foi executado.',
+        payload
+      };
+    }
     // Se o backend não responder (ex.: GitHub Pages estático sem backend configurado), tenta as opções cliente
   }
 

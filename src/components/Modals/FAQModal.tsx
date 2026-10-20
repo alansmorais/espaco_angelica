@@ -17,8 +17,8 @@ export const FAQModal: React.FC<FAQModalProps> = ({
 
   const faqs = [
     {
-      q: 'Como funciona o sinal de R$ 50,00 via Pix?',
-      a: 'Por atendermos de forma estritamente individual (1 a 1), o sinal garante o bloqueio imediato e irrevogável do horário na agenda da Angélica. O valor de R$ 50,00 é integralmente deduzido do total do seu procedimento no momento do atendimento no estúdio.'
+      q: 'Como funciona o sinal de 40% via Pix?',
+      a: 'Para confirmar o horário, é necessário pagar um sinal de 40% do valor do procedimento. O sinal garante a vaga e é descontado do valor total no dia do atendimento.'
     },
     {
       q: 'Qual a durabilidade do alongamento em fibra e da blindagem?',
@@ -26,7 +26,7 @@ export const FAQModal: React.FC<FAQModalProps> = ({
     },
     {
       q: 'Posso reagendar ou cancelar meu horário?',
-      a: 'Sim! Reagendamentos ou cancelamentos com mais de 24 horas de antecedência são gratuitos e o sinal é estornado ou mantido como crédito para até 30 dias subsequentes.'
+      a: 'Mudanças de data exigem pelo menos 24 horas de antecedência, mantendo o sinal pago. Em caso de desistência ou não comparecimento, o sinal não é reembolsado, pois cobre o bloqueio da vaga e os preparativos.'
     },
     {
       q: 'Qual é o protocolo de biossegurança e autoclave?',

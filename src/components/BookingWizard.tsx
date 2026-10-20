@@ -1,7 +1,13 @@
 import React, { useState } from 'react';
 import { Service, Appointment, TimeSlotConfig, BlacklistEntry, StudioAddressConfig, RecurrenceConfig } from '../types';
 import { INITIAL_TIME_SLOTS, INITIAL_BLACKLIST, STUDIO_ADDRESS } from '../data/mockData';
-import { buildOfficialWhatsAppUrl } from '../services/notificationTemplates';
+import {
+  buildOfficialWhatsAppUrl,
+  calculateDeposit40,
+  calculateFullPrepayment,
+  calculateRemainingBalance,
+  formatBRL
+} from '../services/notificationTemplates';
 import { triggerNewPreBookingEmailNotification } from '../services/emailNotificationService';
 
 interface BookingWizardProps {
@@ -43,8 +49,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   const [recurrenceFreqDays, setRecurrenceFreqDays] = useState<number>(21);
   const [recurrenceTotalSessions, setRecurrenceTotalSessions] = useState<number>(3);
 
-  // Requirement 7: Opção de Pré-pagamento via Pix
-  const [paymentMode, setPaymentMode] = useState<'sinal_50' | 'pre_pagamento_100'>('sinal_50');
+  // Requirement 7: Opção de Pré-pagamento via Pix (Sinal de 40% ou 100%)
+  const [paymentMode, setPaymentMode] = useState<'sinal_40' | 'pre_pagamento_100'>('sinal_40');
 
   // Requirement 6: Checagem de Inadimplência
   const normalizedPhone = clientPhone.replace(/\D/g, '');
@@ -67,18 +73,19 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
     { day: 'Seg', num: '18', full: 'Segunda, 18 Nov', available: false }
   ];
 
-  // Price calculations
+  // Price calculations (40% deposit or 100% full prepayment of selected procedure's official price)
   const servicePrice = selectedService.price;
-  const prepayDiscountPercent = 5;
-  const discountedFullPrice = Math.round(servicePrice * (1 - prepayDiscountPercent / 100));
+  const fullPrepayment = calculateFullPrepayment(servicePrice);
+  const standardDeposit = calculateDeposit40(servicePrice);
+  const standardBalance = calculateRemainingBalance(servicePrice, standardDeposit);
 
   const depositValue = effectivePaymentMode === 'pre_pagamento_100'
-    ? (isInadimplente ? servicePrice : discountedFullPrice)
-    : 50;
+    ? fullPrepayment
+    : standardDeposit;
 
   const balanceRemaining = effectivePaymentMode === 'pre_pagamento_100'
     ? 0
-    : Math.max(0, servicePrice - depositValue);
+    : calculateRemainingBalance(servicePrice, depositValue);
 
   // Recurrence calculated preview dates
   const calculateUpcomingDates = () => {
@@ -185,6 +192,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
       clientInstagram: clientInstagram || undefined,
       nailCondition,
       notes: clientNotes || undefined,
+      serviceId: selectedService.id,
       serviceTitle: selectedService.title,
       servicePrice: selectedService.priceFormatted,
       serviceDuration: selectedService.duration,
@@ -279,10 +287,10 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
               </div>
               <div className="flex flex-col min-w-0">
                 <span className="text-[9px] sm:text-[10px] font-jakarta text-[#786C63] uppercase tracking-wider font-bold">
-                  Sinal Pix
+                  {effectivePaymentMode === 'pre_pagamento_100' ? 'Pix (100%)' : 'Sinal (40%)'}
                 </span>
                 <span className="text-[11px] sm:text-sm font-jakarta text-[#D4AF37] truncate font-semibold">
-                  R$ {depositValue},00
+                  R$ {formatBRL(depositValue)}
                 </span>
               </div>
             </div>
@@ -303,7 +311,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                 Identificamos uma restrição cadastral prévia para o número <strong>{clientPhone}</strong> ({matchedBlacklist?.reason || 'No-show / Pendência'}).
               </p>
               <p className="text-amber-950 mt-1.5 font-semibold">
-                Para confirmação deste horário na grade, é exigido o <strong>Pré-pagamento Integral (100% via Pix: R$ {servicePrice},00)</strong>.
+                Para confirmação deste horário na grade, é exigido o <strong>Pré-pagamento Integral (100% via Pix: R$ {formatBRL(servicePrice)})</strong>.
               </p>
             </div>
           </div>
@@ -612,13 +620,13 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
 
               {/* Payment Mode Selector Tabs */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5 font-jakarta text-xs">
-                {/* Option A: Sinal Padrão */}
+                {/* Option A: Sinal Padrão (40%) */}
                 <button
                   type="button"
                   disabled={isInadimplente}
-                  onClick={() => setPaymentMode('sinal_50')}
+                  onClick={() => setPaymentMode('sinal_40')}
                   className={`p-4 rounded-xl border text-left transition-all ${
-                    effectivePaymentMode === 'sinal_50'
+                    effectivePaymentMode === 'sinal_40'
                       ? 'bg-[#FDFBF9] border-[#D4AF37] shadow-xs ring-1 ring-[#D4AF37]'
                       : isInadimplente
                       ? 'bg-[#F7EFEA] border-[#E8D9B5]/40 opacity-30 cursor-not-allowed'
@@ -626,11 +634,11 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                   }`}
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <span className="font-syne text-sm font-bold text-[#49382E]">Sinal de Reserva</span>
-                    <span className="font-bold text-[#D4AF37] text-base">R$ 50,00</span>
+                    <span className="font-syne text-sm font-bold text-[#49382E]">Sinal (40%)</span>
+                    <span className="font-bold text-[#D4AF37] text-base">R$ {formatBRL(standardDeposit)}</span>
                   </div>
                   <p className="text-[#786C63] leading-relaxed">
-                    Garante o horário. O restante de <strong>R$ {servicePrice - 50},00</strong> é quitado no dia do atendimento.
+                    Garante a vaga e é descontado do valor total no dia do atendimento. Saldo restante: <strong>R$ {formatBRL(standardBalance)}</strong>.
                   </p>
                   {isInadimplente && (
                     <span className="text-[10px] text-red-500 font-bold block mt-1">
@@ -650,14 +658,9 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                   }`}
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-syne text-sm font-bold text-[#49382E]">Pré-pagamento Total (100%)</span>
-                      <span className="px-2 py-0.2 rounded-full bg-[#E8D3C7] text-[#49382E] text-[10px] font-bold">
-                        -5% OFF
-                      </span>
-                    </div>
+                    <span className="font-syne text-sm font-bold text-[#49382E]">Pré-pagamento Total (100%)</span>
                     <span className="font-bold text-[#D4AF37] text-base">
-                      R$ {isInadimplente ? servicePrice : discountedFullPrice},00
+                      R$ {formatBRL(fullPrepayment)}
                     </span>
                   </div>
                   <p className="text-[#786C63] leading-relaxed">
@@ -688,7 +691,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                         Favorecido: Angelica do Carmo E. Silva ME
                       </span>
                       <span className="block font-jakarta text-[11px] text-[#786C63] mt-0.5">
-                        Valor a Transferir: <strong className="text-[#49382E] text-sm">R$ {depositValue},00</strong>
+                        Valor a Transferir: <strong className="text-[#49382E] text-sm">R$ {formatBRL(depositValue)}</strong>
                       </span>
                     </div>
                   </div>
@@ -827,46 +830,66 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                 )}
 
                 {/* Price Breakdown */}
-                <div className="pt-2 border-t border-[#E8D9B5] space-y-1.5 text-xs">
+                <div className="pt-2 border-t border-[#E8D9B5] space-y-2 text-xs">
                   <div className="flex justify-between text-[#786C63]">
-                    <span>Procedimento</span>
-                    <span className="text-[#49382E] font-medium">{selectedService.priceFormatted}</span>
+                    <span>Total do procedimento</span>
+                    <span className="text-[#49382E] font-semibold">R$ {formatBRL(servicePrice)}</span>
                   </div>
 
                   {effectivePaymentMode === 'pre_pagamento_100' ? (
                     <>
-                      {!isInadimplente && (
-                        <div className="flex justify-between text-emerald-700 font-medium">
-                          <span>Desconto Pré-pagamento Total (5%)</span>
-                          <span>- R$ {servicePrice - discountedFullPrice},00</span>
-                        </div>
-                      )}
+                      <div className="flex justify-between text-[#786C63]">
+                        <span>Sinal (40%)</span>
+                        <span className="text-[#49382E] font-medium">R$ {formatBRL(standardDeposit)}</span>
+                      </div>
                       <div className="flex justify-between text-[#D4AF37] font-bold">
                         <span>Valor via Pix Antecipado (100%)</span>
-                        <span>R$ {depositValue},00</span>
+                        <span>R$ {formatBRL(depositValue)}</span>
                       </div>
-                      <div className="pt-2 flex justify-between font-syne text-base text-[#49382E] font-bold border-t border-[#E8D9B5]">
-                        <span>Saldo Restante no Estúdio</span>
-                        <span className="text-emerald-700">R$ 0,00 (Após validação do Pix)</span>
+                      <div className="pt-2 flex justify-between font-syne text-sm sm:text-base text-[#49382E] font-bold border-t border-[#E8D9B5]">
+                        <span>Saldo restante a pagar no atendimento</span>
+                        <span className="text-emerald-700">R$ 0,00</span>
                       </div>
                     </>
                   ) : (
                     <>
                       <div className="flex justify-between text-[#D4AF37]">
-                        <span>Sinal de Reserva (Pix)</span>
-                        <span className="font-bold">- R$ 50,00</span>
+                        <span className="font-semibold">Sinal (40%)</span>
+                        <span className="font-bold">R$ {formatBRL(depositValue)}</span>
                       </div>
-                      <div className="pt-2 flex justify-between font-syne text-base text-[#49382E] font-bold border-t border-[#E8D9B5]">
-                        <span>Saldo Restante no Estúdio</span>
-                        <span className="text-[#D4AF37]">R$ {balanceRemaining},00</span>
+                      <div className="pt-2 flex justify-between font-syne text-sm sm:text-base text-[#49382E] font-bold border-t border-[#E8D9B5]">
+                        <span>Saldo restante a pagar no atendimento</span>
+                        <span className="text-[#D4AF37]">R$ {formatBRL(balanceRemaining)}</span>
                       </div>
                     </>
                   )}
                 </div>
+
+                {/* Appointment Policy Displayed Before Submission */}
+                <div className="mt-4 p-3.5 rounded-xl bg-[#FDFBF9] border border-[#E8D9B5] space-y-2 text-[11px] text-[#786C63] leading-relaxed">
+                  <div className="flex items-center gap-1.5 text-[#49382E] font-syne font-bold text-xs uppercase tracking-wider">
+                    <span className="material-symbols-outlined text-[#D4AF37] text-[16px]">policy</span>
+                    <span>POLÍTICA DE AGENDAMENTO</span>
+                  </div>
+                  <ul className="space-y-1.5 list-disc pl-4">
+                    <li>
+                      Para confirmar o horário, é necessário pagar um sinal de 40% do valor do procedimento.
+                    </li>
+                    <li>
+                      O sinal garante a vaga e é descontado do valor total no dia do atendimento.
+                    </li>
+                    <li>
+                      Em caso de desistência ou não comparecimento, o sinal não é reembolsado, pois cobre o bloqueio da vaga e os preparativos.
+                    </li>
+                    <li>
+                      Mudanças de data exigem pelo menos 24 horas de antecedência, mantendo o sinal pago.
+                    </li>
+                  </ul>
+                </div>
               </div>
 
               {/* CTA Final Booking */}
-              <div className="mt-6 space-y-2">
+              <div className="mt-4 space-y-2">
                 <button
                   type="button"
                   disabled={isSubmittingBooking}
@@ -916,15 +939,28 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
             <div className="py-2.5 px-3.5 rounded-xl bg-[#F7EFEA] border border-[#E8D9B5] text-xs text-[#49382E] text-left space-y-1">
               <div className="font-bold flex items-center justify-between">
                 <span>Status: Pendente de Conferência</span>
-                <span className="text-[#D4AF37]">Sinal: R$ {depositValue},00</span>
+                <span className="text-[#D4AF37]">
+                  {(confirmedAppointment?.paymentMode || effectivePaymentMode) === 'pre_pagamento_100'
+                    ? 'Pré-pagamento (100%)'
+                    : 'Sinal (40%)'}
+                  : R$ {formatBRL(depositValue)}
+                </span>
               </div>
-              <div className="text-[11px] text-[#786C63]">
+              <div className="text-[11px] text-[#786C63] flex items-center justify-between">
+                <span>Total: R$ {formatBRL(servicePrice)}</span>
+                <span>Saldo no dia: R$ {formatBRL(balanceRemaining)}</span>
+              </div>
+              <div className="text-[11px] text-[#786C63] pt-0.5">
                 Chave PIX: <strong>12974062241</strong> • Titular: <strong>Angelica do Carmo Costa Santos</strong>
               </div>
             </div>
 
             <p className="font-jakarta text-[11px] text-[#786C63] text-left leading-relaxed">
-              Obrigada, <strong>{clientName}</strong>! Seu horário está reservado mediante o sinal. Envie seu comprovante para que possamos confirmar seu atendimento.
+              Obrigada, <strong>{clientName}</strong>! Seu horário está reservado mediante{' '}
+              {(confirmedAppointment?.paymentMode || effectivePaymentMode) === 'pre_pagamento_100'
+                ? 'o pré-pagamento integral'
+                : 'o sinal de 40%'}
+              . Envie seu comprovante para que possamos confirmar seu atendimento.
             </p>
 
             {/* Optional WhatsApp Button */}
@@ -933,9 +969,12 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                 href={buildOfficialWhatsAppUrl({
                   clientName: confirmedAppointment?.clientName || clientName,
                   serviceTitle: confirmedAppointment?.serviceTitle || selectedService.title,
+                  servicePrice: confirmedAppointment?.servicePrice || selectedService.priceFormatted,
                   date: confirmedAppointment?.date || selectedDate,
                   time: confirmedAppointment?.time || selectedTime,
-                  depositAmount: confirmedAppointment?.depositAmount || depositValue
+                  depositAmount: confirmedAppointment?.depositAmount || depositValue,
+                  remainingBalance: balanceRemaining,
+                  paymentMode: confirmedAppointment?.paymentMode || effectivePaymentMode
                 })}
                 target="_blank"
                 rel="noopener noreferrer"

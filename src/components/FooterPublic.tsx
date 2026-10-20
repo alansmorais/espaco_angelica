@@ -68,10 +68,10 @@ export const FooterPublic: React.FC<FooterPublicProps> = ({
             <div className="p-4 rounded-xl bg-[#FFFFFF] border border-[#E8D9B5] space-y-2 shadow-xs">
               <div className="flex items-center gap-2 text-[#D4AF37]">
                 <span className="material-symbols-outlined text-[18px]">payments</span>
-                <span className="font-jakarta text-xs font-bold text-[#49382E]">Sinal Via Pix (R$ 50,00)</span>
+                <span className="font-jakarta text-xs font-bold text-[#49382E]">Sinal Via Pix (40%)</span>
               </div>
               <p className="font-jakarta text-xs text-[#786C63] leading-relaxed">
-                Garantia de pontualidade e exclusividade na agenda. Reagendamentos são aceitos sem custos com antecedência mínima de 24 horas.
+                O sinal de 40% garante a vaga e é descontado do total no dia. Não é reembolsado em caso de desistência ou não comparecimento. Mudanças de data exigem pelo menos 24h de antecedência.
               </p>
             </div>
           </div>

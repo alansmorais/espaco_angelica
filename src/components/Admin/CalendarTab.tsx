@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Appointment, TimeSlotConfig } from '../../types';
 import { INITIAL_TIME_SLOTS } from '../../data/mockData';
 import { sendAppointmentWhatsAppConfirmation } from '../../services/whatsappService';
+import { formatBRL } from '../../services/notificationTemplates';
 
 interface CalendarTabProps {
   onOpenBlockModal: () => void;
@@ -363,9 +364,15 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                   <span className="text-[#49382E] font-semibold">{selectedAppointment.servicePrice}</span>
                 </div>
                 <div className="flex justify-between text-[#786C63]">
-                  <span>Sinal Pix:</span>
+                  <span>
+                    {selectedAppointment.paymentMode === 'pre_pagamento_100'
+                      ? 'Pré-pagamento Pix (100%):'
+                      : selectedAppointment.paymentMode === 'sinal_50'
+                      ? 'Sinal Pix:'
+                      : 'Sinal Pix (40%):'}
+                  </span>
                   <span className="text-[#D4AF37] font-bold">
-                    R$ {selectedAppointment.depositAmount},00 ({selectedAppointment.depositStatus})
+                    R$ {formatBRL(selectedAppointment.depositAmount)} ({selectedAppointment.depositStatus})
                   </span>
                 </div>
               </div>

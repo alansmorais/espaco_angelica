@@ -4,12 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "cp index.source.html index.html && tsx server.ts",
-    "build": "cp index.source.html index.html && vite build && cp dist/index.html ./index.html && rm -rf ./assets && cp -r dist/assets ./",
+    "dev": "node --input-type=module -e \"import fs from 'node:fs'; fs.copyFileSync('index.source.html', 'index.html');\" && tsx server.ts",
+    "dev:staging": "node --input-type=module -e \"import fs from 'node:fs'; fs.copyFileSync('index.source.html', 'index.html');\" && tsx server.ts --staging",
+    "build": "node --input-type=module -e \"import fs from 'node:fs'; fs.copyFileSync('index.source.html', 'index.html');\" && vite build && node --input-type=module -e \"import fs from 'node:fs'; fs.copyFileSync('dist/index.html', 'index.html'); fs.rmSync('assets', { recursive: true, force: true }); fs.cpSync('dist/assets', 'assets', { recursive: true });\"",
     "preview": "vite preview",
     "start": "tsx server.ts",
-    "clean": "rm -rf dist server.js assets",
-    "lint": "tsc --noEmit"
+    "start:staging": "tsx server.ts --staging",
+    "clean": "node --input-type=module -e \"import fs from 'node:fs'; ['dist', 'server.js', 'assets'].forEach(p => fs.rmSync(p, { recursive: true, force: true }));\"",
+    "lint": "tsc --noEmit",
+    "test": "tsx tests/bookingPaymentValidation.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -35,5 +38,8 @@
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
     "@types/express": "^4.17.21"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
   }
 }

@@ -1,6 +1,7 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
+import { formatBRL } from './notificationTemplates';
 
 export const AUTHORIZED_SENDER_EMAIL = 'kontakt@alansmsolutions.com';
 export const TARGET_NOTIFICATION_EMAIL = 'angelikm19@gmail.com';
@@ -151,9 +152,11 @@ export async function sendDirectGmailFromBrowser(payload: {
   clientPhone: string;
   clientEmail?: string;
   serviceTitle: string;
+  servicePrice?: string;
   date: string;
   time: string;
   depositAmount: number;
+  paymentMode?: string;
   appointmentId: string;
   notes?: string;
 }): Promise<{ success: boolean; message: string }> {
@@ -165,14 +168,22 @@ export async function sendDirectGmailFromBrowser(payload: {
     };
   }
 
+  const paymentLabel =
+    payload.paymentMode === 'pre_pagamento_100'
+      ? 'Pré-pagamento Pix (100%)'
+      : payload.paymentMode === 'sinal_50'
+      ? 'Sinal Pix'
+      : 'Sinal Pix (40%)';
+
   const subject = `Novo pré-agendamento — ${payload.clientName} — ${payload.date} às ${payload.time}`;
   const body = `✨ Novo pré-agendamento registrado no Espaço Angélica do Carmo ✨\n\n` +
     `👤 Cliente: ${payload.clientName}\n` +
     `📞 Telefone: ${payload.clientPhone}\n` +
     (payload.clientEmail ? `📧 E-mail da Cliente: ${payload.clientEmail}\n` : '') +
     `💅 Procedimento: ${payload.serviceTitle}\n` +
+    (payload.servicePrice ? `💳 Valor do Procedimento: ${payload.servicePrice}\n` : '') +
     `🗓️ Data & Horário: ${payload.date} às ${payload.time}\n` +
-    `💰 Sinal Pix: R$ ${payload.depositAmount},00\n` +
+    `💰 ${paymentLabel}: R$ ${formatBRL(payload.depositAmount)}\n` +
     `🔖 ID da Reserva: ${payload.appointmentId}\n` +
     (payload.notes ? `📝 Observações: ${payload.notes}\n\n` : '\n') +
     `📍 Local: Rua Vereador José Luiz Soares, 92 - Pontal da Cruz, São Sebastião - SP\n\n` +
@@ -216,15 +227,23 @@ export async function sendGmailConfirmation(
   date: string,
   time: string,
   servicePrice: string,
-  depositAmount: number
+  depositAmount: number,
+  paymentMode?: string
 ): Promise<any> {
+  const paymentLabel =
+    paymentMode === 'pre_pagamento_100'
+      ? 'Pré-pagamento Pix (100%)'
+      : paymentMode === 'sinal_50'
+      ? 'Sinal Pix'
+      : 'Sinal Pix (40%)';
+
   const subject = `Novo Agendamento • ${clientName} (${date} às ${time})`;
   const body = `✨ Nova confirmação de agendamento registrada no Espaço Angélica do Carmo ✨\n\n` +
     `👤 Cliente: ${clientName}\n` +
     `💅 Procedimento: ${serviceTitle}\n` +
     `🗓️ Data & Horário: ${date} às ${time}\n` +
     `💳 Valor do Procedimento: ${servicePrice}\n` +
-    `💰 Sinal Pix: R$ ${depositAmount},00\n\n` +
+    `💰 ${paymentLabel}: R$ ${formatBRL(depositAmount)}\n\n` +
     `📍 Local: Rua Vereador José Luiz Soares, 92 - Pontal da Cruz, São Sebastião - SP\n\n` +
     `Remetente: ${AUTHORIZED_SENDER_EMAIL}\n` +
     `Destinatário: ${TARGET_NOTIFICATION_EMAIL}\n` +

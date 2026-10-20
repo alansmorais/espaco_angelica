@@ -25,6 +25,7 @@ import {
 } from './types';
 import { sendAppointmentWhatsAppConfirmation } from './services/whatsappService';
 import { playDiscreteAdminNotificationSound, registerUserInteraction } from './services/soundNotificationService';
+import { calculateDeposit40, formatBRL } from './services/notificationTemplates';
 
 // Public Components
 import { HeaderPublic } from './components/HeaderPublic';
@@ -365,7 +366,7 @@ export default function App() {
         daysRemainingOrOverdue: '21 dias rest.',
         isOverdue: false,
         ltv: newApt.depositAmount,
-        ltvFormatted: `R$ ${newApt.depositAmount},00`,
+        ltvFormatted: `R$ ${formatBRL(newApt.depositAmount)}`,
         laminaType: newApt.nailCondition || 'Natural',
         oiliness: 'Média',
         allergies: 'Nenhuma informada',
@@ -475,6 +476,7 @@ export default function App() {
   };
 
   const handleExtraEncaixeConfirm = (name: string, procedure: string, dateTime: string, feeApplied: boolean) => {
+    const encaixePrice = feeApplied ? 265 : 220;
     const encaixeApt: Appointment = {
       id: `encaixe-${Date.now()}`,
       clientName: name,
@@ -485,8 +487,9 @@ export default function App() {
       date: dateTime.split('•')[0]?.trim() || 'Qua, 13 Nov',
       time: dateTime.split('•')[1]?.trim() || '20:15',
       status: 'pendente_pix',
-      depositAmount: 50,
+      depositAmount: calculateDeposit40(encaixePrice),
       depositStatus: 'pendente',
+      paymentMode: 'sinal_40',
       isVip: true,
       clientInitials: name
         .split(' ')
@@ -705,7 +708,7 @@ export default function App() {
                   </p>
                   <div className="mt-2.5 flex items-center gap-2">
                     <span className="px-2 py-0.5 rounded-full bg-[#F7EFEA] border border-[#E8D9B5] text-[10px] font-bold text-[#D4AF37]">
-                      Sinal Pix: R$ {adminNewBookingToast.depositAmount},00
+                      Sinal Pix: R$ {formatBRL(adminNewBookingToast.depositAmount)}
                     </span>
                     <button
                       type="button"

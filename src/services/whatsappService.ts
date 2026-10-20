@@ -111,7 +111,7 @@ export async function testWhatsAppMessage(
         servicePrice: 'R$ 220,00',
         date: 'Quinta, 14 Nov',
         time: '14:30',
-        depositAmount: 50,
+        depositAmount: 88,
         depositStatus: 'liquidado'
       })
     });

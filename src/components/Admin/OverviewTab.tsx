@@ -1,5 +1,6 @@
 import React from 'react';
 import { Appointment } from '../../types';
+import { formatBRL } from '../../services/notificationTemplates';
 
 interface OverviewTabProps {
   onOpenManualBooking: () => void;
@@ -283,7 +284,12 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                         </span>
                         <div className="flex items-center gap-2 mt-1 font-jakarta text-xs">
                           <span className="text-[#D4AF37] font-semibold">
-                            Sinal: R$ {apt.depositAmount},00 ({apt.depositStatus === 'liquidado' ? 'Liquidado' : 'Pendente de conferência'})
+                            {apt.paymentMode === 'pre_pagamento_100'
+                              ? 'Pré-pagamento (100%)'
+                              : apt.paymentMode === 'sinal_50'
+                              ? 'Sinal'
+                              : 'Sinal (40%)'}
+                            : R$ {formatBRL(apt.depositAmount)} ({apt.depositStatus === 'liquidado' ? 'Liquidado' : 'Pendente de conferência'})
                           </span>
                           {apt.recurrence && (
                             <span className="text-[#786C63] text-[10px]">
@@ -363,7 +369,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                         {p.clientName}
                       </span>
                       <span className="font-jakarta text-[11px] text-[#786C63]">
-                        {p.serviceTitle} • R$ {p.depositAmount},00
+                        {p.serviceTitle} • R$ {formatBRL(p.depositAmount)}
                       </span>
                       <span className="font-jakarta text-[10px] text-[#D4AF37] font-semibold">
                         Horário: {p.date} às {p.time}

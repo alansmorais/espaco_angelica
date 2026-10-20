@@ -35,6 +35,7 @@ export interface Appointment {
   clientInstagram?: string;
   nailCondition?: string;
   notes?: string;
+  serviceId?: string;
   serviceTitle: string;
   servicePrice: string;
   serviceDuration: string;
@@ -43,7 +44,7 @@ export interface Appointment {
   status: SlotStatus;
   depositAmount: number;
   depositStatus: 'liquidado' | 'pendente' | 'estornado' | 'retido' | 'recusado';
-  paymentMode?: 'sinal_50' | 'pre_pagamento_100';
+  paymentMode?: 'sinal_40' | 'sinal_50' | 'pre_pagamento_100';
   isVip?: boolean;
   vipTag?: string;
   isAutoclave?: boolean;
@@ -123,7 +124,7 @@ export interface PixPendingVerification {
   date: string;
   time: string;
   amount: number;
-  paymentMode?: 'sinal_50' | 'pre_pagamento_100';
+  paymentMode?: 'sinal_40' | 'sinal_50' | 'pre_pagamento_100';
   sentAgoMinutes: number;
   expiresInMinutes: number;
   refCode: string;
@@ -152,7 +153,7 @@ export interface PixHistoryItem {
   e2eDoc: string;
   status: 'Confirmado' | 'Estornado (>24h)' | 'Retido (No-Show)';
   statusType: 'success' | 'neutral' | 'error';
-  paymentMode?: 'sinal_50' | 'pre_pagamento_100';
+  paymentMode?: 'sinal_40' | 'sinal_50' | 'pre_pagamento_100';
 }
 
 export interface TimeSlotConfig {

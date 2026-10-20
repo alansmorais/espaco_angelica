@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Appointment } from '../../types';
 import { sendAppointmentWhatsAppConfirmation } from '../../services/whatsappService';
 import { signInWithGmail, getGmailAccessToken, sendGmailConfirmation } from '../../services/gmailService';
+import { formatBRL } from '../../services/notificationTemplates';
 
 interface PixReconciliationTabProps {
   appointments?: Appointment[];
@@ -68,7 +69,7 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
       });
     }
 
-    showToast(`Sinal de R$ ${apt.depositAmount},00 APROVADO! Confirmação de agendamento enviada automaticamente via WhatsApp para ${apt.clientName} (${apt.clientPhone})!`);
+    showToast(`Pagamento de R$ ${formatBRL(apt.depositAmount)} APROVADO! Confirmação de agendamento enviada automaticamente via WhatsApp para ${apt.clientName} (${apt.clientPhone})!`);
   };
 
   const handleResendWhatsApp = async (apt: Appointment) => {
@@ -119,7 +120,8 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
         apt.date,
         apt.time,
         apt.servicePrice,
-        apt.depositAmount
+        apt.depositAmount,
+        apt.paymentMode
       );
 
       if (onUpdateAppointment) {
@@ -211,7 +213,7 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
                 {pendingList.length}
               </span>
               <span className="font-jakarta text-[10px] text-[#786C63]">
-                (R$ {totalPendingAmount},00)
+                (R$ {formatBRL(totalPendingAmount)})
               </span>
             </div>
           </div>
@@ -225,7 +227,7 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
                 {liquidatedList.length}
               </span>
               <span className="font-jakarta text-[10px] text-emerald-600 font-semibold">
-                (R$ {totalLiquidatedAmount},00)
+                (R$ {formatBRL(totalLiquidatedAmount)})
               </span>
             </div>
           </div>
@@ -275,10 +277,10 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-1.5 text-[#D4AF37] font-bold">
               <span className="material-symbols-outlined text-[16px]">timer</span>
-              <span>Janela de Reserva</span>
+              <span>Janela de Reserva (Sinal 40%)</span>
             </div>
             <p className="text-[#786C63] leading-relaxed">
-              O cliente deve enviar o sinal de reserva para garantir o horário na grade privativa. Sem comprovante ou resposta, a vaga pode ser liberada.
+              Para confirmar o horário, é necessário pagar um sinal de 40% do valor do procedimento (descontado do valor total no dia do atendimento). Sem comprovante, a vaga pode ser liberada.
             </p>
           </div>
           <div className="flex flex-col gap-1">
@@ -287,7 +289,7 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
               <span>Cancelamento &amp; Reagendamento</span>
             </div>
             <p className="text-[#786C63] leading-relaxed">
-              Avisos com antecedência de até 24 horas permitem remarcação sem perda do sinal acordado.
+              Mudanças de data exigem pelo menos 24 horas de antecedência, mantendo o sinal pago. Em caso de desistência ou não comparecimento, o sinal não é reembolsado.
             </p>
           </div>
           <div className="flex flex-col gap-1">
@@ -329,6 +331,12 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
             ) : (
               pendingList.map(item => {
                 const isSelected = selectedItem?.id === item.id;
+                const modeLabel =
+                  item.paymentMode === 'pre_pagamento_100'
+                    ? 'Pré-pagamento (100%)'
+                    : item.paymentMode === 'sinal_50'
+                    ? 'Sinal'
+                    : 'Sinal (40%)';
                 return (
                   <div
                     key={item.id}
@@ -347,7 +355,7 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
                         {item.serviceTitle} • {item.date} às {item.time}
                       </span>
                       <span className="font-jakarta text-[11px] text-[#D4AF37] font-bold mt-0.5">
-                        Valor Sinal: R$ {item.depositAmount},00
+                        {modeLabel}: R$ {formatBRL(item.depositAmount)}
                       </span>
                     </div>
 
@@ -393,7 +401,7 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div className="p-3.5 rounded-xl bg-[#FDFBF9] border border-[#E8D9B5] space-y-1">
                   <span className="text-[10px] text-[#786C63] uppercase font-bold block">
-                    Procedimento Solicitado
+                    Procedimento Solicitado ({selectedItem.servicePrice})
                   </span>
                   <span className="font-syne text-sm text-[#49382E] font-bold block">
                     {selectedItem.serviceTitle}
@@ -405,10 +413,16 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
 
                 <div className="p-3.5 rounded-xl bg-[#FDFBF9] border border-[#E8D9B5] space-y-1">
                   <span className="text-[10px] text-[#786C63] uppercase font-bold block">
-                    Valor a Conferir na Conta
+                    Valor a Conferir na Conta (
+                    {selectedItem.paymentMode === 'pre_pagamento_100'
+                      ? 'Pré-pagamento 100%'
+                      : selectedItem.paymentMode === 'sinal_50'
+                      ? 'Sinal'
+                      : 'Sinal 40%'}
+                    )
                   </span>
                   <span className="font-syne text-xl text-[#D4AF37] font-bold block">
-                    R$ {selectedItem.depositAmount},00
+                    R$ {formatBRL(selectedItem.depositAmount)}
                   </span>
                   <span className="text-[#786C63]">
                     Chave Celular: +5512974062241

@@ -4,10 +4,110 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import dotenv from 'dotenv';
 
-dotenv.config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const envStagingPath = path.resolve(__dirname, '.env.staging');
+const envDefaultPath = path.resolve(__dirname, '.env');
+const hasStagingFlag = process.argv.includes('--staging');
+const isStagingRequested =
+  hasStagingFlag ||
+  process.env.APP_ENV === 'staging' ||
+  process.env.NODE_ENV === 'staging' ||
+  (process.env.NODE_ENV !== 'production' && !fs.existsSync(envDefaultPath) && fs.existsSync(envStagingPath));
+
+if (isStagingRequested) {
+  if (fs.existsSync(envStagingPath)) {
+    dotenv.config({ path: envStagingPath, override: true });
+  }
+  process.env.APP_ENV = 'staging';
+} else {
+  dotenv.config();
+}
+
+const PRODUCTION_APPS_SCRIPT_DEPLOYMENT_ID =
+  'AKfycby3s6UC86UjTAJtAjtyQF634z8NMv9LORG_IrzxCb4X_RQx0lLCyetz__QGT0-9B3jJ';
+const DEFAULT_PRODUCTION_APPS_SCRIPT_URL =
+  `https://script.google.com/macros/s/${PRODUCTION_APPS_SCRIPT_DEPLOYMENT_ID}/exec`;
+const PRODUCTION_RECIPIENT_EMAIL = 'angelikm19@gmail.com';
+const STAGING_RECIPIENT_EMAIL = 'kontakt@alansmsolutions.com';
+
+function isPlaceholderValue(value: string): boolean {
+  if (!value) return true;
+  const upper = value.toUpperCase();
+  return (
+    upper.includes('REPLACE_WITH_') ||
+    upper.includes('YOUR_') ||
+    upper.startsWith('MY_')
+  );
+}
+
+function resolveNotificationRecipient(isStaging: boolean): string {
+  if (!isStaging) {
+    return PRODUCTION_RECIPIENT_EMAIL;
+  }
+  const recipientOverride = (process.env.STAGING_NOTIFICATION_RECIPIENT || '').trim();
+  if (
+    recipientOverride &&
+    !isPlaceholderValue(recipientOverride) &&
+    recipientOverride.toLowerCase() !== PRODUCTION_RECIPIENT_EMAIL &&
+    recipientOverride.toLowerCase() === STAGING_RECIPIENT_EMAIL
+  ) {
+    return recipientOverride;
+  }
+  return STAGING_RECIPIENT_EMAIL;
+}
+
+function resolveAppsScriptConfig() {
+  const appEnv = isStagingRequested
+    ? 'staging'
+    : process.env.APP_ENV || process.env.NODE_ENV || 'development';
+  const isStaging = appEnv === 'staging';
+  const rawUrl = (process.env.APPS_SCRIPT_WEBHOOK_URL || '').trim();
+  const rawToken = (process.env.APPS_SCRIPT_TOKEN || process.env.WEBHOOK_SECRET || '').trim();
+
+  const hasExplicitUrl = Boolean(rawUrl && !isPlaceholderValue(rawUrl));
+  const hasExplicitToken = Boolean(rawToken && !isPlaceholderValue(rawToken));
+  const isProductionUrl = rawUrl.includes(PRODUCTION_APPS_SCRIPT_DEPLOYMENT_ID);
+
+  if (isStaging && isProductionUrl) {
+    return {
+      appEnv,
+      isStaging,
+      configured: false,
+      webhookUrl: '',
+      token: '',
+      webhookUrlConfigured: false,
+      tokenConfigured: hasExplicitToken,
+      safetyError:
+        'Segurança: URL de produção do Google Apps Script detectada e bloqueada. Configure exclusivamente a URL de teste em .env.staging.'
+    };
+  }
+
+  const webhookUrl = isStaging
+    ? hasExplicitUrl
+      ? rawUrl
+      : ''
+    : hasExplicitUrl
+    ? rawUrl
+    : DEFAULT_PRODUCTION_APPS_SCRIPT_URL;
+  const token = hasExplicitToken ? rawToken : '';
+
+  return {
+    appEnv,
+    isStaging,
+    configured: isStaging ? Boolean(webhookUrl && token) : Boolean(webhookUrl),
+    webhookUrl,
+    token,
+    webhookUrlConfigured: Boolean(webhookUrl),
+    tokenConfigured: Boolean(token),
+    safetyError: !webhookUrl
+      ? 'APPS_SCRIPT_WEBHOOK_URL explícita não configurada.'
+      : isStaging && !token
+      ? 'APPS_SCRIPT_TOKEN explícito não configurado.'
+      : undefined
+  };
+}
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -124,6 +224,13 @@ function normalizePhone(phone: string): { normalized: string; valid: boolean; er
 }
 
 // Build confirmation message text
+function formatCurrencyServerBRL(value: number): string {
+  return value.toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
 function buildConfirmationMessage(data: {
   clientName: string;
   serviceTitle: string;
@@ -138,8 +245,15 @@ function buildConfirmationMessage(data: {
 }): string {
   const address = data.studioAddress || 'Rua Vereador José Luiz Soares, 92 - Pontal da Cruz, São Sebastião - SP';
   const priceInfo = data.servicePrice ? `\n💳 *Valor do Procedimento:* ${data.servicePrice}` : '';
+  const depositFormatted = data.depositAmount ? `R$ ${formatCurrencyServerBRL(data.depositAmount)}` : '';
+  const paymentLabel =
+    data.paymentMode === 'pre_pagamento_100'
+      ? 'Pré-pagamento (100%)'
+      : data.paymentMode === 'sinal_50'
+      ? 'Sinal'
+      : 'Sinal (40%)';
   const depositInfo = data.depositAmount
-    ? `\n💰 *Sinal / Pagamento:* R$ ${data.depositAmount},00 (${data.depositStatus === 'liquidado' ? 'Confirmado via Pix' : 'Aguardando validação'})`
+    ? `\n💰 *${paymentLabel}:* ${depositFormatted} (${data.depositStatus === 'liquidado' ? 'Confirmado via Pix' : 'Aguardando validação'})`
     : '';
 
   if (data.customTemplate && data.customTemplate.trim()) {
@@ -150,7 +264,7 @@ function buildConfirmationMessage(data: {
       .replace(/{horario}/g, data.time)
       .replace(/{valor}/g, data.servicePrice || '')
       .replace(/{endereco}/g, address)
-      .replace(/{sinal}/g, data.depositAmount ? `R$ ${data.depositAmount},00` : '');
+      .replace(/{sinal}/g, depositFormatted);
   }
 
   return `✨ *Confirmação de Agendamento • Espaço Angélica do Carmo* ✨\n\n` +
@@ -164,7 +278,8 @@ function buildConfirmationMessage(data: {
     `\n\n📍 *Endereço:* ${address}\n\n` +
     `ℹ️ *Orientações importantes:*\n` +
     `• Pedimos a gentileza de chegar com 5 a 10 minutos de antecedência.\n` +
-    `• Em caso de necessidade de remarcação, avise com antecedência mínima de 24 horas.\n\n` +
+    `• Mudanças de data exigem pelo menos 24 horas de antecedência, mantendo o sinal pago.\n` +
+    `• Em caso de desistência ou não comparecimento, o sinal não é reembolsado.\n\n` +
     `Qualquer dúvida ou caso queira enviar uma foto de referência de nail art, pode responder a esta mensagem. Mal podemos esperar para cuidar de você! 💕`;
 }
 
@@ -208,18 +323,236 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 app.get('/api/notifications/status', (_req: Request, res: Response) => {
-  const webhookUrl = process.env.APPS_SCRIPT_WEBHOOK_URL || 'https://script.google.com/macros/s/AKfycby3s6UC86UjTAJtAjtyQF634z8NMv9LORG_IrzxCb4X_RQx0lLCyetz__QGT0-9B3jJ/exec';
-  const hasToken = Boolean(process.env.APPS_SCRIPT_TOKEN || process.env.WEBHOOK_SECRET);
+  const cfg = resolveAppsScriptConfig();
+  const targetRecipient = resolveNotificationRecipient(cfg.isStaging);
+
   res.json({
     status: 'ok',
-    mode: 'secure_server_proxy',
-    configured: Boolean(webhookUrl && hasToken),
-    webhookUrlConfigured: Boolean(webhookUrl),
-    tokenConfigured: hasToken,
+    environment: cfg.appEnv,
+    mode: cfg.isStaging ? 'staging_isolated_proxy' : 'secure_server_proxy',
+    configured: cfg.configured,
+    webhookUrlConfigured: cfg.webhookUrlConfigured,
+    tokenConfigured: cfg.tokenConfigured,
+    safetyError: cfg.safetyError || null,
     targetSender: 'kontakt@alansmsolutions.com',
-    targetRecipient: 'angelikm19@gmail.com'
+    targetRecipient
   });
 });
+
+export interface CanonicalCatalogService {
+  id: string;
+  title: string;
+  price: number;
+  priceFormatted: string;
+}
+
+export const OFFICIAL_SERVICES_BY_ID: Record<string, CanonicalCatalogService> = {
+  'alongamento-fibra-slim': {
+    id: 'alongamento-fibra-slim',
+    title: 'Alongamento em Fibra Slim',
+    price: 220,
+    priceFormatted: 'R$ 220,00'
+  },
+  'manutencao-fibra-vidro': {
+    id: 'manutencao-fibra-vidro',
+    title: 'Manutenção Fibra de Vidro',
+    price: 140,
+    priceFormatted: 'R$ 140,00'
+  },
+  'blindagem-diamante': {
+    id: 'blindagem-diamante',
+    title: 'Blindagem Diamante & Banho Gel',
+    price: 130,
+    priceFormatted: 'R$ 130,00'
+  },
+  'esmaltacao-gel-premium': {
+    id: 'esmaltacao-gel-premium',
+    title: 'Esmaltação em Gel Premium',
+    price: 95,
+    priceFormatted: 'R$ 95,00'
+  },
+  'nail-art-encapsulada': {
+    id: 'nail-art-encapsulada',
+    title: 'Nail Art Autoral & Encapsulada',
+    price: 50,
+    priceFormatted: 'A partir de R$ 50,00'
+  },
+  'spa-das-maos-ouro': {
+    id: 'spa-das-maos-ouro',
+    title: 'Spa das Mãos & Esfoliação',
+    price: 85,
+    priceFormatted: 'R$ 85,00'
+  }
+};
+
+export const OFFICIAL_SERVICES_BY_TITLE: Record<string, CanonicalCatalogService> = Object.values(
+  OFFICIAL_SERVICES_BY_ID
+).reduce((acc, item) => {
+  acc[item.title.toLowerCase()] = item;
+  return acc;
+}, {} as Record<string, CanonicalCatalogService>);
+
+export const OFFICIAL_CATALOG_PRICES: Record<string, number> = Object.values(
+  OFFICIAL_SERVICES_BY_ID
+).reduce((acc, item) => {
+  acc[item.id] = item.price;
+  acc[item.title.toLowerCase()] = item.price;
+  return acc;
+}, {} as Record<string, number>);
+
+export function parseBRLString(raw?: string): number | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const cleaned = raw.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.');
+  const num = Number(cleaned);
+  return Number.isFinite(num) && num > 0 ? num : null;
+}
+
+export function validateBookingPaymentCoherence(payload: any): {
+  valid: boolean;
+  error?: string;
+  verifiedServiceId?: string;
+  verifiedServiceTitle?: string;
+  verifiedDepositAmount?: number;
+  verifiedServicePrice?: string;
+  verifiedPaymentMode?: 'sinal_40' | 'pre_pagamento_100';
+} {
+  if (!payload || typeof payload !== 'object') {
+    return {
+      valid: false,
+      error: 'Carga de pagamento inválida.'
+    };
+  }
+
+  const { serviceId, serviceTitle, servicePrice, depositAmount, paymentMode, status } = payload;
+
+  if (typeof depositAmount !== 'number' || !Number.isFinite(depositAmount) || depositAmount <= 0) {
+    return {
+      valid: false,
+      error: 'Valor do sinal/pré-pagamento inválido ou ausente (deve corresponder a 40% ou 100% do valor oficial do procedimento).'
+    };
+  }
+
+  if (
+    paymentMode !== undefined &&
+    paymentMode !== 'sinal_40' &&
+    paymentMode !== 'pre_pagamento_100'
+  ) {
+    return {
+      valid: false,
+      error: 'Modalidade de pagamento inválida. Use sinal_40 (40%) ou pre_pagamento_100 (100%).'
+    };
+  }
+
+  // Allow internal webhook connectivity test payload from SettingsTab
+  if (
+    status === 'teste_sistema' &&
+    depositAmount === 88 &&
+    (serviceId === undefined || serviceId === 'alongamento-fibra-slim')
+  ) {
+    return {
+      valid: true,
+      verifiedServiceId: 'alongamento-fibra-slim',
+      verifiedServiceTitle: serviceTitle || 'Alongamento em Fibra Slim',
+      verifiedDepositAmount: 88,
+      verifiedServicePrice: 'R$ 220,00',
+      verifiedPaymentMode: 'sinal_40'
+    };
+  }
+
+  let canonicalService: CanonicalCatalogService | undefined;
+
+  if (serviceId !== undefined && serviceId !== null && String(serviceId).trim() !== '') {
+    if (typeof serviceId !== 'string') {
+      return {
+        valid: false,
+        error: 'ID do procedimento inválido.'
+      };
+    }
+    const normalizedId = serviceId.trim();
+    canonicalService = OFFICIAL_SERVICES_BY_ID[normalizedId];
+    if (!canonicalService) {
+      return {
+        valid: false,
+        error: `ID de procedimento desconhecido ("${normalizedId}").`
+      };
+    }
+
+    if (typeof serviceTitle === 'string' && serviceTitle.trim() !== '') {
+      const normalizedTitle = serviceTitle.trim().toLowerCase();
+      if (normalizedTitle !== canonicalService.title.toLowerCase()) {
+        return {
+          valid: false,
+          error: `Nome do procedimento ("${serviceTitle}") diverge do ID oficial ("${canonicalService.id}").`
+        };
+      }
+    }
+  } else if (typeof serviceTitle === 'string' && serviceTitle.trim() !== '') {
+    const normalizedTitle = serviceTitle.trim().toLowerCase();
+    canonicalService = OFFICIAL_SERVICES_BY_TITLE[normalizedTitle];
+    if (!canonicalService) {
+      return {
+        valid: false,
+        error: `Procedimento desconhecido ("${serviceTitle}"). Somente serviços do catálogo oficial são aceitos.`
+      };
+    }
+  } else {
+    return {
+      valid: false,
+      error: 'Identificação do procedimento (serviceId) ausente.'
+    };
+  }
+
+  // Reject spoofed or unparseable servicePrice if sent by the browser
+  if (servicePrice !== undefined && servicePrice !== null && String(servicePrice).trim() !== '') {
+    const parsedPrice = parseBRLString(String(servicePrice));
+    if (parsedPrice === null || Math.abs(parsedPrice - canonicalService.price) > 0.01) {
+      return {
+        valid: false,
+        error: `Preço informado (${servicePrice}) diverge da tabela oficial para "${canonicalService.title}" (R$ ${formatCurrencyServerBRL(canonicalService.price)}).`
+      };
+    }
+  }
+
+  const referencePrice = canonicalService.price;
+  const expected40 = Math.round(referencePrice * 0.4 * 100) / 100;
+  const expected100 = Math.round(referencePrice * 100) / 100;
+  const matches40 = Math.abs(depositAmount - expected40) < 0.01;
+  const matches100 = Math.abs(depositAmount - expected100) < 0.01;
+
+  if (paymentMode === 'sinal_40' && !matches40) {
+    return {
+      valid: false,
+      error: `Valor do sinal (R$ ${formatCurrencyServerBRL(depositAmount)}) diverge de 40% do procedimento (esperado: R$ ${formatCurrencyServerBRL(expected40)}).`
+    };
+  }
+
+  if (paymentMode === 'pre_pagamento_100' && !matches100) {
+    return {
+      valid: false,
+      error: `Valor do pré-pagamento 100% (R$ ${formatCurrencyServerBRL(depositAmount)}) diverge do total oficial do procedimento sem descontos (esperado: R$ ${formatCurrencyServerBRL(expected100)}).`
+    };
+  }
+
+  if (!matches40 && !matches100) {
+    return {
+      valid: false,
+      error: `Valor enviado (R$ ${formatCurrencyServerBRL(depositAmount)}) não corresponde a 40% (R$ ${formatCurrencyServerBRL(expected40)}) nem a 100% (R$ ${formatCurrencyServerBRL(expected100)}) do procedimento.`
+    };
+  }
+
+  const resolvedMode: 'sinal_40' | 'pre_pagamento_100' =
+    paymentMode || (matches100 ? 'pre_pagamento_100' : 'sinal_40');
+  const resolvedDeposit = resolvedMode === 'pre_pagamento_100' ? expected100 : expected40;
+
+  return {
+    valid: true,
+    verifiedServiceId: canonicalService.id,
+    verifiedServiceTitle: canonicalService.title,
+    verifiedDepositAmount: resolvedDeposit,
+    verifiedServicePrice: `R$ ${formatCurrencyServerBRL(referencePrice)}`,
+    verifiedPaymentMode: resolvedMode
+  };
+}
 
 app.post('/api/notifications/new-booking', async (req: Request, res: Response) => {
   try {
@@ -244,7 +577,7 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
       });
     }
 
-    const { clientName, clientPhone, date, time, depositAmount, appointmentId } = payload;
+    const { clientName, clientPhone, date, time, appointmentId } = payload;
 
     if (!clientName || typeof clientName !== 'string' || clientName.trim().length < 2) {
       return res.status(400).json({
@@ -275,13 +608,6 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
       });
     }
 
-    if (depositAmount !== undefined && (typeof depositAmount !== 'number' || depositAmount !== 50)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Valor do sinal divergente da política oficial (R$ 50,00).'
-      });
-    }
-
     if (!appointmentId || typeof appointmentId !== 'string') {
       return res.status(400).json({
         success: false,
@@ -289,7 +615,29 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
       });
     }
 
-    // 3. Server-Side Anti-Duplication Protection
+    const paymentCheck = validateBookingPaymentCoherence(payload);
+    if (!paymentCheck.valid) {
+      return res.status(400).json({
+        success: false,
+        error: paymentCheck.error
+      });
+    }
+
+    // 3. Explicit Staging / Server Configuration Check (Never fall back to production URL or credentials)
+    const cfg = resolveAppsScriptConfig();
+    if (!cfg.configured) {
+      console.warn(`[Notification Blocked] Configuração explícita ausente ou bloqueada (${cfg.appEnv}): ${cfg.safetyError}`);
+      return res.status(200).json({
+        success: false,
+        delivered: false,
+        environment: cfg.appEnv,
+        error:
+          cfg.safetyError ||
+          'APPS_SCRIPT_WEBHOOK_URL e APPS_SCRIPT_TOKEN explícitos são obrigatórios (sem fallback para produção).'
+      });
+    }
+
+    // 4. Server-Side Anti-Duplication Protection
     // Evita chamadas repetidas ao Google Apps Script e gravações duplicadas no Google Sheets
     if (processedAppointmentIds.has(appointmentId)) {
       console.log(`[Notification Info] Notificação duplicada evitada para reserva ${appointmentId}`);
@@ -297,9 +645,8 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
         success: true,
         delivered: false,
         duplicate: true,
-        message: `Notificação para a reserva ${appointmentId} já havia sido processada anteriormente. Gravação duplicada no Sheets prevenida.`,
-        from: 'kontakt@alansmsolutions.com',
-        to: 'angelikm19@gmail.com'
+        environment: cfg.appEnv,
+        message: `Notificação para a reserva ${appointmentId} já havia sido processada anteriormente. Gravação duplicada no Sheets prevenida.`
       });
     }
 
@@ -309,86 +656,85 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
       if (first) processedAppointmentIds.delete(first);
     }
 
-    console.log(`[Notification] Novo pré-agendamento recebido no servidor: ${clientName.trim()} (${clientPhone.trim()}) • ${payload.serviceTitle || 'Nail Design'} • ${date} às ${time}`);
+    console.log(`[Notification][${cfg.appEnv}] Novo pré-agendamento recebido no servidor: ${clientName.trim()} (${clientPhone.trim()}) • ${paymentCheck.verifiedServiceTitle || 'Nail Design'} • ${date} às ${time}`);
 
-    const webhookUrl =
-      process.env.APPS_SCRIPT_WEBHOOK_URL ||
-      'https://script.google.com/macros/s/AKfycby3s6UC86UjTAJtAjtyQF634z8NMv9LORG_IrzxCb4X_RQx0lLCyetz__QGT0-9B3jJ/exec';
-    const serverToken = process.env.APPS_SCRIPT_TOKEN || process.env.WEBHOOK_SECRET || '';
+    const targetRecipient = resolveNotificationRecipient(cfg.isStaging);
+    const { to: _ignoredClientTo, ...safePayloadWithoutTo } = payload;
 
-    // If Google Apps Script webhook URL is available, forward securely server-to-server
-    if (webhookUrl) {
-      const authorizedBody = {
-        ...payload,
-        from: 'kontakt@alansmsolutions.com',
-        to: 'angelikm19@gmail.com',
-        depositAmount: depositAmount || 50,
-        status: payload.status || 'pendente_pix',
-        // Injeta os tokens e credenciais apenas no lado do servidor
-        ...(serverToken ? { token: serverToken, authToken: serverToken, key: serverToken } : {})
-      };
+    const authorizedBody = {
+      ...safePayloadWithoutTo,
+      from: 'kontakt@alansmsolutions.com',
+      to: targetRecipient,
+      serviceId: paymentCheck.verifiedServiceId,
+      serviceTitle: paymentCheck.verifiedServiceTitle,
+      servicePrice: paymentCheck.verifiedServicePrice,
+      depositAmount: paymentCheck.verifiedDepositAmount,
+      paymentMode: paymentCheck.verifiedPaymentMode,
+      status: payload.status || 'pendente_pix',
+      environment: cfg.appEnv,
+      // Injeta os tokens e credenciais apenas no lado do servidor
+      ...(cfg.token ? { token: cfg.token, authToken: cfg.token, key: cfg.token } : {})
+    };
 
-      try {
-        const scriptResponse = await fetch(webhookUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'text/plain;charset=utf-8'
-          },
-          body: JSON.stringify(authorizedBody),
-          signal: AbortSignal.timeout(15000)
-        });
+    try {
+      const scriptResponse = await fetch(cfg.webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8'
+        },
+        body: JSON.stringify(authorizedBody),
+        signal: AbortSignal.timeout(15000)
+      });
 
-        if (scriptResponse.ok) {
-          const responseText = await scriptResponse.text();
-          let jsonRes: any = null;
-          try {
-            jsonRes = JSON.parse(responseText);
-          } catch {}
+      if (scriptResponse.ok) {
+        const responseText = await scriptResponse.text();
+        let jsonRes: any = null;
+        try {
+          jsonRes = JSON.parse(responseText);
+        } catch {}
 
-          if (jsonRes && jsonRes.status === 'error') {
-            console.warn(`[Notification Warning] Google Apps Script recusou a notificação: ${jsonRes.message}`);
-            return res.status(200).json({
-              success: false,
-              delivered: false,
-              error: `Google Apps Script recusou: ${jsonRes.message || 'Erro não especificado'}`
-            });
-          }
-
-          console.log(`[Notification Success] Google Apps Script confirmou o disparo para angelikm19@gmail.com!`);
-          return res.json({
-            success: true,
-            delivered: true,
-            message: `Notificação enviada com sucesso para angelikm19@gmail.com via Google Apps Script (remetente: kontakt@alansmsolutions.com).`,
-            from: 'kontakt@alansmsolutions.com',
-            to: 'angelikm19@gmail.com'
-          });
-        } else {
+        if (!jsonRes || jsonRes.status === 'error' || jsonRes.ok === false || jsonRes.success === false) {
+          processedAppointmentIds.delete(appointmentId);
+          const errReason = jsonRes?.message || jsonRes?.error || 'Resposta inválida ou não autorizada do Google Apps Script.';
+          console.warn(`[Notification Warning] Google Apps Script recusou a notificação: ${errReason}`);
           return res.status(200).json({
             success: false,
             delivered: false,
-            error: `HTTP ${scriptResponse.status} retornado pelo Google Apps Script.`
+            environment: cfg.appEnv,
+            error: `Google Apps Script recusou: ${errReason}`
           });
         }
-      } catch (scriptErr: any) {
-        console.error(`[Notification Error] Falha ao conectar ao Google Apps Script:`, scriptErr);
-        const isTimeout = scriptErr.name === 'TimeoutError' || scriptErr.name === 'AbortError' || scriptErr.message?.includes('timeout');
+
+        console.log(`[Notification Success][${cfg.appEnv}] Google Apps Script confirmou o processamento!`);
+        return res.json({
+          success: true,
+          delivered: true,
+          environment: cfg.appEnv,
+          message: jsonRes.message || `Notificação processada com sucesso pelo Google Apps Script (${cfg.appEnv}).`,
+          scriptResponse: jsonRes
+        });
+      } else {
+        processedAppointmentIds.delete(appointmentId);
         return res.status(200).json({
           success: false,
           delivered: false,
-          error: isTimeout
-            ? 'Tempo limite esgotado (15s) ao aguardar resposta do Google Apps Script.'
-            : `Falha de rede ao conectar com o Google Apps Script: ${scriptErr.message}`
+          environment: cfg.appEnv,
+          error: `HTTP ${scriptResponse.status} retornado pelo Google Apps Script.`
         });
       }
+    } catch (scriptErr: any) {
+      processedAppointmentIds.delete(appointmentId);
+      console.error(`[Notification Error] Falha ao conectar ao Google Apps Script:`, scriptErr);
+      const isTimeout = scriptErr.name === 'TimeoutError' || scriptErr.name === 'AbortError' || scriptErr.message?.includes('timeout');
+      return res.status(200).json({
+        success: false,
+        delivered: false,
+        environment: cfg.appEnv,
+        error: isTimeout
+          ? 'Tempo limite esgotado (15s) ao aguardar resposta do Google Apps Script.'
+          : `Falha de rede ao conectar com o Google Apps Script: ${scriptErr.message}`
+      });
     }
-
-    return res.json({
-      success: true,
-      delivered: false,
-      message: `Pré-agendamento registrado no servidor. Notificação gravada (nenhum Webhook configurado).`,
-      from: 'kontakt@alansmsolutions.com',
-      to: 'angelikm19@gmail.com'
-    });
   } catch (err: any) {
     return res.status(500).json({
       success: false,
@@ -599,4 +945,12 @@ async function startServer() {
   });
 }
 
-startServer();
+export { app };
+
+const isMainModule =
+  Boolean(process.argv[1]) &&
+  path.resolve(process.argv[1]) === path.resolve(__filename);
+
+if (isMainModule) {
+  startServer();
+}

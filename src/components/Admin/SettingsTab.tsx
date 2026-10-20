@@ -96,7 +96,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   // State for Pix & Settings
   const [pixKey, setPixKey] = useState('+5512974062241');
   const [pixBeneficiary, setPixBeneficiary] = useState('Angelica do Carmo E. Silva ME');
-  const [depositAmount, setDepositAmount] = useState('50');
+  const [depositAmount, setDepositAmount] = useState('40');
   const [prepayDiscount, setPrepayDiscount] = useState('5');
   const [savedSuccess, setSavedSuccess] = useState<string | null>(null);
 
@@ -171,7 +171,8 @@ Olá, *{cliente}*! Seu horário no nosso atelier privativo foi *CONFIRMADO* com 
 
 ℹ️ *Orientações importantes:*
 • Pedimos a gentileza de chegar com 5 a 10 minutos de antecedência.
-• Em caso de necessidade de remarcação, avise com antecedência mínima de 24 horas.
+• Mudanças de data exigem pelo menos 24 horas de antecedência, mantendo o sinal pago.
+• Em caso de desistência ou não comparecimento, o sinal não é reembolsado.
 
 Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuidar de você! 💕`;
   });
@@ -242,7 +243,7 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
         serviceTitle: 'Teste Direto Gmail API',
         date: 'Hoje',
         time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-        depositAmount: 50,
+        depositAmount: 88,
         appointmentId: `test-${Date.now()}`,
         notes: `Disparo de verificação direta pelo navegador via Gmail API (${AUTHORIZED_SENDER_EMAIL} -> ${TARGET_NOTIFICATION_EMAIL}).`
       });
@@ -909,7 +910,7 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
           </div>
           <div>
             <label className="block text-[#49382E] font-semibold mb-1">
-              Valor do Sinal de Reserva Padrão (R$)
+              Percentual do Sinal de Reserva Padrão (%)
             </label>
             <input
               type="number"
@@ -1076,7 +1077,7 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
               <button
                 type="button"
                 onClick={() => {
-                  setWaTemplate(`✨ *Confirmação de Agendamento • Espaço Angélica do Carmo* ✨\n\nOlá, *{cliente}*! Seu horário no nosso atelier privativo foi *CONFIRMADO* com sucesso na grade. 💅✨\n\n📋 *Detalhes do seu atendimento:*\n• *Procedimento:* {servico}\n• *Data:* {data}\n• *Horário:* às {horario}\n• *Valor:* {valor}\n• *Sinal:* {sinal}\n\n📍 *Endereço:* {endereco}\n\nℹ️ *Orientações importantes:*\n• Pedimos a gentileza de chegar com 5 a 10 minutos de antecedência.\n• Em caso de necessidade de remarcação, avise com antecedência mínima de 24 horas.\n\nQualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuidar de você! 💕`);
+                  setWaTemplate(`✨ *Confirmação de Agendamento • Espaço Angélica do Carmo* ✨\n\nOlá, *{cliente}*! Seu horário no nosso atelier privativo foi *CONFIRMADO* com sucesso na grade. 💅✨\n\n📋 *Detalhes do seu atendimento:*\n• *Procedimento:* {servico}\n• *Data:* {data}\n• *Horário:* às {horario}\n• *Valor:* {valor}\n• *Sinal:* {sinal}\n\n📍 *Endereço:* {endereco}\n\nℹ️ *Orientações importantes:*\n• Pedimos a gentileza de chegar com 5 a 10 minutos de antecedência.\n• Mudanças de data exigem pelo menos 24 horas de antecedência, mantendo o sinal pago.\n• Em caso de desistência ou não comparecimento, o sinal não é reembolsado.\n\nQualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuidar de você! 💕`);
                   notify('Modelo padrão restaurado!');
                 }}
                 className="px-3 py-1 rounded-full bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#786C63] hover:text-[#49382E] font-semibold cursor-pointer transition-colors"
@@ -1130,7 +1131,7 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
                     .replace(/{data}/g, 'Quinta, 14 Nov')
                     .replace(/{horario}/g, '14:30')
                     .replace(/{valor}/g, 'R$ 220,00')
-                    .replace(/{sinal}/g, 'R$ 50,00 (Liquidado via Pix)')
+                    .replace(/{sinal}/g, 'R$ 88,00 (40% - Liquidado via Pix)')
                     .replace(/{endereco}/g, address.fullAddress)}
                 </div>
                 <div className="mt-2 text-right flex items-center justify-end gap-1 text-[10px] text-gray-400">
@@ -1576,6 +1577,12 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
 {`function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
+    var amountFormatted = Number(data.depositAmount || 0).toFixed(2).replace(".", ",");
+    var paymentLabel = data.paymentMode === "pre_pagamento_100"
+      ? "Pré-pagamento Pix (100%)"
+      : data.paymentMode === "sinal_50"
+      ? "Sinal Pix"
+      : "Sinal Pix (40%)";
 
     // 1. Grava no Google Sheets (se o script for vinculado a uma planilha)
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -1596,21 +1603,22 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
       ]);
     }
 
-    // 2. Dispara e-mail oficial de kontakt@alansmsolutions.com para angelikm19@gmail.com
+    // 2. Dispara e-mail oficial de kontakt@alansmsolutions.com para a destinatária configurada
+    var recipient = data.to || "angelikm19@gmail.com";
     var subject = "Novo pré-agendamento — " + data.clientName + " — " + data.date + " às " + data.time;
     var body = "Olá Angélica,\\n\\nUm novo pré-agendamento foi realizado pelo site!\\n\\n" +
       "• Cliente: " + data.clientName + "\\n" +
       "• Telefone: " + data.clientPhone + "\\n" +
       (data.clientEmail ? "• E-mail: " + data.clientEmail + "\\n" : "") +
-      "• Procedimento: " + data.serviceTitle + "\\n" +
+      "• Procedimento: " + data.serviceTitle + (data.servicePrice ? " (" + data.servicePrice + ")" : "") + "\\n" +
       "• Data & Horário: " + data.date + " às " + data.time + "\\n" +
-      "• Sinal Pix: R$ " + data.depositAmount + ",00\\n" +
+      "• " + paymentLabel + ": R$ " + amountFormatted + "\\n" +
       "• ID da Reserva: " + data.appointmentId + "\\n" +
       (data.notes ? "• Observações: " + data.notes + "\\n\\n" : "\\n") +
-      "Verifique o recebimento do Pix de R$ " + data.depositAmount + ",00 na sua conta bancária para confirmar a vaga.";
+      "Verifique o recebimento do Pix de R$ " + amountFormatted + " na sua conta bancária para confirmar a vaga.";
 
     MailApp.sendEmail({
-      to: "angelikm19@gmail.com",
+      to: recipient,
       replyTo: data.clientEmail || "kontakt@alansmsolutions.com",
       subject: subject,
       body: body

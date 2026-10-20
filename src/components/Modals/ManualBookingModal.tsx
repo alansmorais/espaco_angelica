@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { SERVICES_CATALOG, INITIAL_BLACKLIST } from '../../data/mockData';
 import { Appointment, Service, BlacklistEntry, RecurrenceConfig } from '../../types';
 import { sendAppointmentWhatsAppConfirmation } from '../../services/whatsappService';
+import { calculateDeposit40, calculateFullPrepayment, formatBRL } from '../../services/notificationTemplates';
 
 interface ManualBookingModalProps {
   isOpen: boolean;
@@ -23,7 +24,7 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
   const [selectedServiceId, setSelectedServiceId] = useState(services[0]?.id || SERVICES_CATALOG[0].id);
   const [date, setDate] = useState('Quinta, 14 Nov');
   const [time, setTime] = useState('14:30');
-  const [paymentMode, setPaymentMode] = useState<'sinal_50' | 'pre_pagamento_100'>('sinal_50');
+  const [paymentMode, setPaymentMode] = useState<'sinal_40' | 'pre_pagamento_100'>('sinal_40');
   const [depositStatus, setDepositStatus] = useState<'liquidado' | 'pendente'>('liquidado');
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurrenceFreq, setRecurrenceFreq] = useState(21);
@@ -45,6 +46,8 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
   const effectivePaymentMode = isInadimplente ? 'pre_pagamento_100' : paymentMode;
 
   const serv = services.find(s => s.id === selectedServiceId) || services[0] || SERVICES_CATALOG[0];
+  const standardDeposit = calculateDeposit40(serv.price);
+  const fullPrepayment = calculateFullPrepayment(serv.price);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,7 +66,7 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
         }
       : undefined;
 
-    const depositAmount = effectivePaymentMode === 'pre_pagamento_100' ? serv.price : 50;
+    const depositAmount = effectivePaymentMode === 'pre_pagamento_100' ? fullPrepayment : standardDeposit;
 
     let waStatus: 'enviado' | 'pendente' | 'simulado' | undefined = undefined;
     let waSentAt: string | undefined = undefined;
@@ -72,6 +75,7 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
       id: `apt-${Date.now()}`,
       clientName: clientName.trim(),
       clientPhone: clientPhone.trim() || '(12) 99999-0000',
+      serviceId: serv.id,
       serviceTitle: serv.title,
       servicePrice: serv.priceFormatted,
       serviceDuration: serv.duration,
@@ -247,16 +251,16 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
               <button
                 type="button"
                 disabled={isInadimplente}
-                onClick={() => setPaymentMode('sinal_50')}
+                onClick={() => setPaymentMode('sinal_40')}
                 className={`py-2 px-2.5 rounded-xl font-bold cursor-pointer transition-all border ${
-                  effectivePaymentMode === 'sinal_50'
+                  effectivePaymentMode === 'sinal_40'
                     ? 'bg-[#D4AF37] text-[#3C2F00] border-[#D4AF37] shadow-xs'
                     : isInadimplente
                     ? 'bg-[#F7EFEA] text-[#A39A90] border-[#E8D9B5] cursor-not-allowed'
                     : 'bg-[#FFFFFF] text-[#49382E] border-[#E8D9B5] hover:bg-[#FDFBF9]'
                 }`}
               >
-                Sinal R$ 50,00
+                Sinal 40% (R$ {formatBRL(standardDeposit)})
               </button>
               <button
                 type="button"
