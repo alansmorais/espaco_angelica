@@ -689,7 +689,7 @@ export function validateBookingPaymentCoherence(payload: any): {
   };
 }
 
-export const APPOINTMENT_ID_REGEX = /^(apt|test)-[a-zA-Z0-9_-]{1,64}$/;
+export const APPOINTMENT_ID_REGEX = /^(apt|test|e2e)-[a-zA-Z0-9_-]{1,64}$/;
 
 export function isValidAppointmentId(id: unknown): id is string {
   if (typeof id !== 'string') return false;
@@ -807,11 +807,11 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
 
     const isAdmin = isAuthorizedAdminRequest(req);
 
-    // Identificadores de teste (test-*) e modo de teste são permitidos EXCLUSIVAMENTE para administradores autenticados
-    if (!isAdmin && typeof appointmentId === 'string' && appointmentId.startsWith('test-')) {
+    // Identificadores de teste (test-*, e2e-*) e modo de teste são permitidos EXCLUSIVAMENTE para administradores autenticados
+    if (!isAdmin && typeof appointmentId === 'string' && (appointmentId.startsWith('test-') || appointmentId.startsWith('e2e-'))) {
       return res.status(400).json({
         success: false,
-        error: 'Identificadores com prefixo test-* são reservados para testes administrativos autenticados.'
+        error: 'Identificadores com prefixo test-* ou e2e-* são reservados para testes administrativos autenticados.'
       });
     }
 
@@ -871,6 +871,15 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
       )
     );
 
+    const isE2EBooking = Boolean(
+      isAdmin && (
+        payload.action === 'e2eTestBooking' ||
+        payload.isE2ETest === true ||
+        payload.isE2ETest === 'true' ||
+        (typeof appointmentId === 'string' && appointmentId.startsWith('e2e-'))
+      )
+    );
+
     const bookingStatus = isTestBooking
       ? 'teste_sistema'
       : (payload.status === 'teste_sistema' ? 'pendente_pix' : (payload.status || 'pendente_pix'));
@@ -879,8 +888,9 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
 
     const authorizedBody = {
       ...safePayloadWithoutTo,
-      action: isTestBooking ? 'testConnection' : undefined,
+      action: isTestBooking ? 'testConnection' : (isE2EBooking ? 'e2eTestBooking' : undefined),
       isTest: isTestBooking,
+      isE2ETest: isE2EBooking,
       from: 'kontakt@alansmsolutions.com',
       to: targetRecipient,
       serviceId: paymentCheck.verifiedServiceId,
@@ -1069,6 +1079,112 @@ app.post('/api/notifications/test-connection', async (req: Request, res: Respons
     return res.status(500).json({
       success: false,
       error: 'Falha na comunicação de teste com o Google Apps Script.',
+      details: err.message
+    });
+  }
+});
+
+// Endpoint administrativo para teste E2E controlado de persistência na planilha
+// Grava linha sintética na aba oficial Agendamentos, mas SUPRIME estritamente e-mails e WhatsApp
+app.post('/api/notifications/e2e-test-booking', async (req: Request, res: Response) => {
+  if (!isAuthorizedAdminRequest(req)) {
+    return res.status(401).json({
+      success: false,
+      error: 'Acesso não autorizado. Credenciais administrativas ausentes ou inválidas.'
+    });
+  }
+
+  try {
+    const cfg = resolveAppsScriptConfig();
+    if (!cfg.configured || !cfg.webhookUrl) {
+      return res.status(400).json({
+        success: false,
+        error: cfg.safetyError || 'APPS_SCRIPT_WEBHOOK_URL ou APPS_SCRIPT_TOKEN não configurados no servidor.'
+      });
+    }
+
+    const testId = `e2e-test-${Date.now()}`;
+    const syntheticPayload = {
+      action: 'e2eTestBooking',
+      isE2ETest: true,
+      appointmentId: testId,
+      clientName: '[TESTE E2E — NÃO É CLIENTE REAL]',
+      clientPhone: '(12) 99999-0000',
+      clientEmail: '',
+      serviceId: 'alongamento-fibra-slim',
+      serviceTitle: 'Alongamento em Fibra Slim',
+      servicePrice: 'R$ 220,00',
+      depositAmount: 88,
+      paymentMode: 'sinal_40',
+      date: '2026-10-31',
+      time: '10:00',
+      status: 'pendente_pix',
+      notes: '[TESTE E2E — NÃO É CLIENTE REAL] Validação autorizada de persistência em planilha de produção',
+      token: cfg.token,
+      authToken: cfg.token,
+      key: cfg.token
+    };
+
+    const scriptResponse = await fetch(cfg.webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8'
+      },
+      body: JSON.stringify(syntheticPayload),
+      signal: AbortSignal.timeout(15000)
+    });
+
+    if (scriptResponse.ok) {
+      const responseText = await scriptResponse.text();
+      let jsonRes: any = null;
+      try {
+        jsonRes = JSON.parse(responseText);
+      } catch {}
+
+      if (jsonRes && (jsonRes.status === 'success' || jsonRes.persisted === true)) {
+        recordServerAppointment({
+          id: testId,
+          clientName: syntheticPayload.clientName,
+          clientPhone: syntheticPayload.clientPhone,
+          serviceId: syntheticPayload.serviceId,
+          serviceTitle: syntheticPayload.serviceTitle,
+          servicePrice: syntheticPayload.servicePrice,
+          date: syntheticPayload.date,
+          time: syntheticPayload.time,
+          status: 'pendente_pix',
+          depositAmount: 88,
+          depositStatus: 'pendente',
+          paymentMode: 'sinal_40',
+          timestamp: new Date().toISOString(),
+          notes: syntheticPayload.notes
+        });
+
+        return res.json({
+          success: true,
+          test: true,
+          e2e: true,
+          persisted: true,
+          emailSent: false,
+          emailSuppressed: true,
+          appointmentId: testId,
+          message: jsonRes.message || 'Reserva de teste E2E gravada com sucesso no Sheets (e-mails e notificações suprimidos).'
+        });
+      }
+
+      return res.status(400).json({
+        success: false,
+        error: jsonRes?.message || 'Google Apps Script recusou a gravação do teste E2E.'
+      });
+    }
+
+    return res.status(scriptResponse.status).json({
+      success: false,
+      error: `Google Apps Script retornou HTTP ${scriptResponse.status}.`
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: 'Falha na comunicação de teste E2E com o Google Apps Script.',
       details: err.message
     });
   }

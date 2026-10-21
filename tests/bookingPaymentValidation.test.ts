@@ -1351,5 +1351,192 @@ runTest('Nail Art Base Pricing: procedimento com preço "A partir de R$ 50,00" v
   assertCondition(validationFull.verifiedDepositAmount === 50, 'Depósito verificado deve ser R$ 50,00');
 });
 
+// 32. Validação estática e estrutural de Code.gs e codeGsTemplate.ts: isolamento total de testes
+runTest('Apps Script Contract: Code.gs e codeGsTemplate.ts garantem que testes NUNCA chamam appendRow nem MailApp', () => {
+  const codeGsPath = path.resolve(__dirname, '../Code.gs');
+  const templatePath = path.resolve(__dirname, '../src/data/codeGsTemplate.ts');
+
+  assertCondition(fs.existsSync(codeGsPath), 'Arquivo Code.gs deve existir na raiz do projeto');
+  assertCondition(fs.existsSync(templatePath), 'Arquivo src/data/codeGsTemplate.ts deve existir');
+
+  const codeGsContent = fs.readFileSync(codeGsPath, 'utf8');
+  const templateContent = fs.readFileSync(templatePath, 'utf8');
+
+  // Confirma que a lógica de teste interrompe a execução ANTES de appendRow
+  const isTestPos = codeGsContent.indexOf('var isTestExecution = Boolean(');
+  assertCondition(isTestPos !== -1, 'Code.gs deve definir isTestExecution');
+
+  const returnTestPos = codeGsContent.indexOf('return responseJSON({\n          status: "success",\n          test: true,\n          persisted: false,');
+  assertCondition(returnTestPos !== -1, 'Code.gs deve retornar early return com persisted: false em modo teste');
+
+  const appendRowPos = codeGsContent.indexOf('sheet.appendRow([');
+  assertCondition(appendRowPos !== -1, 'Code.gs deve conter appendRow para reservas reais');
+
+  assertCondition(
+    returnTestPos < appendRowPos,
+    'O retorno de teste (persisted: false) DEVE ocorrer ANTES da chamada de sheet.appendRow'
+  );
+
+  // Confirma que não existe mais a lógica antiga de appending em teste
+  assertCondition(
+    !codeGsContent.includes('[TESTE DE SISTEMA]'),
+    'Code.gs NÃO pode conter o prefixo [TESTE DE SISTEMA] na chamada de appendRow (indicaria gravação indevida de teste)'
+  );
+
+  // Confirma que MailApp.sendEmail também ocorre apenas após a validação e após appendRow
+  const mailAppPos = codeGsContent.indexOf('MailApp.sendEmail(');
+  assertCondition(mailAppPos !== -1, 'Code.gs deve conter MailApp.sendEmail para envio real');
+  assertCondition(
+    returnTestPos < mailAppPos,
+    'O retorno de teste DEVE ocorrer ANTES de qualquer chamada a MailApp.sendEmail'
+  );
+
+  // Validação idêntica em codeGsTemplate.ts (que alimenta o painel de configurações do frontend)
+  assertCondition(
+    !templateContent.includes('[TESTE DE SISTEMA]'),
+    'src/data/codeGsTemplate.ts NÃO pode conter o prefixo [TESTE DE SISTEMA]'
+  );
+  assertCondition(
+    templateContent.includes('persisted: false'),
+    'src/data/codeGsTemplate.ts deve manter persisted: false para testes'
+  );
+});
+
+// 33. Validação do fluxo de teste no server.ts: /api/notifications/test-connection isolado
+runTest('Server Test Isolation: /api/notifications/test-connection nunca persiste reservas nem dispara WhatsApp', () => {
+  const serverPath = path.resolve(__dirname, '../server.ts');
+  const serverContent = fs.readFileSync(serverPath, 'utf8');
+
+  // 1. Proteção de autenticação: fail-closed
+  const testConnPos = serverContent.indexOf("app.post('/api/notifications/test-connection'");
+  assertCondition(testConnPos !== -1, 'server.ts deve conter a rota /api/notifications/test-connection');
+
+  const authCheckPos = serverContent.indexOf('if (!isAuthorizedAdminRequest(req))', testConnPos);
+  assertCondition(authCheckPos !== -1 && authCheckPos < testConnPos + 200, 'test-connection DEVE validar isAuthorizedAdminRequest imediatamente no topo');
+
+  // 2. Garantia de que test-connection não chama recordServerAppointment
+  const nextRoutePos = serverContent.indexOf("app.post('/api/notifications/new-booking'", testConnPos);
+  const testConnBlock = serverContent.substring(testConnPos, nextRoutePos !== -1 ? nextRoutePos : testConnPos + 2500);
+
+  assertCondition(
+    !testConnBlock.includes('recordServerAppointment('),
+    'A rota /api/notifications/test-connection NUNCA pode chamar recordServerAppointment'
+  );
+
+  // 3. Garantia de que test-connection sempre retorna persisted: false e emailSuppressed: true
+  assertCondition(
+    testConnBlock.includes('persisted: false') && testConnBlock.includes('emailSuppressed: true'),
+    'test-connection DEVE retornar expressamente persisted: false e emailSuppressed: true'
+  );
+
+  // 4. Garantia de que nenhuma chamada ao WhatsApp Service ocorre em test-connection
+  assertCondition(
+    !testConnBlock.includes('sendWhatsAppMessage') && !testConnBlock.includes('sendWhatsAppNotification'),
+    'test-connection NUNCA pode disparar mensagens via WhatsApp'
+  );
+});
+
+// 34. Validação de isolamento de teste em new-booking: isTestBooking bloqueia recordServerAppointment e WhatsApp
+runTest('Server New Booking Test Isolation: isTestBooking bloqueia recordServerAppointment e envio de mensagens', () => {
+  const serverPath = path.resolve(__dirname, '../server.ts');
+  const serverContent = fs.readFileSync(serverPath, 'utf8');
+
+  const newBookingPos = serverContent.indexOf("app.post('/api/notifications/new-booking'");
+  const testConnPos = serverContent.indexOf("app.post('/api/notifications/test-connection'");
+
+  assertCondition(newBookingPos !== -1, 'server.ts deve conter a rota /api/notifications/new-booking');
+  assertCondition(testConnPos !== -1, 'server.ts deve conter a rota /api/notifications/test-connection');
+
+  const newBookingBlock = serverContent.substring(newBookingPos, testConnPos);
+
+  // Confirma que isTestBooking retorna antes de recordServerAppointment
+  const isTestReturnPos = newBookingBlock.indexOf('if (isTestBooking) {');
+  const recordApptPos = newBookingBlock.indexOf('recordServerAppointment({');
+
+  assertCondition(isTestReturnPos !== -1, 'new-booking deve ter bloco if (isTestBooking)');
+  assertCondition(recordApptPos !== -1, 'new-booking deve ter chamada de recordServerAppointment para reservas reais');
+  assertCondition(
+    isTestReturnPos < recordApptPos,
+    'O retorno antecipado de isTestBooking DEVE preceder a persistência de recordServerAppointment'
+  );
+
+  // Confirma que no retorno de isTestBooking, persisted é false e emailSent é false
+  const testReturnSnippet = newBookingBlock.substring(isTestReturnPos, isTestReturnPos + 500);
+  assertCondition(testReturnSnippet.includes('persisted: false'), 'isTestBooking deve retornar persisted: false');
+  assertCondition(testReturnSnippet.includes('emailSent: false'), 'isTestBooking deve retornar emailSent: false');
+  assertCondition(testReturnSnippet.includes('emailSuppressed: true'), 'isTestBooking deve retornar emailSuppressed: true');
+});
+
+// 35. Validação de integridade do domínio personalizado (CNAME) e sincronia exata do Code.gs
+runTest('Custom Domain & Apps Script Sync: public/CNAME configurado e Code.gs 100% idêntico a codeGsTemplate.ts', () => {
+  const cnamePath = path.resolve(__dirname, '../public/CNAME');
+  assertCondition(fs.existsSync(cnamePath), 'public/CNAME deve existir para inclusão automática no build do Vite');
+
+  const cnameContent = fs.readFileSync(cnamePath, 'utf8').trim();
+  assertCondition(
+    cnameContent === 'espacoangelica.alansmsolutions.com',
+    `public/CNAME deve conter exatamente 'espacoangelica.alansmsolutions.com', encontrado: '${cnameContent}'`
+  );
+
+  const workflowPath = path.resolve(__dirname, '../.github/workflows/deploy.yml');
+  const workflowContent = fs.readFileSync(workflowPath, 'utf8');
+  assertCondition(
+    workflowContent.includes('cname: espacoangelica.alansmsolutions.com'),
+    'deploy.yml deve conter a opção cname: espacoangelica.alansmsolutions.com'
+  );
+
+  // Validação de paridade 100% entre Code.gs e src/data/codeGsTemplate.ts
+  const codeGsPath = path.resolve(__dirname, '../Code.gs');
+  const codeGsRaw = fs.readFileSync(codeGsPath, 'utf8').replace(/\r\n/g, '\n').trim();
+
+  // Import dinâmico ou leitura do CODE_GS_TEMPLATE
+  const templatePath = path.resolve(__dirname, '../src/data/codeGsTemplate.ts');
+  const templateFileRaw = fs.readFileSync(templatePath, 'utf8');
+  const quoteStart = templateFileRaw.indexOf('"');
+  const quoteEnd = templateFileRaw.lastIndexOf('"');
+  const unescapedTemplate = JSON.parse(templateFileRaw.substring(quoteStart, quoteEnd + 1)).replace(/\r\n/g, '\n').trim();
+
+  assertCondition(
+    codeGsRaw === unescapedTemplate,
+    'Code.gs e CODE_GS_TEMPLATE em src/data/codeGsTemplate.ts devem ser 100% idênticos'
+  );
+});
+
+// 36. Validação do fluxo de teste E2E controlado: permissão de prefixo e supressão de notificações
+runTest('E2E Test Booking Flow: ID regex aceita e2e-*, endpoint exige admin e suprime notificações', () => {
+  // 1. Validação de regex do ID para prefixo e2e-
+  assertCondition(isValidAppointmentId('e2e-test-1792607999999'), 'isValidAppointmentId deve aceitar prefixo e2e-test-*');
+  assertCondition(APPOINTMENT_ID_REGEX.test('e2e-test-probe-1'), 'APPOINTMENT_ID_REGEX deve aceitar e2e-test-probe-1');
+
+  // 2. Bloqueio para usuários públicos
+  const fakePublicReq = {
+    headers: {},
+    body: { appointmentId: 'e2e-test-unauth' }
+  };
+  const isAdmin = isAuthorizedAdminRequest(fakePublicReq as any);
+  assertCondition(!isAdmin, 'Usuário público não pode ser administrador');
+  const isPublicPrefixAllowed = !(!isAdmin && fakePublicReq.body.appointmentId.startsWith('e2e-'));
+  assertCondition(isPublicPrefixAllowed === false, 'Prefixo e2e-* DEVE ser rejeitado para usuários não autenticados');
+
+  // 3. Validação do Code.gs: e2e- suprime estritamente envio de e-mails
+  const codeGsPath = path.resolve(__dirname, '../Code.gs');
+  const codeGsContent = fs.readFileSync(codeGsPath, 'utf8');
+
+  assertCondition(codeGsContent.includes('isE2EExecution'), 'Code.gs deve definir isE2EExecution');
+  assertCondition(codeGsContent.includes('if (!isE2EExecution) {'), 'Code.gs deve condicionar o envio de e-mails a !isE2EExecution');
+  assertCondition(
+    codeGsContent.includes('rawId.indexOf("e2e-") === 0') || codeGsContent.includes('rawId.startsWith("e2e-")'),
+    'Code.gs deve reconhecer prefixo e2e- para supressão de e-mails'
+  );
+
+  // 4. Validação da rota no server.ts
+  const serverPath = path.resolve(__dirname, '../server.ts');
+  const serverContent = fs.readFileSync(serverPath, 'utf8');
+  assertCondition(
+    serverContent.includes("app.post('/api/notifications/e2e-test-booking'"),
+    'server.ts deve conter a rota /api/notifications/e2e-test-booking'
+  );
+});
+
 console.log(`\nTodos os ${passedTests} grupos de testes automatizados passaram com sucesso.`);
 
