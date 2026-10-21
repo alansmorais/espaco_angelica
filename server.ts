@@ -42,7 +42,10 @@ function isPlaceholderValue(value: string): boolean {
   );
 }
 
-function resolveNotificationRecipient(isStaging: boolean): string {
+function resolveNotificationRecipient(isStaging: boolean, isTest?: boolean): string {
+  if (isTest) {
+    return STAGING_RECIPIENT_EMAIL;
+  }
   if (!isStaging) {
     return PRODUCTION_RECIPIENT_EMAIL;
   }
@@ -64,7 +67,7 @@ function resolveAppsScriptConfig() {
     : process.env.APP_ENV || process.env.NODE_ENV || 'development';
   const isStaging = appEnv === 'staging';
   const rawUrl = (process.env.APPS_SCRIPT_WEBHOOK_URL || '').trim();
-  const rawToken = (process.env.APPS_SCRIPT_TOKEN || process.env.WEBHOOK_SECRET || '').trim();
+  const rawToken = (process.env.APPS_SCRIPT_TOKEN || '').trim();
 
   const hasExplicitUrl = Boolean(rawUrl && !isPlaceholderValue(rawUrl));
   const hasExplicitToken = Boolean(rawToken && !isPlaceholderValue(rawToken));
@@ -119,26 +122,31 @@ app.use(express.json());
 // -----------------------------------------------------------------------------
 const allowedOrigins = [
   process.env.FRONTEND_ORIGIN,
+  'https://espacoangelica.alansmsolutions.com',
+  'https://www.espacoangelica.alansmsolutions.com',
   'https://alansmorais.github.io',
   'https://alanp.github.io',
   'http://localhost:5173',
   'http://localhost:3000'
 ].filter(Boolean) as string[];
 
+function isOriginAllowed(origin: string | undefined): boolean {
+  if (!origin) return false;
+  const normalized = origin.trim().replace(/\/$/, '');
+  return (
+    allowedOrigins.some(allowed => allowed.trim().replace(/\/$/, '') === normalized) ||
+    process.env.NODE_ENV !== 'production'
+  );
+}
+
 app.use((req: Request, res: Response, next) => {
   const origin = req.headers.origin;
 
-  if (origin) {
-    const isAllowed =
-      allowedOrigins.includes(origin) ||
-      process.env.NODE_ENV !== 'production';
-
-    if (isAllowed) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-      res.setHeader('Access-Control-Max-Age', '86400');
-    }
+  if (origin && isOriginAllowed(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Max-Age', '86400');
   }
 
   if (req.method === 'OPTIONS') {
@@ -249,12 +257,19 @@ function buildConfirmationMessage(data: {
   const paymentLabel =
     data.paymentMode === 'pre_pagamento_100'
       ? 'Pré-pagamento (100%)'
-      : data.paymentMode === 'sinal_50'
-      ? 'Sinal'
       : 'Sinal (40%)';
   const depositInfo = data.depositAmount
     ? `\n💰 *${paymentLabel}:* ${depositFormatted} (${data.depositStatus === 'liquidado' ? 'Confirmado via Pix' : 'Aguardando validação'})`
     : '';
+
+  let balanceInfo = '';
+  if (data.servicePrice && data.depositAmount !== undefined && data.paymentMode !== 'pre_pagamento_100') {
+    const parsedPrice = parseBRLString(data.servicePrice);
+    if (parsedPrice !== null) {
+      const remaining = Math.max(0, Math.round((parsedPrice - data.depositAmount) * 100) / 100);
+      balanceInfo = `\n💵 *Saldo Restante no Atendimento:* R$ ${formatCurrencyServerBRL(remaining)}`;
+    }
+  }
 
   if (data.customTemplate && data.customTemplate.trim()) {
     return data.customTemplate
@@ -275,6 +290,7 @@ function buildConfirmationMessage(data: {
     `• *Horário:* às ${data.time}` +
     priceInfo +
     depositInfo +
+    balanceInfo +
     `\n\n📍 *Endereço:* ${address}\n\n` +
     `ℹ️ *Orientações importantes:*\n` +
     `• Pedimos a gentileza de chegar com 5 a 10 minutos de antecedência.\n` +
@@ -337,6 +353,130 @@ app.get('/api/notifications/status', (_req: Request, res: Response) => {
     targetSender: 'kontakt@alansmsolutions.com',
     targetRecipient
   });
+});
+
+export interface ServerStoredAppointment {
+  id: string;
+  clientName: string;
+  clientPhone: string;
+  clientEmail?: string;
+  serviceId: string;
+  serviceTitle: string;
+  servicePrice: string;
+  date: string;
+  time: string;
+  status: string;
+  depositAmount: number;
+  depositStatus: string;
+  paymentMode: 'sinal_40' | 'pre_pagamento_100';
+  timestamp: string;
+  notes?: string;
+  nailCondition?: string;
+}
+
+export const serverAppointments: ServerStoredAppointment[] = [];
+
+export function recordServerAppointment(apt: ServerStoredAppointment): void {
+  const existingIdx = serverAppointments.findIndex(a => a.id === apt.id);
+  if (existingIdx >= 0) {
+    serverAppointments[existingIdx] = apt;
+  } else {
+    serverAppointments.unshift(apt);
+    if (serverAppointments.length > 500) {
+      serverAppointments.pop();
+    }
+  }
+}
+
+function isAuthorizedAdminRequest(req: Request): boolean {
+  const authHeader = req.headers.authorization;
+  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  const headerToken = (req.headers['x-admin-token'] as string || '').trim();
+  const provided = bearerToken || headerToken;
+
+  // Segurança estrita: NUNCA aceita credenciais administrativas via query string (req.query)
+  if (!provided) return false;
+
+  // Segurança estrita: NUNCA usa APPS_SCRIPT_TOKEN ou WEBHOOK_SECRET como credencial do painel
+  // Apenas credenciais dedicadas de administração: ADMIN_TOKEN ou ADMIN_PASSWORD
+  const serverAdminToken = (process.env.ADMIN_TOKEN || '').trim();
+  const serverAdminPassword = (process.env.ADMIN_PASSWORD || 'angelica').trim();
+
+  if (serverAdminToken && provided === serverAdminToken) {
+    return true;
+  }
+  if (serverAdminPassword && provided === serverAdminPassword) {
+    return true;
+  }
+
+  return false;
+}
+
+app.get('/api/appointments', async (req: Request, res: Response) => {
+  if (!isAuthorizedAdminRequest(req)) {
+    return res.status(401).json({
+      success: false,
+      error: 'Acesso não autorizado. Credenciais administrativas ausentes ou inválidas.'
+    });
+  }
+
+  try {
+    const cfg = resolveAppsScriptConfig();
+    let externalAppointments: any[] = [];
+
+    if (cfg.configured && cfg.webhookUrl) {
+      try {
+        // Comunicação segura via POST com token no corpo criptografado (elimina token na query string)
+        const scriptRes = await fetch(cfg.webhookUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8'
+          },
+          body: JSON.stringify({
+            action: 'getAppointments',
+            token: cfg.token
+          }),
+          redirect: 'follow',
+          signal: AbortSignal.timeout(10000)
+        });
+        if (scriptRes.ok) {
+          const rawText = await scriptRes.text();
+          let resData: any = null;
+          try {
+            resData = JSON.parse(rawText);
+          } catch {}
+          if (Array.isArray(resData?.appointments)) {
+            externalAppointments = resData.appointments;
+          }
+        }
+      } catch {
+        // Apps Script fallback to server cache
+      }
+    }
+
+    const mergedMap = new Map<string, any>();
+    for (const apt of serverAppointments) {
+      mergedMap.set(apt.id, apt);
+    }
+    for (const ext of externalAppointments) {
+      if (ext.id) {
+        mergedMap.set(ext.id, { ...mergedMap.get(ext.id), ...ext });
+      }
+    }
+
+    return res.json({
+      success: true,
+      appointments: Array.from(mergedMap.values()),
+      source: externalAppointments.length > 0 ? 'sheets_synced' : 'server_cache',
+      total: mergedMap.size
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: 'Erro ao listar agendamentos do servidor.',
+      details: err.message
+    });
+  }
 });
 
 export interface CanonicalCatalogService {
@@ -554,6 +694,49 @@ export function validateBookingPaymentCoherence(payload: any): {
   };
 }
 
+export const APPOINTMENT_ID_REGEX = /^(apt|test)-[a-zA-Z0-9_-]{1,64}$/;
+
+export function isValidAppointmentId(id: unknown): id is string {
+  if (typeof id !== 'string') return false;
+  const trimmed = id.trim();
+  return trimmed.length >= 5 && trimmed.length <= 70 && APPOINTMENT_ID_REGEX.test(trimmed);
+}
+
+export function parseAppsScriptResponse(jsonRes: any, appEnv: string = 'production'): {
+  isSuccess: boolean;
+  persisted: boolean;
+  delivered: boolean;
+  duplicate: boolean;
+  message: string;
+  error?: string;
+} {
+  const isSuccess = Boolean(
+    jsonRes &&
+    (jsonRes.status === 'success' || jsonRes.persisted === true || jsonRes.ok === true || jsonRes.success === true) &&
+    jsonRes.status !== 'error'
+  );
+
+  if (!isSuccess) {
+    const errReason = jsonRes?.message || jsonRes?.error || 'Resposta inválida ou não autorizada do Google Apps Script.';
+    return {
+      isSuccess: false,
+      persisted: false,
+      delivered: false,
+      duplicate: false,
+      message: errReason,
+      error: `Google Apps Script recusou: ${errReason}`
+    };
+  }
+
+  return {
+    isSuccess: true,
+    persisted: true,
+    delivered: jsonRes.emailSent !== undefined ? Boolean(jsonRes.emailSent) : true,
+    duplicate: Boolean(jsonRes.duplicate),
+    message: jsonRes.message || `Reserva persistida com sucesso no Google Sheets (${appEnv}).`
+  };
+}
+
 app.post('/api/notifications/new-booking', async (req: Request, res: Response) => {
   try {
     const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
@@ -608,10 +791,10 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
       });
     }
 
-    if (!appointmentId || typeof appointmentId !== 'string') {
+    if (!isValidAppointmentId(appointmentId)) {
       return res.status(400).json({
         success: false,
-        error: 'ID da reserva ausente.'
+        error: 'ID da reserva ausente, inválido ou fora do formato esperado (prefixos permitidos: apt-* ou test-*).'
       });
     }
 
@@ -644,6 +827,7 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
       return res.json({
         success: true,
         delivered: false,
+        persisted: true,
         duplicate: true,
         environment: cfg.appEnv,
         message: `Notificação para a reserva ${appointmentId} já havia sido processada anteriormente. Gravação duplicada no Sheets prevenida.`
@@ -658,7 +842,13 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
 
     console.log(`[Notification][${cfg.appEnv}] Novo pré-agendamento recebido no servidor: ${clientName.trim()} (${clientPhone.trim()}) • ${paymentCheck.verifiedServiceTitle || 'Nail Design'} • ${date} às ${time}`);
 
-    const targetRecipient = resolveNotificationRecipient(cfg.isStaging);
+    const isTestBooking = Boolean(
+      payload.isTest === true ||
+      payload.status === 'teste_sistema' ||
+      (typeof appointmentId === 'string' && appointmentId.startsWith('test-')) ||
+      (typeof clientName === 'string' && clientName.toLowerCase().includes('teste_sistema'))
+    );
+    const targetRecipient = resolveNotificationRecipient(cfg.isStaging, isTestBooking);
     const { to: _ignoredClientTo, ...safePayloadWithoutTo } = payload;
 
     const authorizedBody = {
@@ -693,24 +883,46 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
           jsonRes = JSON.parse(responseText);
         } catch {}
 
-        if (!jsonRes || jsonRes.status === 'error' || jsonRes.ok === false || jsonRes.success === false) {
+        const parsed = parseAppsScriptResponse(jsonRes, cfg.appEnv);
+
+        if (!parsed.isSuccess) {
           processedAppointmentIds.delete(appointmentId);
-          const errReason = jsonRes?.message || jsonRes?.error || 'Resposta inválida ou não autorizada do Google Apps Script.';
-          console.warn(`[Notification Warning] Google Apps Script recusou a notificação: ${errReason}`);
+          console.warn(`[Notification Warning] Google Apps Script recusou a notificação: ${parsed.message}`);
           return res.status(200).json({
             success: false,
             delivered: false,
+            persisted: false,
             environment: cfg.appEnv,
-            error: `Google Apps Script recusou: ${errReason}`
+            error: parsed.error
           });
         }
 
-        console.log(`[Notification Success][${cfg.appEnv}] Google Apps Script confirmou o processamento!`);
+        console.log(`[Notification Success][${cfg.appEnv}] Google Apps Script confirmou persistência da reserva ${appointmentId}!`);
+        recordServerAppointment({
+          id: appointmentId,
+          clientName: clientName.trim(),
+          clientPhone: clientPhone.trim(),
+          clientEmail: payload.clientEmail?.trim() || undefined,
+          serviceId: paymentCheck.verifiedServiceId!,
+          serviceTitle: paymentCheck.verifiedServiceTitle!,
+          servicePrice: paymentCheck.verifiedServicePrice!,
+          date: date.trim(),
+          time: time.trim(),
+          status: payload.status || 'pendente_pix',
+          depositAmount: paymentCheck.verifiedDepositAmount!,
+          depositStatus: payload.depositStatus || 'pendente',
+          paymentMode: paymentCheck.verifiedPaymentMode!,
+          timestamp: payload.timestamp || new Date().toISOString(),
+          notes: payload.notes || undefined,
+          nailCondition: payload.nailCondition || undefined
+        });
         return res.json({
           success: true,
-          delivered: true,
+          delivered: parsed.delivered,
+          persisted: parsed.persisted,
+          duplicate: parsed.duplicate,
           environment: cfg.appEnv,
-          message: jsonRes.message || `Notificação processada com sucesso pelo Google Apps Script (${cfg.appEnv}).`,
+          message: parsed.message,
           scriptResponse: jsonRes
         });
       } else {
@@ -805,8 +1017,14 @@ app.post('/api/whatsapp/send-confirmation', async (req: Request, res: Response) 
       messageText
     };
 
-    // If Meta Cloud API credentials are provided, call Meta Graph API
-    if (token && phoneNumberId) {
+    const isTestAppointment = Boolean(
+      (typeof appointmentId === 'string' && appointmentId.startsWith('test-')) ||
+      depositStatus === 'teste_sistema' ||
+      (typeof clientName === 'string' && clientName.toLowerCase().includes('teste_sistema'))
+    );
+
+    // If Meta Cloud API credentials are provided, call Meta Graph API (never call for test appointments)
+    if (token && phoneNumberId && !isTestAppointment) {
       try {
         const metaUrl = `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`;
         const metaPayload = {
@@ -933,7 +1151,8 @@ async function startServer() {
           endpoints: {
             health: '/health',
             notificationStatus: '/api/notifications/status',
-            whatsappStatus: '/api/whatsapp/status'
+            whatsappStatus: '/api/whatsapp/status',
+            appointments: '/api/appointments'
           }
         });
       }
@@ -945,7 +1164,14 @@ async function startServer() {
   });
 }
 
-export { app };
+export {
+  app,
+  allowedOrigins,
+  isOriginAllowed,
+  buildConfirmationMessage,
+  isAuthorizedAdminRequest,
+  resolveNotificationRecipient
+};
 
 const isMainModule =
   Boolean(process.argv[1]) &&

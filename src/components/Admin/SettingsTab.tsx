@@ -1574,20 +1574,124 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
               </div>
 
               <pre className="overflow-x-auto p-3 bg-[#1E1916] rounded-lg text-emerald-300">
-{`function doPost(e) {
-  try {
-    var data = JSON.parse(e.postData.contents);
-    var amountFormatted = Number(data.depositAmount || 0).toFixed(2).replace(".", ",");
-    var paymentLabel = data.paymentMode === "pre_pagamento_100"
-      ? "Pré-pagamento Pix (100%)"
-      : data.paymentMode === "sinal_50"
-      ? "Sinal Pix"
-      : "Sinal Pix (40%)";
+{`/**
+ * Espaço Angélica do Carmo - Google Apps Script Backend (Code.gs)
+ * Configuração Segura de Produção com validação obrigatória via ScriptProperties.
+ */
 
-    // 1. Grava no Google Sheets (se o script for vinculado a uma planilha)
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    if (ss) {
-      var sheet = ss.getActiveSheet();
+var TARGET_SPREADSHEET_ID = "1dB23gq_EiQtCT-TQcdEK1yHV0lk5X0TkkIZKbnqTRs0";
+
+function validateAuthorization(tokenProvided) {
+  var expectedToken = PropertiesService.getScriptProperties().getProperty("APPS_SCRIPT_TOKEN");
+
+  if (!expectedToken || String(expectedToken).trim() === "") {
+    return { valid: false, error: "Configuração incompleta: APPS_SCRIPT_TOKEN ausente nas Propriedades do Script." };
+  }
+
+  if (!tokenProvided || String(tokenProvided).trim() !== String(expectedToken).trim()) {
+    return { valid: false, error: "Acesso não autorizado: token de autorização inválido ou ausente." };
+  }
+
+  return { valid: true };
+}
+
+function responseJSON(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function getOfficialSheet() {
+  try {
+    var ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
+    if (!ss) return null;
+    return ss.getSheetByName("Agendamentos");
+  } catch (e) {
+    return null;
+  }
+}
+
+function doPost(e) {
+  try {
+    if (!e || !e.postData || !e.postData.contents) {
+      return responseJSON({ status: "error", message: "Corpo da requisição vazio." });
+    }
+
+    var data = JSON.parse(e.postData.contents);
+
+    // Validação estrita do token do backend vindo no corpo criptografado da requisição
+    var tokenProvided = data.token || data.authToken || data.key || (e.parameter && e.parameter.token);
+    var auth = validateAuthorization(tokenProvided);
+    if (!auth.valid) {
+      return responseJSON({ status: "error", message: auth.error });
+    }
+
+    // Leitura administrativa segura via POST: remove token da query string
+    if (data.action === "getAppointments") {
+      return fetchAppointmentsFromSheet();
+    }
+
+    // Para gravação de nova reserva, adquire lock de concorrência
+    var lock = LockService.getScriptLock();
+    try {
+      lock.waitLock(15000);
+    } catch (lockErr) {
+      return responseJSON({ status: "error", message: "Tempo limite esgotado ao aguardar bloqueio de concorrência." });
+    }
+
+    try {
+      // Validação estrita do appointmentId
+      if (!data.appointmentId || !/^(apt|test)-[a-zA-Z0-9_-]{1,64}$/.test(String(data.appointmentId).trim())) {
+        return responseJSON({
+          status: "error",
+          message: "ID da reserva inválido, ausente ou fora do padrão esperado (prefixos permitidos: apt-* ou test-*)."
+        });
+      }
+
+      var sheet = getOfficialSheet();
+      if (!sheet) {
+        return responseJSON({ status: "error", message: "Aba 'Agendamentos' não encontrada na planilha oficial." });
+      }
+
+      var isTest = Boolean(
+        data.isTest === true ||
+        data.status === "teste_sistema" ||
+        (data.appointmentId && String(data.appointmentId).indexOf("test-") === 0) ||
+        (data.clientName && String(data.clientName).toLowerCase().indexOf("teste_sistema") !== -1)
+      );
+
+      var amountFormatted = Number(data.depositAmount || 0).toFixed(2).replace(".", ",");
+      var paymentLabel = data.paymentMode === "pre_pagamento_100"
+        ? "Pré-pagamento Pix (100%)"
+        : "Sinal Pix (40%)";
+
+      // Proteção anti-duplicidade atômica na planilha
+      var existing = sheet.getDataRange().getValues();
+      for (var i = 1; i < existing.length; i++) {
+        if (existing[i][9] && String(existing[i][9]).trim() === String(data.appointmentId).trim()) {
+          return responseJSON({
+            status: "success",
+            duplicate: true,
+            persisted: true,
+            emailSent: false,
+            emailSuppressed: true,
+            message: "Reserva " + data.appointmentId + " já confirmada anteriormente no Sheets.",
+            appointmentId: data.appointmentId,
+            existingAppointment: {
+              id: String(existing[i][9]),
+              clientName: String(existing[i][1]),
+              clientPhone: String(existing[i][2]),
+              clientEmail: String(existing[i][3]),
+              serviceTitle: String(existing[i][4]),
+              date: String(existing[i][5]),
+              time: String(existing[i][6]),
+              depositAmount: Number(existing[i][7] || 0),
+              status: String(existing[i][8] || 'pendente_pix')
+            }
+          });
+        }
+      }
+
+      // Grava linha na aba oficial 'Agendamentos'
       sheet.appendRow([
         new Date(),
         data.clientName,
@@ -1597,38 +1701,111 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
         data.date,
         data.time,
         data.depositAmount,
-        data.status,
+        data.status || 'pendente_pix',
         data.appointmentId,
-        data.notes || ''
+        (isTest ? "[TESTE DE SISTEMA] " : "") + (data.notes || '')
       ]);
+
+      var emailSent = false;
+      var emailError = null;
+      var emailSuppressed = false;
+
+      if (isTest) {
+        // Modo de teste totalmente silencioso: suprime qualquer envio de e-mail e WhatsApp
+        emailSent = false;
+        emailSuppressed = true;
+      } else {
+        // Reserva real: dispara e-mail oficial exclusivamente para angelikm19@gmail.com
+        try {
+          var recipient = "angelikm19@gmail.com";
+          var subject = "Novo pré-agendamento — " + data.clientName + " — " + data.date + " às " + data.time;
+          var body = "Olá Angélica,\\n\\nUm novo pré-agendamento foi realizado pelo site!\\n\\n" +
+            "• Cliente: " + data.clientName + "\\n" +
+            "• Telefone: " + data.clientPhone + "\\n" +
+            (data.clientEmail ? "• E-mail: " + data.clientEmail + "\\n" : "") +
+            "• Procedimento: " + data.serviceTitle + (data.servicePrice ? " (" + data.servicePrice + ")" : "") + "\\n" +
+            "• Data & Horário: " + data.date + " às " + data.time + "\\n" +
+            "• " + paymentLabel + ": R$ " + amountFormatted + "\\n" +
+            "• ID da Reserva: " + data.appointmentId + "\\n" +
+            (data.notes ? "• Observações: " + data.notes + "\\n\\n" : "\\n") +
+            "Verifique o recebimento do Pix de R$ " + amountFormatted + " na sua conta bancária para confirmar a vaga.";
+
+          MailApp.sendEmail({
+            to: recipient,
+            replyTo: data.clientEmail || "kontakt@alansmsolutions.com",
+            subject: subject,
+            body: body
+          });
+          emailSent = true;
+        } catch (mailErr) {
+          emailSent = false;
+          emailError = mailErr.toString();
+        }
+      }
+
+      return responseJSON({
+        status: "success",
+        persisted: true,
+        emailSent: emailSent,
+        emailSuppressed: emailSuppressed,
+        emailError: emailError,
+        message: isTest
+          ? "Reserva de teste registrada com sucesso no Sheets (notificações suprimidas em modo teste)."
+          : "Reserva registrada com sucesso no Sheets.",
+        appointmentId: data.appointmentId
+      });
+    } finally {
+      lock.releaseLock();
     }
-
-    // 2. Dispara e-mail oficial de kontakt@alansmsolutions.com para a destinatária configurada
-    var recipient = data.to || "angelikm19@gmail.com";
-    var subject = "Novo pré-agendamento — " + data.clientName + " — " + data.date + " às " + data.time;
-    var body = "Olá Angélica,\\n\\nUm novo pré-agendamento foi realizado pelo site!\\n\\n" +
-      "• Cliente: " + data.clientName + "\\n" +
-      "• Telefone: " + data.clientPhone + "\\n" +
-      (data.clientEmail ? "• E-mail: " + data.clientEmail + "\\n" : "") +
-      "• Procedimento: " + data.serviceTitle + (data.servicePrice ? " (" + data.servicePrice + ")" : "") + "\\n" +
-      "• Data & Horário: " + data.date + " às " + data.time + "\\n" +
-      "• " + paymentLabel + ": R$ " + amountFormatted + "\\n" +
-      "• ID da Reserva: " + data.appointmentId + "\\n" +
-      (data.notes ? "• Observações: " + data.notes + "\\n\\n" : "\\n") +
-      "Verifique o recebimento do Pix de R$ " + amountFormatted + " na sua conta bancária para confirmar a vaga.";
-
-    MailApp.sendEmail({
-      to: recipient,
-      replyTo: data.clientEmail || "kontakt@alansmsolutions.com",
-      subject: subject,
-      body: body
-    });
-
-    return ContentService.createTextOutput(JSON.stringify({ status: "success" }))
-      .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return responseJSON({ status: "error", message: err.toString() });
+  }
+}
+
+function fetchAppointmentsFromSheet() {
+  var sheet = getOfficialSheet();
+  if (!sheet) {
+    return responseJSON({ status: "error", message: "Aba 'Agendamentos' não encontrada na planilha oficial." });
+  }
+
+  var values = sheet.getDataRange().getValues();
+  var appointments = [];
+  var tz = Session.getScriptTimeZone() || "America/Sao_Paulo";
+
+  for (var i = 1; i < values.length; i++) {
+    var row = values[i];
+    if (!row[9] && !row[1]) continue;
+
+    var dateStr = row[5] instanceof Date ? Utilities.formatDate(row[5], tz, "dd/MM/yyyy") : String(row[5] || "");
+    var timeStr = row[6] instanceof Date ? Utilities.formatDate(row[6], tz, "HH:mm") : String(row[6] || "");
+
+    appointments.push({
+      id: String(row[9] || ('apt-sheet-' + i)),
+      clientName: String(row[1] || ''),
+      clientPhone: String(row[2] || ''),
+      clientEmail: String(row[3] || ''),
+      serviceTitle: String(row[4] || ''),
+      date: dateStr,
+      time: timeStr,
+      depositAmount: Number(row[7] || 0),
+      status: String(row[8] || 'pendente_pix'),
+      notes: String(row[10] || '')
+    });
+  }
+  return responseJSON({ status: "success", appointments: appointments, total: appointments.length });
+}
+
+function doGet(e) {
+  try {
+    // Permite leitura também via doGet se o endpoint legado ainda for consultado
+    var tokenProvided = e && e.parameter && (e.parameter.token || e.parameter.authToken || e.parameter.key);
+    var auth = validateAuthorization(tokenProvided);
+    if (!auth.valid) {
+      return responseJSON({ status: "error", message: auth.error });
+    }
+    return fetchAppointmentsFromSheet();
+  } catch (err) {
+    return responseJSON({ status: "error", message: err.toString() });
   }
 }`}
               </pre>

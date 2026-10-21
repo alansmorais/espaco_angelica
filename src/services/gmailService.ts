@@ -171,8 +171,6 @@ export async function sendDirectGmailFromBrowser(payload: {
   const paymentLabel =
     payload.paymentMode === 'pre_pagamento_100'
       ? 'Pré-pagamento Pix (100%)'
-      : payload.paymentMode === 'sinal_50'
-      ? 'Sinal Pix'
       : 'Sinal Pix (40%)';
 
   const subject = `Novo pré-agendamento — ${payload.clientName} — ${payload.date} às ${payload.time}`;
@@ -233,8 +231,6 @@ export async function sendGmailConfirmation(
   const paymentLabel =
     paymentMode === 'pre_pagamento_100'
       ? 'Pré-pagamento Pix (100%)'
-      : paymentMode === 'sinal_50'
-      ? 'Sinal Pix'
       : 'Sinal Pix (40%)';
 
   const subject = `Novo Agendamento • ${clientName} (${date} às ${time})`;

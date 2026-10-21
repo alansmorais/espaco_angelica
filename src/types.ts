@@ -16,7 +16,7 @@ export interface Service {
   active?: boolean;
 }
 
-export type SlotStatus = 'concluido' | 'em_andamento' | 'bloqueado' | 'pendente_pix' | 'confirmado' | 'disponivel' | 'cancelado';
+export type SlotStatus = 'concluido' | 'em_andamento' | 'bloqueado' | 'pendente_pix' | 'confirmado' | 'disponivel' | 'cancelado' | 'teste_sistema';
 
 export interface RecurrenceConfig {
   frequencyDays: number; // e.g. 15, 21, 30
@@ -43,8 +43,8 @@ export interface Appointment {
   time: string; // e.g. "11:30"
   status: SlotStatus;
   depositAmount: number;
-  depositStatus: 'liquidado' | 'pendente' | 'estornado' | 'retido' | 'recusado';
-  paymentMode?: 'sinal_40' | 'sinal_50' | 'pre_pagamento_100';
+  depositStatus: 'liquidado' | 'pendente' | 'estornado' | 'retido' | 'recusado' | 'teste_sistema';
+  paymentMode?: 'sinal_40' | 'pre_pagamento_100';
   isVip?: boolean;
   vipTag?: string;
   isAutoclave?: boolean;
@@ -124,7 +124,7 @@ export interface PixPendingVerification {
   date: string;
   time: string;
   amount: number;
-  paymentMode?: 'sinal_40' | 'sinal_50' | 'pre_pagamento_100';
+  paymentMode?: 'sinal_40' | 'pre_pagamento_100';
   sentAgoMinutes: number;
   expiresInMinutes: number;
   refCode: string;
@@ -153,7 +153,7 @@ export interface PixHistoryItem {
   e2eDoc: string;
   status: 'Confirmado' | 'Estornado (>24h)' | 'Retido (No-Show)';
   statusType: 'success' | 'neutral' | 'error';
-  paymentMode?: 'sinal_40' | 'sinal_50' | 'pre_pagamento_100';
+  paymentMode?: 'sinal_40' | 'pre_pagamento_100';
 }
 
 export interface TimeSlotConfig {

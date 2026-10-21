@@ -43,6 +43,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   const [bookingWhatsAppModal, setBookingWhatsAppModal] = useState<boolean>(false);
   const [confirmedAppointment, setConfirmedAppointment] = useState<Appointment | null>(null);
   const [isSubmittingBooking, setIsSubmittingBooking] = useState<boolean>(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [persistedAppointmentId, setPersistedAppointmentId] = useState<string | null>(null);
 
   // Requirement 5: Agendamento Recorrente
   const [isRecurring, setIsRecurring] = useState<boolean>(false);
@@ -150,7 +152,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
     }
   };
 
-  const handleConfirmBooking = () => {
+  const handleConfirmBooking = async () => {
     if (isSubmittingBooking) return;
 
     if (!clientName.trim()) {
@@ -163,6 +165,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
     }
 
     setIsSubmittingBooking(true);
+    setSubmissionError(null);
 
     const finalName = clientName.trim();
     const finalPhone = clientPhone.trim();
@@ -183,9 +186,14 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
         }
       : undefined;
 
-    // Register appointment in studio state as pendente_pix
+    // Reutiliza o mesmo ID em tentativas de reenvio para evitar duplicatas
+    const appointmentId = persistedAppointmentId || `apt-${Date.now()}`;
+    if (!persistedAppointmentId) {
+      setPersistedAppointmentId(appointmentId);
+    }
+
     const newAppointment: Appointment = {
-      id: `apt-${Date.now()}`,
+      id: appointmentId,
       clientName: finalName,
       clientPhone: finalPhone,
       clientEmail: clientEmail.trim() || undefined,
@@ -214,10 +222,26 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
         .toUpperCase()
     };
 
-    onBookingConfirmed(newAppointment);
-    setConfirmedAppointment(newAppointment);
-    triggerNewPreBookingEmailNotification(newAppointment).catch(() => {});
-    setBookingWhatsAppModal(true);
+    try {
+      const dispatchResult = await triggerNewPreBookingEmailNotification(newAppointment);
+
+      if (dispatchResult.success) {
+        onBookingConfirmed(newAppointment);
+        setConfirmedAppointment(newAppointment);
+        setSubmissionError(null);
+        setBookingWhatsAppModal(true);
+      } else {
+        setSubmissionError(
+          dispatchResult.message || 'Não foi possível confirmar o agendamento no servidor. Por favor, tente novamente.'
+        );
+      }
+    } catch (err: any) {
+      setSubmissionError(
+        err?.message || 'Falha de comunicação ao conectar com o servidor do ateliê. Verifique sua conexão e tente novamente.'
+      );
+    } finally {
+      setIsSubmittingBooking(false);
+    }
   };
 
   return (
@@ -890,6 +914,27 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
 
               {/* CTA Final Booking */}
               <div className="mt-4 space-y-2">
+                {submissionError && (
+                  <div className="p-4 rounded-2xl bg-rose-50 border border-rose-300 text-rose-900 text-xs text-left space-y-2.5 shadow-sm">
+                    <div className="flex items-center gap-1.5 font-bold text-rose-800">
+                      <span className="material-symbols-outlined text-[18px]">error</span>
+                      <span>Não foi possível registrar seu agendamento</span>
+                    </div>
+                    <p className="leading-relaxed text-[11px] text-rose-800">
+                      {submissionError}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={isSubmittingBooking}
+                      onClick={handleConfirmBooking}
+                      className="w-full py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-jakarta text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">refresh</span>
+                      <span>{isSubmittingBooking ? 'Tentando novamente...' : 'Tentar Novamente'}</span>
+                    </button>
+                  </div>
+                )}
+
                 <button
                   type="button"
                   disabled={isSubmittingBooking}
@@ -963,31 +1008,48 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
               . Envie seu comprovante para que possamos confirmar seu atendimento.
             </p>
 
-            {/* Optional WhatsApp Button */}
-            <div className="pt-2 space-y-2">
-              <a
-                href={buildOfficialWhatsAppUrl({
-                  clientName: confirmedAppointment?.clientName || clientName,
-                  serviceTitle: confirmedAppointment?.serviceTitle || selectedService.title,
-                  servicePrice: confirmedAppointment?.servicePrice || selectedService.priceFormatted,
-                  date: confirmedAppointment?.date || selectedDate,
-                  time: confirmedAppointment?.time || selectedTime,
-                  depositAmount: confirmedAppointment?.depositAmount || depositValue,
-                  remainingBalance: balanceRemaining,
-                  paymentMode: confirmedAppointment?.paymentMode || effectivePaymentMode
-                })}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full py-3 px-4 rounded-full bg-[#25D366] hover:bg-[#20bd5a] text-white font-jakarta text-xs sm:text-sm font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer active:scale-95 min-h-[46px]"
-              >
-                <span className="material-symbols-outlined text-[20px]">chat</span>
-                <span>Enviar mensagem pelo WhatsApp</span>
-              </a>
+            {/* Optional WhatsApp Button or Safe Test Indicator */}
+            {Boolean(
+              confirmedAppointment?.status === 'teste_sistema' ||
+              (confirmedAppointment?.id && confirmedAppointment.id.startsWith('test-')) ||
+              (confirmedAppointment?.clientName && confirmedAppointment.clientName.toLowerCase().includes('teste_sistema')) ||
+              (clientName && clientName.toLowerCase().includes('teste_sistema'))
+            ) ? (
+              <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-semibold space-y-1">
+                <div className="flex items-center justify-center gap-1.5 text-amber-800">
+                  <span className="material-symbols-outlined text-[18px]">security</span>
+                  <span>Modo Teste de Sistema Ativo</span>
+                </div>
+                <p className="text-[11px] text-amber-700 font-normal">
+                  Disparo de WhatsApp para cliente e notificações para a titular estão desativados neste teste seguro.
+                </p>
+              </div>
+            ) : (
+              <div className="pt-2 space-y-2">
+                <a
+                  href={buildOfficialWhatsAppUrl({
+                    clientName: confirmedAppointment?.clientName || clientName,
+                    serviceTitle: confirmedAppointment?.serviceTitle || selectedService.title,
+                    servicePrice: confirmedAppointment?.servicePrice || selectedService.priceFormatted,
+                    date: confirmedAppointment?.date || selectedDate,
+                    time: confirmedAppointment?.time || selectedTime,
+                    depositAmount: confirmedAppointment?.depositAmount || depositValue,
+                    remainingBalance: balanceRemaining,
+                    paymentMode: confirmedAppointment?.paymentMode || effectivePaymentMode
+                  })}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-3 px-4 rounded-full bg-[#25D366] hover:bg-[#20bd5a] text-white font-jakarta text-xs sm:text-sm font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer active:scale-95 min-h-[46px]"
+                >
+                  <span className="material-symbols-outlined text-[20px]">chat</span>
+                  <span>Enviar mensagem pelo WhatsApp</span>
+                </a>
 
-              <p className="text-[10px] text-[#786C63] text-center leading-tight">
-                Abre o WhatsApp com a mensagem oficial e política do atelier pronta para você revisar e enviar.
-              </p>
-            </div>
+                <p className="text-[10px] text-[#786C63] text-center leading-tight">
+                  Abre o WhatsApp com a mensagem oficial e política do atelier pronta para você revisar e enviar.
+                </p>
+              </div>
+            )}
 
             <button
               type="button"

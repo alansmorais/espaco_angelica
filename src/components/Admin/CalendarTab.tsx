@@ -367,8 +367,6 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                   <span>
                     {selectedAppointment.paymentMode === 'pre_pagamento_100'
                       ? 'Pré-pagamento Pix (100%):'
-                      : selectedAppointment.paymentMode === 'sinal_50'
-                      ? 'Sinal Pix:'
                       : 'Sinal Pix (40%):'}
                   </span>
                   <span className="text-[#D4AF37] font-bold">

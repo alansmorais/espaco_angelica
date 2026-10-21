@@ -286,8 +286,6 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                           <span className="text-[#D4AF37] font-semibold">
                             {apt.paymentMode === 'pre_pagamento_100'
                               ? 'Pré-pagamento (100%)'
-                              : apt.paymentMode === 'sinal_50'
-                              ? 'Sinal'
                               : 'Sinal (40%)'}
                             : R$ {formatBRL(apt.depositAmount)} ({apt.depositStatus === 'liquidado' ? 'Liquidado' : 'Pendente de conferência'})
                           </span>

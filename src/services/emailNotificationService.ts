@@ -25,12 +25,13 @@ export interface EmailNotificationPayload {
   date: string;
   time: string;
   depositAmount: number;
-  paymentMode?: 'sinal_40' | 'sinal_50' | 'pre_pagamento_100';
+  paymentMode?: 'sinal_40' | 'pre_pagamento_100';
   status: string;
   appointmentId: string;
   nailCondition?: string;
   notes?: string;
   timestamp: string;
+  isTest?: boolean;
 }
 
 export interface EmailDispatchResult {
@@ -87,11 +88,17 @@ export function markAppointmentAsNotified(appointmentId: string): void {
  * Monta o payload padronizado da notificação para a Angélica partindo da conta autorizada kontakt@alansmsolutions.com.
  */
 export function buildPreBookingEmailPayload(apt: Appointment): EmailNotificationPayload {
+  const isTest = Boolean(
+    apt.status === 'teste_sistema' ||
+    (typeof apt.id === 'string' && apt.id.startsWith('test-')) ||
+    (typeof apt.clientName === 'string' && apt.clientName.toLowerCase().includes('teste_sistema'))
+  );
+
   return {
     from: AUTHORIZED_SENDER_EMAIL,
     to: TARGET_NOTIFICATION_EMAIL,
     replyTo: apt.clientEmail || AUTHORIZED_SENDER_EMAIL,
-    subject: `Novo pré-agendamento — ${apt.clientName} — ${apt.date} às ${apt.time}`,
+    subject: `${isTest ? '[TESTE] ' : ''}Novo pré-agendamento — ${apt.clientName} — ${apt.date} às ${apt.time}`,
     clientName: apt.clientName,
     clientPhone: apt.clientPhone,
     clientEmail: apt.clientEmail,
@@ -106,7 +113,8 @@ export function buildPreBookingEmailPayload(apt: Appointment): EmailNotification
     appointmentId: apt.id,
     nailCondition: apt.nailCondition,
     notes: apt.notes,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    isTest
   };
 }
 
@@ -361,7 +369,7 @@ export async function testNotificationWebhook(
 export async function triggerNewPreBookingEmailNotification(apt: Appointment): Promise<EmailDispatchResult> {
   const payload = buildPreBookingEmailPayload(apt);
 
-  // Evita duplicidade se a mesma reserva já foi processada
+  // Evita duplicidade se a mesma reserva já foi confirmada anteriormente no servidor
   if (isAppointmentAlreadyNotified(apt.id)) {
     return {
       success: true,
@@ -372,9 +380,7 @@ export async function triggerNewPreBookingEmailNotification(apt: Appointment): P
     };
   }
 
-  markAppointmentAsNotified(apt.id);
-
-  // 1. Tenta envio através do Backend Seguro (Node server / Cloud Run)
+  // Envio através do Backend Seguro (Cloud Run / Node server)
   // O backend seguro injeta APPS_SCRIPT_TOKEN mantendo os segredos 100% no servidor, sem expor no frontend.
   try {
     const backendBase = getBackendApiUrl();
@@ -391,87 +397,93 @@ export async function triggerNewPreBookingEmailNotification(apt: Appointment): P
     if (response.ok) {
       const data = await response.json();
       if (data.success) {
+        // Marca como notificada apenas após sucesso confirmado pelo servidor
+        markAppointmentAsNotified(apt.id);
         return {
           success: true,
           appointmentId: apt.id,
           mode: 'server_dispatched',
-          message: data.message || 'Notificação por e-mail processada com sucesso no backend seguro.',
+          message: data.message || 'Notificação processada com sucesso no backend seguro.',
           payload
         };
       }
-      if (isLocalOrStagingFrontend()) {
-        return {
-          success: false,
-          appointmentId: apt.id,
-          mode: 'webhook_rejected',
-          message: data.error || 'Envio bloqueado no ambiente de staging (verifique .env.staging).',
-          payload
-        };
-      }
-    }
-  } catch {
-    if (isLocalOrStagingFrontend()) {
+
       return {
         success: false,
         appointmentId: apt.id,
-        mode: 'static_recorded',
-        message: 'Servidor local/staging indisponível. Nenhum fallback para produção foi executado.',
-        payload
-      };
-    }
-    // Se o backend não responder (ex.: GitHub Pages estático sem backend configurado), tenta as opções cliente
-  }
-
-  // 2. Se houver sessão de Gmail OAuth ativa no navegador (kontakt@alansmsolutions.com):
-  try {
-    const hasToken = await getGmailAccessToken();
-    if (hasToken) {
-      const directResult = await sendDirectGmailFromBrowser(payload);
-      if (directResult.success) {
-        return {
-          success: true,
-          appointmentId: apt.id,
-          mode: 'browser_gmail_dispatched',
-          message: directResult.message,
-          payload
-        };
-      }
-    }
-  } catch (err) {
-    console.warn('Tentativa de disparo direto via Gmail API no navegador falhou:', err);
-  }
-
-  // 3. Tenta acionar diretamente o Webhook do Google Apps Script (apenas se token estiver presente no admin)
-  const webhookUrl = getNotificationWebhookUrl();
-  const webhookToken = getNotificationWebhookToken();
-  if (webhookUrl && webhookToken) {
-    const webhookRes = await sendWebhookNotification(webhookUrl, payload, webhookToken);
-    if (webhookRes.delivered) {
-      return {
-        success: true,
-        appointmentId: apt.id,
-        mode: 'webhook_delivered',
-        message: webhookRes.message,
-        payload
-      };
-    } else if (webhookRes.success) {
-      return {
-        success: true,
-        appointmentId: apt.id,
-        mode: 'webhook_unverified',
-        message: webhookRes.message,
+        mode: 'webhook_rejected',
+        message: data.error || 'O servidor recusou a notificação da reserva.',
         payload
       };
     } else {
-      console.warn('[Notification Webhook Warning]', webhookRes.message);
-    }
-  }
+      let errorMessage = `Servidor retornou erro HTTP ${response.status}.`;
+      try {
+        const errorData = await response.json();
+        if (errorData?.error) {
+          errorMessage = errorData.error;
+        }
+      } catch {}
 
-  return {
-    success: true,
-    appointmentId: apt.id,
-    mode: 'static_recorded',
-    message: `Pré-agendamento registrado com sucesso. Notificação estruturada de ${AUTHORIZED_SENDER_EMAIL} para ${TARGET_NOTIFICATION_EMAIL}.`,
-    payload
-  };
+      return {
+        success: false,
+        appointmentId: apt.id,
+        mode: 'webhook_rejected',
+        message: errorMessage,
+        payload
+      };
+    }
+  } catch (err: any) {
+    console.error('[Notification Network Error] Falha ao conectar ao backend seguro:', err);
+    return {
+      success: false,
+      appointmentId: apt.id,
+      mode: 'webhook_rejected',
+      message: 'Não foi possível conectar ao servidor do ateliê para confirmar sua reserva. Verifique sua conexão e tente novamente.',
+      payload
+    };
+  }
+}
+
+/**
+ * Busca agendamentos centralizados persistidos no backend seguro (Cloud Run / Google Sheets)
+ * para exibição no painel administrativo compartilhado.
+ */
+export async function fetchRemoteAppointments(authToken?: string): Promise<Appointment[]> {
+  try {
+    const backendBase = getBackendApiUrl();
+    const targetUrl = backendBase
+      ? `${backendBase}/api/appointments`
+      : '/api/appointments';
+
+    // Usa exclusivamente a senha ou token administrativo local (nunca APPS_SCRIPT_TOKEN)
+    const token =
+      (authToken || '').trim() ||
+      (typeof window !== 'undefined'
+        ? (localStorage.getItem('angelica_admin_password') || '').trim()
+        : '') ||
+      '';
+
+    const headers: Record<string, string> = {
+      Accept: 'application/json'
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(targetUrl, {
+      method: 'GET',
+      headers
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data.success && Array.isArray(data.appointments)) {
+        return data.appointments as Appointment[];
+      }
+    }
+    return [];
+  } catch (err) {
+    console.warn('[Appointment Sync Warning] Não foi possível consultar agendamentos remotos:', err);
+    return [];
+  }
 }

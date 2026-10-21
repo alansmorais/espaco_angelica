@@ -26,6 +26,7 @@ import {
 import { sendAppointmentWhatsAppConfirmation } from './services/whatsappService';
 import { playDiscreteAdminNotificationSound, registerUserInteraction } from './services/soundNotificationService';
 import { calculateDeposit40, formatBRL } from './services/notificationTemplates';
+import { fetchRemoteAppointments } from './services/emailNotificationService';
 
 // Public Components
 import { HeaderPublic } from './components/HeaderPublic';
@@ -195,6 +196,62 @@ export default function App() {
       localStorage.setItem('angelica_clients', JSON.stringify(clients));
     } catch {}
   }, [clients]);
+
+  // Shared Centralized Appointments Synchronization (Cloud Run / Sheets)
+  useEffect(() => {
+    let isMounted = true;
+
+    const syncRemote = async () => {
+      try {
+        const adminPass = localStorage.getItem('angelica_admin_password') || '';
+        const remoteList = await fetchRemoteAppointments(adminPass);
+        if (!isMounted || !Array.isArray(remoteList) || remoteList.length === 0) return;
+
+        setAppointments(prev => {
+          const mergedMap = new Map<string, Appointment>();
+
+          // 1. Mantém todas as reservas locais existentes para preservar histórico e edições locais
+          for (const localApt of prev) {
+            mergedMap.set(localApt.id, localApt);
+          }
+
+          // 2. Mescla novas reservas remotas ou atualiza preservando edições administrativas
+          for (const remoteApt of remoteList) {
+            if (!mergedMap.has(remoteApt.id)) {
+              mergedMap.set(remoteApt.id, remoteApt);
+            } else {
+              const localApt = mergedMap.get(remoteApt.id)!;
+              const hasLocalStatusChange =
+                localApt.status !== 'pendente_pix' && remoteApt.status === 'pendente_pix';
+              const hasLocalDepositChange =
+                localApt.depositStatus !== 'pendente' && remoteApt.depositStatus === 'pendente';
+
+              mergedMap.set(remoteApt.id, {
+                ...remoteApt,
+                ...localApt,
+                status: hasLocalStatusChange ? localApt.status : (remoteApt.status || localApt.status),
+                depositStatus: hasLocalDepositChange ? localApt.depositStatus : (remoteApt.depositStatus || localApt.depositStatus),
+                notes: localApt.notes || remoteApt.notes,
+                whatsappStatus: localApt.whatsappStatus || remoteApt.whatsappStatus,
+                whatsappSentAt: localApt.whatsappSentAt || remoteApt.whatsappSentAt
+              });
+            }
+          }
+
+          return Array.from(mergedMap.values());
+        });
+      } catch (err) {
+        console.warn('[Sync Error] Erro ao sincronizar agendamentos remotos:', err);
+      }
+    };
+
+    syncRemote();
+    const interval = setInterval(syncRemote, 30000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   // WhatsApp Business API Config State
   const [whatsappConfig, setWhatsappConfig] = useState<WhatsAppConfig>(() => {

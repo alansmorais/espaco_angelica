@@ -32,7 +32,7 @@ export interface PreBookingTemplateData {
   time: string;
   depositAmount: number;
   remainingBalance?: number;
-  paymentMode?: 'sinal_40' | 'sinal_50' | 'pre_pagamento_100';
+  paymentMode?: 'sinal_40' | 'pre_pagamento_100';
 }
 
 /**
@@ -41,9 +41,21 @@ export interface PreBookingTemplateData {
 export function buildOfficialPreBookingWhatsAppMessage(data: PreBookingTemplateData): string {
   const signalValue = `R$ ${formatBRL(data.depositAmount)}`;
   const totalLine = data.servicePrice ? `\nTotal do procedimento: ${data.servicePrice}` : '';
+
+  let balance = data.remainingBalance;
+  if (balance === undefined && data.servicePrice && data.paymentMode !== 'pre_pagamento_100') {
+    const rawDigits = data.servicePrice.replace(/[^\d,]/g, '').replace(',', '.');
+    const parsed = parseFloat(rawDigits);
+    if (!isNaN(parsed) && parsed > 0) {
+      balance = calculateRemainingBalance(parsed, data.depositAmount);
+    }
+  }
+
   const balanceLine =
-    data.remainingBalance !== undefined
-      ? `\nSaldo restante a pagar no atendimento: R$ ${formatBRL(data.remainingBalance)}`
+    data.paymentMode === 'pre_pagamento_100'
+      ? ''
+      : balance !== undefined
+      ? `\nSaldo restante a pagar no atendimento: R$ ${formatBRL(balance)}`
       : '';
   const paymentPrompt =
     data.paymentMode === 'pre_pagamento_100'

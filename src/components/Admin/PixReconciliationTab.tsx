@@ -334,8 +334,6 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
                 const modeLabel =
                   item.paymentMode === 'pre_pagamento_100'
                     ? 'Pré-pagamento (100%)'
-                    : item.paymentMode === 'sinal_50'
-                    ? 'Sinal'
                     : 'Sinal (40%)';
                 return (
                   <div
@@ -416,8 +414,6 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
                     Valor a Conferir na Conta (
                     {selectedItem.paymentMode === 'pre_pagamento_100'
                       ? 'Pré-pagamento 100%'
-                      : selectedItem.paymentMode === 'sinal_50'
-                      ? 'Sinal'
                       : 'Sinal 40%'}
                     )
                   </span>
