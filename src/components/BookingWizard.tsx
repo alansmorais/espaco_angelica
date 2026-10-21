@@ -225,14 +225,14 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
     try {
       const dispatchResult = await triggerNewPreBookingEmailNotification(newAppointment);
 
-      if (dispatchResult.success) {
+      if (dispatchResult.success && dispatchResult.persisted === true) {
         onBookingConfirmed(newAppointment);
         setConfirmedAppointment(newAppointment);
         setSubmissionError(null);
         setBookingWhatsAppModal(true);
       } else {
         setSubmissionError(
-          dispatchResult.message || 'Não foi possível confirmar o agendamento no servidor. Por favor, tente novamente.'
+          dispatchResult.message || 'Não foi possível confirmar e persistir a reserva na planilha oficial do ateliê. Por favor, tente novamente.'
         );
       }
     } catch (err: any) {

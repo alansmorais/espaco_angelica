@@ -26,7 +26,7 @@ if (isStagingRequested) {
 }
 
 const PRODUCTION_APPS_SCRIPT_DEPLOYMENT_ID =
-  'AKfycby3s6UC86UjTAJtAjtyQF634z8NMv9LORG_IrzxCb4X_RQx0lLCyetz__QGT0-9B3jJ';
+  'AKfycbysNBMLthA_GvAZJR1irBGcS-3Lspbfz0NIsvz0P2ax6jzE4M01RwVJ0za6zFsq8bGojw';
 const DEFAULT_PRODUCTION_APPS_SCRIPT_URL =
   `https://script.google.com/macros/s/${PRODUCTION_APPS_SCRIPT_DEPLOYMENT_ID}/exec`;
 const PRODUCTION_RECIPIENT_EMAIL = 'angelikm19@gmail.com';
@@ -145,7 +145,7 @@ app.use((req: Request, res: Response, next) => {
   if (origin && isOriginAllowed(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Token');
     res.setHeader('Access-Control-Max-Age', '86400');
   }
 
@@ -319,12 +319,17 @@ app.get('/api/whatsapp/status', (_req: Request, res: Response) => {
     tokenConfigured: Boolean(token),
     businessAccountIdConfigured: Boolean(businessAccountId),
     apiVersion,
-    totalLogs: messageLogs.length,
-    lastLog: messageLogs.length > 0 ? messageLogs[0] : null
+    totalLogs: messageLogs.length
   });
 });
 
-app.get('/api/whatsapp/logs', (_req: Request, res: Response) => {
+app.get('/api/whatsapp/logs', (req: Request, res: Response) => {
+  if (!isAuthorizedAdminRequest(req)) {
+    return res.status(401).json({
+      success: false,
+      error: 'Acesso não autorizado. Credenciais administrativas ausentes ou inválidas.'
+    });
+  }
   res.json({
     logs: messageLogs.slice(0, 50)
   });
@@ -400,7 +405,13 @@ function isAuthorizedAdminRequest(req: Request): boolean {
   // Segurança estrita: NUNCA usa APPS_SCRIPT_TOKEN ou WEBHOOK_SECRET como credencial do painel
   // Apenas credenciais dedicadas de administração: ADMIN_TOKEN ou ADMIN_PASSWORD
   const serverAdminToken = (process.env.ADMIN_TOKEN || '').trim();
-  const serverAdminPassword = (process.env.ADMIN_PASSWORD || 'angelica').trim();
+  const serverAdminPassword = (process.env.ADMIN_PASSWORD || '').trim();
+
+  // Falha segura/fechada: se nenhuma credencial administrativa estiver configurada no ambiente,
+  // recusa todo acesso administrativo (sem senhas padrão nem fallbacks no código).
+  if (!serverAdminToken && !serverAdminPassword) {
+    return false;
+  }
 
   if (serverAdminToken && provided === serverAdminToken) {
     return true;
@@ -583,22 +594,6 @@ export function validateBookingPaymentCoherence(payload: any): {
     };
   }
 
-  // Allow internal webhook connectivity test payload from SettingsTab
-  if (
-    status === 'teste_sistema' &&
-    depositAmount === 88 &&
-    (serviceId === undefined || serviceId === 'alongamento-fibra-slim')
-  ) {
-    return {
-      valid: true,
-      verifiedServiceId: 'alongamento-fibra-slim',
-      verifiedServiceTitle: serviceTitle || 'Alongamento em Fibra Slim',
-      verifiedDepositAmount: 88,
-      verifiedServicePrice: 'R$ 220,00',
-      verifiedPaymentMode: 'sinal_40'
-    };
-  }
-
   let canonicalService: CanonicalCatalogService | undefined;
 
   if (serviceId !== undefined && serviceId !== null && String(serviceId).trim() !== '') {
@@ -705,14 +700,18 @@ export function isValidAppointmentId(id: unknown): id is string {
 export function parseAppsScriptResponse(jsonRes: any, appEnv: string = 'production'): {
   isSuccess: boolean;
   persisted: boolean;
+  test?: boolean;
   delivered: boolean;
   duplicate: boolean;
   message: string;
   error?: string;
+  emailSent?: boolean;
+  emailSuppressed?: boolean;
+  emailError?: string;
 } {
   const isSuccess = Boolean(
     jsonRes &&
-    (jsonRes.status === 'success' || jsonRes.persisted === true || jsonRes.ok === true || jsonRes.success === true) &&
+    (jsonRes.status === 'success' || jsonRes.persisted === true || jsonRes.ok === true || jsonRes.success === true || jsonRes.test === true) &&
     jsonRes.status !== 'error'
   );
 
@@ -728,12 +727,20 @@ export function parseAppsScriptResponse(jsonRes: any, appEnv: string = 'producti
     };
   }
 
+  const isTest = Boolean(jsonRes.test === true);
+  const isDuplicate = Boolean(jsonRes.duplicate);
+  const isPersisted = Boolean(!isTest && (jsonRes.persisted === true || isDuplicate));
+
   return {
     isSuccess: true,
-    persisted: true,
-    delivered: jsonRes.emailSent !== undefined ? Boolean(jsonRes.emailSent) : true,
-    duplicate: Boolean(jsonRes.duplicate),
-    message: jsonRes.message || `Reserva persistida com sucesso no Google Sheets (${appEnv}).`
+    persisted: isPersisted,
+    test: isTest,
+    delivered: jsonRes.emailSent !== undefined ? Boolean(jsonRes.emailSent) : (!isTest && !isDuplicate),
+    duplicate: isDuplicate,
+    emailSent: jsonRes.emailSent !== undefined ? Boolean(jsonRes.emailSent) : false,
+    emailSuppressed: Boolean(jsonRes.emailSuppressed || isTest || isDuplicate),
+    emailError: jsonRes.emailError || undefined,
+    message: jsonRes.message || (isPersisted ? `Reserva persistida com sucesso no Google Sheets (${appEnv}).` : 'Operação de teste concluída com sucesso.')
   };
 }
 
@@ -798,6 +805,16 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
       });
     }
 
+    const isAdmin = isAuthorizedAdminRequest(req);
+
+    // Identificadores de teste (test-*) e modo de teste são permitidos EXCLUSIVAMENTE para administradores autenticados
+    if (!isAdmin && typeof appointmentId === 'string' && appointmentId.startsWith('test-')) {
+      return res.status(400).json({
+        success: false,
+        error: 'Identificadores com prefixo test-* são reservados para testes administrativos autenticados.'
+      });
+    }
+
     const paymentCheck = validateBookingPaymentCoherence(payload);
     if (!paymentCheck.valid) {
       return res.status(400).json({
@@ -842,17 +859,28 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
 
     console.log(`[Notification][${cfg.appEnv}] Novo pré-agendamento recebido no servidor: ${clientName.trim()} (${clientPhone.trim()}) • ${paymentCheck.verifiedServiceTitle || 'Nail Design'} • ${date} às ${time}`);
 
+    // Segurança do modo de teste: Usuários públicos NUNCA podem classificar uma reserva como teste
+    // O modo teste só é ativado se for explicitamente solicitado por um administrador autenticado
     const isTestBooking = Boolean(
-      payload.isTest === true ||
-      payload.status === 'teste_sistema' ||
-      (typeof appointmentId === 'string' && appointmentId.startsWith('test-')) ||
-      (typeof clientName === 'string' && clientName.toLowerCase().includes('teste_sistema'))
+      isAdmin && (
+        payload.isTest === true ||
+        payload.isTest === 'true' ||
+        payload.status === 'teste_sistema' ||
+        payload.action === 'testConnection' ||
+        (typeof appointmentId === 'string' && appointmentId.startsWith('test-'))
+      )
     );
+
+    const bookingStatus = isTestBooking
+      ? 'teste_sistema'
+      : (payload.status === 'teste_sistema' ? 'pendente_pix' : (payload.status || 'pendente_pix'));
     const targetRecipient = resolveNotificationRecipient(cfg.isStaging, isTestBooking);
-    const { to: _ignoredClientTo, ...safePayloadWithoutTo } = payload;
+    const { to: _ignoredClientTo, isTest: _ignoredClientIsTest, ...safePayloadWithoutTo } = payload;
 
     const authorizedBody = {
       ...safePayloadWithoutTo,
+      action: isTestBooking ? 'testConnection' : undefined,
+      isTest: isTestBooking,
       from: 'kontakt@alansmsolutions.com',
       to: targetRecipient,
       serviceId: paymentCheck.verifiedServiceId,
@@ -860,7 +888,7 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
       servicePrice: paymentCheck.verifiedServicePrice,
       depositAmount: paymentCheck.verifiedDepositAmount,
       paymentMode: paymentCheck.verifiedPaymentMode,
-      status: payload.status || 'pendente_pix',
+      status: bookingStatus,
       environment: cfg.appEnv,
       // Injeta os tokens e credenciais apenas no lado do servidor
       ...(cfg.token ? { token: cfg.token, authToken: cfg.token, key: cfg.token } : {})
@@ -897,6 +925,22 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
           });
         }
 
+        if (isTestBooking) {
+          console.log(`[Notification Info][${cfg.appEnv}] Teste administrativo ${appointmentId} concluído com sucesso (sem persistência e sem e-mails).`);
+          return res.json({
+            success: true,
+            test: true,
+            delivered: false,
+            persisted: false,
+            duplicate: false,
+            emailSent: false,
+            emailSuppressed: true,
+            environment: cfg.appEnv,
+            message: parsed.message || 'Teste administrativo concluído com sucesso. Nenhuma linha foi gravada na aba oficial Agendamentos e nenhum e-mail foi disparado.',
+            appointmentId
+          });
+        }
+
         console.log(`[Notification Success][${cfg.appEnv}] Google Apps Script confirmou persistência da reserva ${appointmentId}!`);
         recordServerAppointment({
           id: appointmentId,
@@ -908,7 +952,7 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
           servicePrice: paymentCheck.verifiedServicePrice!,
           date: date.trim(),
           time: time.trim(),
-          status: payload.status || 'pendente_pix',
+          status: bookingStatus,
           depositAmount: paymentCheck.verifiedDepositAmount!,
           depositStatus: payload.depositStatus || 'pendente',
           paymentMode: paymentCheck.verifiedPaymentMode!,
@@ -921,9 +965,11 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
           delivered: parsed.delivered,
           persisted: parsed.persisted,
           duplicate: parsed.duplicate,
+          emailSent: parsed.emailSent,
+          emailSuppressed: parsed.emailSuppressed,
+          emailError: parsed.emailError,
           environment: cfg.appEnv,
-          message: parsed.message,
-          scriptResponse: jsonRes
+          message: parsed.message
         });
       } else {
         processedAppointmentIds.delete(appointmentId);
@@ -956,7 +1002,85 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
   }
 });
 
+// Endpoint administrativo para teste seguro de conexão com Google Apps Script
+// Não grava na planilha oficial Agendamentos e não dispara e-mails
+app.post('/api/notifications/test-connection', async (req: Request, res: Response) => {
+  if (!isAuthorizedAdminRequest(req)) {
+    return res.status(401).json({
+      success: false,
+      error: 'Acesso não autorizado. Credenciais administrativas ausentes ou inválidas.'
+    });
+  }
+
+  try {
+    const cfg = resolveAppsScriptConfig();
+    if (!cfg.configured || !cfg.webhookUrl) {
+      return res.status(400).json({
+        success: false,
+        error: cfg.safetyError || 'APPS_SCRIPT_WEBHOOK_URL ou APPS_SCRIPT_TOKEN não configurados no servidor.'
+      });
+    }
+
+    const scriptResponse = await fetch(cfg.webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8'
+      },
+      body: JSON.stringify({
+        action: 'testConnection',
+        isTest: true,
+        appointmentId: `test-admin-${Date.now()}`,
+        token: cfg.token,
+        authToken: cfg.token,
+        key: cfg.token
+      }),
+      signal: AbortSignal.timeout(10000)
+    });
+
+    if (scriptResponse.ok) {
+      const responseText = await scriptResponse.text();
+      let jsonRes: any = null;
+      try {
+        jsonRes = JSON.parse(responseText);
+      } catch {}
+
+      if (jsonRes && (jsonRes.status === 'success' || jsonRes.test === true)) {
+        return res.json({
+          success: true,
+          test: true,
+          persisted: false,
+          emailSent: false,
+          emailSuppressed: true,
+          message: jsonRes.message || 'Conexão segura com Google Apps Script validada com sucesso (nenhum dado gravado na aba Agendamentos e nenhum e-mail enviado).'
+        });
+      }
+
+      return res.status(400).json({
+        success: false,
+        error: jsonRes?.message || 'Google Apps Script recusou a validação de teste.'
+      });
+    }
+
+    return res.status(scriptResponse.status).json({
+      success: false,
+      error: `Google Apps Script retornou HTTP ${scriptResponse.status}.`
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: 'Falha na comunicação de teste com o Google Apps Script.',
+      details: err.message
+    });
+  }
+});
+
 app.post('/api/whatsapp/send-confirmation', async (req: Request, res: Response) => {
+  if (!isAuthorizedAdminRequest(req)) {
+    return res.status(401).json({
+      success: false,
+      error: 'Acesso não autorizado. Credenciais administrativas ausentes ou inválidas.'
+    });
+  }
   try {
     const {
       appointmentId,

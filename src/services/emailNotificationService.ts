@@ -9,7 +9,7 @@ import {
 export { AUTHORIZED_SENDER_EMAIL, TARGET_NOTIFICATION_EMAIL };
 
 export const DEFAULT_APPS_SCRIPT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycby3s6UC86UjTAJtAjtyQF634z8NMv9LORG_IrzxCb4X_RQx0lLCyetz__QGT0-9B3jJ/exec';
+  'https://script.google.com/macros/s/AKfycbysNBMLthA_GvAZJR1irBGcS-3Lspbfz0NIsvz0P2ax6jzE4M01RwVJ0za6zFsq8bGojw/exec';
 
 export interface EmailNotificationPayload {
   from: string;
@@ -36,6 +36,12 @@ export interface EmailNotificationPayload {
 
 export interface EmailDispatchResult {
   success: boolean;
+  persisted?: boolean;
+  duplicate?: boolean;
+  delivered?: boolean;
+  emailSent?: boolean;
+  emailSuppressed?: boolean;
+  emailError?: string;
   appointmentId: string;
   mode:
     | 'webhook_delivered'
@@ -272,11 +278,11 @@ export async function sendWebhookNotification(
         };
       }
 
-      if (resJson && (resJson.status === 'success' || resJson.success === true)) {
+      if (resJson && (resJson.status === 'success' || resJson.success === true || resJson.test === true)) {
         return {
           success: true,
-          delivered: true,
-          message: 'Notificação por e-mail confirmada com sucesso pelo Google Apps Script!',
+          delivered: Boolean(resJson.emailSent),
+          message: resJson.message || 'Notificação por e-mail confirmada com sucesso pelo Google Apps Script!',
           rawResponse: responseText
         };
       }
@@ -333,7 +339,8 @@ export async function testNotificationWebhook(
     return { success: false, message: 'Nenhuma URL de webhook configurada.' };
   }
 
-  const testPayload: EmailNotificationPayload = {
+  const testPayload: EmailNotificationPayload & { action?: string } = {
+    action: 'testConnection',
     from: AUTHORIZED_SENDER_EMAIL,
     to: TARGET_NOTIFICATION_EMAIL,
     replyTo: AUTHORIZED_SENDER_EMAIL,
@@ -342,7 +349,7 @@ export async function testNotificationWebhook(
     clientPhone: '(12) 97406-2241',
     clientEmail: 'angelikm19@gmail.com',
     serviceId: 'alongamento-fibra-slim',
-    serviceTitle: 'Teste de Integração E-mail (kontakt@alansmsolutions.com)',
+    serviceTitle: 'Alongamento em Fibra Slim',
     servicePrice: 'R$ 220,00',
     date: 'Hoje',
     time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
@@ -350,13 +357,14 @@ export async function testNotificationWebhook(
     paymentMode: 'sinal_40',
     status: 'teste_sistema',
     appointmentId: `test-${Date.now()}`,
-    notes: `Disparo de verificação realizado pelo painel com remetente ${AUTHORIZED_SENDER_EMAIL}.`,
-    timestamp: new Date().toISOString()
+    notes: `Disparo de verificação de conectividade. Nenhuma linha deve ser gravada na planilha oficial.`,
+    timestamp: new Date().toISOString(),
+    isTest: true
   };
 
   const res = await sendWebhookNotification(url, testPayload, token);
   return {
-    success: res.success && res.delivered,
+    success: res.success,
     message: res.message
   };
 }
@@ -396,23 +404,32 @@ export async function triggerNewPreBookingEmailNotification(apt: Appointment): P
 
     if (response.ok) {
       const data = await response.json();
-      if (data.success) {
-        // Marca como notificada apenas após sucesso confirmado pelo servidor
+      const isPersisted = Boolean(data.persisted === true || (data.success && data.persisted !== false));
+      if (data.success && isPersisted) {
+        // Marca como notificada apenas após persistência confirmada pelo servidor
         markAppointmentAsNotified(apt.id);
         return {
           success: true,
+          persisted: true,
+          duplicate: Boolean(data.duplicate),
+          delivered: Boolean(data.delivered),
+          emailSent: Boolean(data.emailSent),
+          emailSuppressed: Boolean(data.emailSuppressed),
+          emailError: data.emailError,
           appointmentId: apt.id,
           mode: 'server_dispatched',
-          message: data.message || 'Notificação processada com sucesso no backend seguro.',
+          message: data.message || 'Reserva persistida com sucesso na planilha oficial do ateliê.',
           payload
         };
       }
 
       return {
         success: false,
+        persisted: false,
+        duplicate: Boolean(data.duplicate),
         appointmentId: apt.id,
         mode: 'webhook_rejected',
-        message: data.error || 'O servidor recusou a notificação da reserva.',
+        message: data.error || data.message || 'O servidor não confirmou a gravação da reserva na planilha.',
         payload
       };
     } else {
@@ -426,6 +443,7 @@ export async function triggerNewPreBookingEmailNotification(apt: Appointment): P
 
       return {
         success: false,
+        persisted: false,
         appointmentId: apt.id,
         mode: 'webhook_rejected',
         message: errorMessage,
@@ -436,6 +454,7 @@ export async function triggerNewPreBookingEmailNotification(apt: Appointment): P
     console.error('[Notification Network Error] Falha ao conectar ao backend seguro:', err);
     return {
       success: false,
+      persisted: false,
       appointmentId: apt.id,
       mode: 'webhook_rejected',
       message: 'Não foi possível conectar ao servidor do ateliê para confirmar sua reserva. Verifique sua conexão e tente novamente.',
@@ -444,25 +463,27 @@ export async function triggerNewPreBookingEmailNotification(apt: Appointment): P
   }
 }
 
+export interface FetchAppointmentsDetailedResult {
+  success: boolean;
+  appointments: Appointment[];
+  source?: string;
+  total?: number;
+  error?: string;
+  statusCode?: number;
+}
+
 /**
- * Busca agendamentos centralizados persistidos no backend seguro (Cloud Run / Google Sheets)
- * para exibição no painel administrativo compartilhado.
+ * Consulta agendamentos com resultado detalhado (para exibir status de carregamento,
+ * erros de credencial e lista vazia no painel administrativo).
  */
-export async function fetchRemoteAppointments(authToken?: string): Promise<Appointment[]> {
+export async function fetchRemoteAppointmentsDetailed(authToken?: string): Promise<FetchAppointmentsDetailedResult> {
   try {
     const backendBase = getBackendApiUrl();
     const targetUrl = backendBase
       ? `${backendBase}/api/appointments`
       : '/api/appointments';
 
-    // Usa exclusivamente a senha ou token administrativo local (nunca APPS_SCRIPT_TOKEN)
-    const token =
-      (authToken || '').trim() ||
-      (typeof window !== 'undefined'
-        ? (localStorage.getItem('angelica_admin_password') || '').trim()
-        : '') ||
-      '';
-
+    const token = (authToken || '').trim();
     const headers: Record<string, string> = {
       Accept: 'application/json'
     };
@@ -478,12 +499,57 @@ export async function fetchRemoteAppointments(authToken?: string): Promise<Appoi
     if (response.ok) {
       const data = await response.json();
       if (data.success && Array.isArray(data.appointments)) {
-        return data.appointments as Appointment[];
+        return {
+          success: true,
+          appointments: data.appointments as Appointment[],
+          source: data.source || 'sheets_synced',
+          total: data.total ?? data.appointments.length,
+          statusCode: 200
+        };
       }
+      return {
+        success: false,
+        appointments: [],
+        error: data.error || 'Formato de resposta inesperado do servidor.',
+        statusCode: 200
+      };
     }
-    return [];
-  } catch (err) {
-    console.warn('[Appointment Sync Warning] Não foi possível consultar agendamentos remotos:', err);
-    return [];
+
+    if (response.status === 401) {
+      return {
+        success: false,
+        appointments: [],
+        error: 'Senha ou credencial administrativa incorreta. Acesso não autorizado.',
+        statusCode: 401
+      };
+    }
+
+    let errMsg = `Erro HTTP ${response.status} ao consultar agendamentos.`;
+    try {
+      const errJson = await response.json();
+      if (errJson?.error) errMsg = errJson.error;
+    } catch {}
+
+    return {
+      success: false,
+      appointments: [],
+      error: errMsg,
+      statusCode: response.status
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      appointments: [],
+      error: `Falha de rede ao conectar com o servidor: ${err.message || 'Servidor indisponível'}`
+    };
   }
+}
+
+/**
+ * Busca agendamentos centralizados persistidos no backend seguro (Cloud Run / Google Sheets)
+ * para exibição no painel administrativo compartilhado.
+ */
+export async function fetchRemoteAppointments(authToken?: string): Promise<Appointment[]> {
+  const result = await fetchRemoteAppointmentsDetailed(authToken);
+  return result.success ? result.appointments : [];
 }

@@ -1,4 +1,10 @@
 import { Appointment } from '../types';
+import { getBackendApiUrl } from './emailNotificationService';
+
+function getWhatsAppApiUrl(path: string): string {
+  const base = getBackendApiUrl();
+  return base ? `${base}${path}` : path;
+}
 
 export interface SendConfirmationResult {
   success: boolean;
@@ -20,12 +26,31 @@ export interface WhatsAppStatus {
   businessAccountIdConfigured: boolean;
   apiVersion: string;
   totalLogs: number;
-  lastLog?: any;
+}
+
+export function resolveWhatsAppAdminHeaders(
+  authToken?: string,
+  extraHeaders?: Record<string, string>
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    ...extraHeaders
+  };
+  const token =
+    authToken ||
+    (typeof window !== 'undefined'
+      ? window.sessionStorage?.getItem('angelica_admin_session') || ''
+      : '');
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+    headers['X-Admin-Token'] = token;
+  }
+  return headers;
 }
 
 export async function checkWhatsAppStatus(): Promise<WhatsAppStatus> {
   try {
-    const res = await fetch('/api/whatsapp/status');
+    const res = await fetch(getWhatsAppApiUrl('/api/whatsapp/status'));
     if (!res.ok) {
       throw new Error(`Status ${res.status}`);
     }
@@ -44,9 +69,10 @@ export async function checkWhatsAppStatus(): Promise<WhatsAppStatus> {
   }
 }
 
-export async function fetchWhatsAppLogs(): Promise<any[]> {
+export async function fetchWhatsAppLogs(authToken?: string): Promise<any[]> {
   try {
-    const res = await fetch('/api/whatsapp/logs');
+    const headers = resolveWhatsAppAdminHeaders(authToken);
+    const res = await fetch(getWhatsAppApiUrl('/api/whatsapp/logs'), { headers });
     if (!res.ok) return [];
     const data = await res.json();
     return data.logs || [];
@@ -58,14 +84,17 @@ export async function fetchWhatsAppLogs(): Promise<any[]> {
 export async function sendAppointmentWhatsAppConfirmation(
   apt: Appointment,
   customTemplate?: string,
-  studioAddress?: string
+  studioAddress?: string,
+  authToken?: string
 ): Promise<SendConfirmationResult> {
   try {
-    const res = await fetch('/api/whatsapp/send-confirmation', {
+    const headers = resolveWhatsAppAdminHeaders(authToken, {
+      'Content-Type': 'application/json'
+    });
+
+    const res = await fetch(getWhatsAppApiUrl('/api/whatsapp/send-confirmation'), {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers,
       body: JSON.stringify({
         appointmentId: apt.id,
         clientName: apt.clientName,
@@ -96,14 +125,17 @@ export async function sendAppointmentWhatsAppConfirmation(
 
 export async function testWhatsAppMessage(
   testPhone: string,
-  testName: string = 'Cliente Teste'
+  testName: string = 'Cliente Teste',
+  authToken?: string
 ): Promise<SendConfirmationResult> {
   try {
-    const res = await fetch('/api/whatsapp/send-confirmation', {
+    const headers = resolveWhatsAppAdminHeaders(authToken, {
+      'Content-Type': 'application/json'
+    });
+
+    const res = await fetch(getWhatsAppApiUrl('/api/whatsapp/send-confirmation'), {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers,
       body: JSON.stringify({
         clientName: testName,
         clientPhone: testPhone,

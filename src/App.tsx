@@ -26,7 +26,10 @@ import {
 import { sendAppointmentWhatsAppConfirmation } from './services/whatsappService';
 import { playDiscreteAdminNotificationSound, registerUserInteraction } from './services/soundNotificationService';
 import { calculateDeposit40, formatBRL } from './services/notificationTemplates';
-import { fetchRemoteAppointments } from './services/emailNotificationService';
+import {
+  fetchRemoteAppointments,
+  fetchRemoteAppointmentsDetailed
+} from './services/emailNotificationService';
 
 // Public Components
 import { HeaderPublic } from './components/HeaderPublic';
@@ -59,21 +62,120 @@ export default function App() {
   // Mode: 'public' (Client) vs 'admin' (Executive Atelier)
   const [appMode, setAppMode] = useState<'public' | 'admin'>('public');
 
-  // Admin Login Modal State
+  // Admin Login Modal & Session State (volatile, never stored permanently or in bundle)
   const [adminLoginModalOpen, setAdminLoginModalOpen] = useState(false);
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
   const [adminLoginError, setAdminLoginError] = useState<string | null>(null);
+  const [isVerifyingAdminLogin, setIsVerifyingAdminLogin] = useState(false);
+  const [adminSessionToken, setAdminSessionToken] = useState<string>(() => {
+    try {
+      return sessionStorage.getItem('angelica_admin_session') || '';
+    } catch {
+      return '';
+    }
+  });
 
-  const handleAdminLogin = (e: React.FormEvent) => {
+  const [isLoadingRemoteAppointments, setIsLoadingRemoteAppointments] = useState(false);
+  const [remoteAppointmentsError, setRemoteAppointmentsError] = useState<string | null>(null);
+  const [localOnlyCount, setLocalOnlyCount] = useState<number>(0);
+
+  const calculateLocalOnlyCount = (remoteList: Appointment[]) => {
+    try {
+      const raw = localStorage.getItem('angelica_appointments_local_archive') || localStorage.getItem('angelica_appointments');
+      if (!raw) {
+        setLocalOnlyCount(0);
+        return;
+      }
+      const localList: Appointment[] = JSON.parse(raw);
+      const remoteIds = new Set(remoteList.map(a => a.id));
+      const localOnly = localList.filter(a => !remoteIds.has(a.id));
+      setLocalOnlyCount(localOnly.length);
+      if (localOnly.length > 0) {
+        localStorage.setItem('angelica_appointments_local_archive', JSON.stringify(localList));
+      }
+    } catch {
+      setLocalOnlyCount(0);
+    }
+  };
+
+  const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const stored = localStorage.getItem('angelica_admin_password') || 'angelica';
-    if (adminPasswordInput === stored) {
-      setAdminLoginModalOpen(false);
-      setAdminPasswordInput('');
-      setAdminLoginError(null);
-      setAppMode('admin');
-    } else {
-      setAdminLoginError('Senha incorreta. A senha padrão do painel é: angelica');
+    const entered = adminPasswordInput.trim();
+    if (!entered) return;
+
+    setIsVerifyingAdminLogin(true);
+    setAdminLoginError(null);
+
+    try {
+      const result = await fetchRemoteAppointmentsDetailed(entered);
+      if (result.success) {
+        setAdminSessionToken(entered);
+        try {
+          sessionStorage.setItem('angelica_admin_session', entered);
+        } catch {}
+        setAppointments(result.appointments);
+        setRemoteAppointmentsError(null);
+        setAdminLoginModalOpen(false);
+        setAdminPasswordInput('');
+        setAppMode('admin');
+        calculateLocalOnlyCount(result.appointments);
+      } else if (result.statusCode === 401) {
+        setAdminLoginError('Senha administrativa incorreta ou não configurada no servidor. Acesso não autorizado.');
+      } else {
+        setAdminLoginError(
+          result.error || 'Falha de comunicação ao verificar credencial com o servidor administrativo. Acesso negado.'
+        );
+      }
+    } catch (err: any) {
+      setAdminLoginError('Erro de conexão ao verificar credencial administrativa.');
+    } finally {
+      setIsVerifyingAdminLogin(false);
+    }
+  };
+
+  const refreshRemoteAppointments = async () => {
+    const token = adminSessionToken || (typeof window !== 'undefined' ? sessionStorage.getItem('angelica_admin_session') || '' : '');
+    if (!token) return;
+    setIsLoadingRemoteAppointments(true);
+    setRemoteAppointmentsError(null);
+    try {
+      const result = await fetchRemoteAppointmentsDetailed(token);
+      if (result.success) {
+        setAppointments(result.appointments);
+        calculateLocalOnlyCount(result.appointments);
+      } else {
+        setRemoteAppointmentsError(result.error || 'Erro ao sincronizar com o servidor.');
+      }
+    } catch (err: any) {
+      setRemoteAppointmentsError('Falha de rede ao sincronizar com a planilha do Google Sheets.');
+    } finally {
+      setIsLoadingRemoteAppointments(false);
+    }
+  };
+
+  const handleAdminLogout = () => {
+    try {
+      sessionStorage.removeItem('angelica_admin_session');
+    } catch {}
+    setAdminSessionToken('');
+    setAppMode('public');
+  };
+
+  const handleExportLocalBackup = () => {
+    try {
+      const raw = localStorage.getItem('angelica_appointments_local_archive') || localStorage.getItem('angelica_appointments');
+      if (!raw) return;
+      const blob = new Blob([raw], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `backup_agendamentos_locais_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Erro ao exportar backup local:', err);
     }
   };
 
@@ -197,51 +299,42 @@ export default function App() {
     } catch {}
   }, [clients]);
 
-  // Shared Centralized Appointments Synchronization (Cloud Run / Sheets)
+  // Centralized Appointments Synchronization (Cloud Run / Sheets)
   useEffect(() => {
+    if (appMode !== 'admin') return;
     let isMounted = true;
 
     const syncRemote = async () => {
+      const token = adminSessionToken || (typeof window !== 'undefined' ? sessionStorage.getItem('angelica_admin_session') || '' : '');
+      if (!token) return;
+
       try {
-        const adminPass = localStorage.getItem('angelica_admin_password') || '';
-        const remoteList = await fetchRemoteAppointments(adminPass);
-        if (!isMounted || !Array.isArray(remoteList) || remoteList.length === 0) return;
+        setIsLoadingRemoteAppointments(true);
+        const result = await fetchRemoteAppointmentsDetailed(token);
+        if (!isMounted) return;
 
-        setAppointments(prev => {
-          const mergedMap = new Map<string, Appointment>();
-
-          // 1. Mantém todas as reservas locais existentes para preservar histórico e edições locais
-          for (const localApt of prev) {
-            mergedMap.set(localApt.id, localApt);
-          }
-
-          // 2. Mescla novas reservas remotas ou atualiza preservando edições administrativas
-          for (const remoteApt of remoteList) {
-            if (!mergedMap.has(remoteApt.id)) {
-              mergedMap.set(remoteApt.id, remoteApt);
-            } else {
-              const localApt = mergedMap.get(remoteApt.id)!;
-              const hasLocalStatusChange =
-                localApt.status !== 'pendente_pix' && remoteApt.status === 'pendente_pix';
-              const hasLocalDepositChange =
-                localApt.depositStatus !== 'pendente' && remoteApt.depositStatus === 'pendente';
-
-              mergedMap.set(remoteApt.id, {
-                ...remoteApt,
-                ...localApt,
-                status: hasLocalStatusChange ? localApt.status : (remoteApt.status || localApt.status),
-                depositStatus: hasLocalDepositChange ? localApt.depositStatus : (remoteApt.depositStatus || localApt.depositStatus),
-                notes: localApt.notes || remoteApt.notes,
-                whatsappStatus: localApt.whatsappStatus || remoteApt.whatsappStatus,
-                whatsappSentAt: localApt.whatsappSentAt || remoteApt.whatsappSentAt
-              });
-            }
-          }
-
-          return Array.from(mergedMap.values());
-        });
-      } catch (err) {
-        console.warn('[Sync Error] Erro ao sincronizar agendamentos remotos:', err);
+        if (result.success) {
+          setRemoteAppointmentsError(null);
+          setAppointments(result.appointments);
+          calculateLocalOnlyCount(result.appointments);
+        } else if (result.statusCode === 401) {
+          try {
+            sessionStorage.removeItem('angelica_admin_session');
+          } catch {}
+          setAdminSessionToken('');
+          setAppMode('public');
+          setAdminLoginError('Sessão administrativa expirada ou não autorizada pelo servidor. Faça login novamente.');
+        } else {
+          setRemoteAppointmentsError(result.error || 'Falha ao sincronizar com Google Sheets.');
+        }
+      } catch (err: any) {
+        if (isMounted) {
+          setRemoteAppointmentsError('Falha ao conectar ao servidor para sincronização.');
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingRemoteAppointments(false);
+        }
       }
     };
 
@@ -251,7 +344,7 @@ export default function App() {
       isMounted = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [appMode, adminSessionToken]);
 
   // WhatsApp Business API Config State
   const [whatsappConfig, setWhatsappConfig] = useState<WhatsAppConfig>(() => {
@@ -685,10 +778,11 @@ export default function App() {
                       type="password"
                       required
                       autoFocus
+                      disabled={isVerifyingAdminLogin}
                       placeholder="Digite a senha..."
                       value={adminPasswordInput}
                       onChange={e => setAdminPasswordInput(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px]"
+                      className="w-full px-4 py-3 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px] disabled:opacity-60"
                     />
                   </div>
 
@@ -700,9 +794,17 @@ export default function App() {
 
                   <button
                     type="submit"
-                    className="w-full py-3.5 rounded-full bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta text-sm font-bold transition-all shadow-md cursor-pointer active:scale-95"
+                    disabled={isVerifyingAdminLogin}
+                    className="w-full py-3.5 rounded-full bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta text-sm font-bold transition-all shadow-md cursor-pointer active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
-                    Entrar no Painel do Ateliê
+                    {isVerifyingAdminLogin ? (
+                      <>
+                        <span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
+                        <span>Verificando credencial...</span>
+                      </>
+                    ) : (
+                      <span>Entrar no Painel do Ateliê</span>
+                    )}
                   </button>
                 </form>
               </div>
@@ -720,7 +822,7 @@ export default function App() {
           <AdminSidebar
             activeTab={adminTab}
             onSelectTab={setAdminTab}
-            onSwitchToPublic={() => setAppMode('public')}
+            onSwitchToPublic={handleAdminLogout}
             isOpenMobile={mobileSidebarOpen}
             onCloseMobile={() => setMobileSidebarOpen(false)}
             pendingPixCount={pendingPixCount}
@@ -732,7 +834,7 @@ export default function App() {
             <AdminHeader
               onOpenManualBooking={() => setManualBookingModalOpen(true)}
               onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
-              onSwitchToPublic={() => setAppMode('public')}
+              onSwitchToPublic={handleAdminLogout}
               searchQuery={adminSearch}
               onSearchChange={setAdminSearch}
             />
@@ -785,6 +887,85 @@ export default function App() {
 
             {/* Admin Tab View Content */}
             <main className="flex-1 pt-24 px-4 sm:px-6 lg:px-8 pb-16">
+              {/* Sync Status Banner */}
+              <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 sm:p-4 rounded-2xl bg-white border border-[#E8D9B5] shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                    remoteAppointmentsError
+                      ? 'bg-amber-100 text-amber-700 border border-amber-300'
+                      : isLoadingRemoteAppointments
+                      ? 'bg-[#FBF2D5] text-[#D4AF37] border border-[#E8D9B5]'
+                      : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  }`}>
+                    <span className={`material-symbols-outlined text-[20px] ${isLoadingRemoteAppointments ? 'animate-spin' : ''}`}>
+                      {remoteAppointmentsError ? 'cloud_off' : isLoadingRemoteAppointments ? 'sync' : 'cloud_done'}
+                    </span>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-syne text-xs font-bold text-[#49382E]">
+                        {remoteAppointmentsError ? 'Modo Offline (Contingência Local)' : 'Google Sheets Sincronizado'}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        remoteAppointmentsError
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-emerald-100 text-emerald-800'
+                      }`}>
+                        {appointments.length} {appointments.length === 1 ? 'agendamento' : 'agendamentos'}
+                      </span>
+                    </div>
+                    <p className="font-jakarta text-[11px] text-[#786C63] mt-0.5">
+                      {remoteAppointmentsError
+                        ? `Aviso: ${remoteAppointmentsError}`
+                        : 'Dados carregados da planilha oficial (aba Agendamentos).'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-end sm:self-center">
+                  <button
+                    type="button"
+                    onClick={refreshRemoteAppointments}
+                    disabled={isLoadingRemoteAppointments}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F7EFEA] hover:bg-[#E8D9B5] text-[#49382E] font-jakarta text-xs font-semibold border border-[#E8D9B5] transition-all cursor-pointer disabled:opacity-50"
+                    title="Atualizar dados do Google Sheets"
+                  >
+                    <span className={`material-symbols-outlined text-[16px] ${isLoadingRemoteAppointments ? 'animate-spin' : ''}`}>
+                      refresh
+                    </span>
+                    <span>{isLoadingRemoteAppointments ? 'Sincronizando...' : 'Atualizar'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Local-only Unpersisted Appointments Warning Card */}
+              {localOnlyCount > 0 && (
+                <div className="mb-6 p-4 rounded-2xl bg-amber-50/90 border border-amber-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <span className="material-symbols-outlined text-amber-600 text-[22px] shrink-0 mt-0.5">
+                      history_edu
+                    </span>
+                    <div>
+                      <h4 className="font-syne text-xs font-bold text-amber-900">
+                        Histórico Local Detectado ({localOnlyCount} agendamento{localOnlyCount > 1 ? 's' : ''} local{localOnlyCount > 1 ? 'is' : ''})
+                      </h4>
+                      <p className="font-jakarta text-[11px] text-amber-800 mt-0.5">
+                        Existem registros armazenados apenas no navegador deste dispositivo que não constam na planilha do Google Sheets. Para protegê-los contra perda acidental, você pode exportar o arquivo de backup.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleExportLocalBackup}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-jakarta text-xs font-semibold shadow-sm transition-all cursor-pointer shrink-0"
+                    title="Exportar backup dos agendamentos locais em arquivo JSON"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">download</span>
+                    <span>Exportar Backup ({localOnlyCount})</span>
+                  </button>
+                </div>
+              )}
+
               {adminTab === 'visao-geral' && (
                 <OverviewTab
                   onOpenManualBooking={() => setManualBookingModalOpen(true)}

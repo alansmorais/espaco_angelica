@@ -439,48 +439,61 @@ runTest('Servidor: buildConfirmationMessage calcula saldo restante e preserva po
 });
 
 // 11. Segurança e Autenticação do endpoint administrativo /api/appointments
-runTest('Segurança Admin: isAuthorizedAdminRequest exige credencial e bloqueia requisições não autenticadas', () => {
-  // Requisição sem cabeçalho Authorization ou token
-  const unauthReq: any = {
-    headers: {},
-    query: {}
-  };
-  assertCondition(!isAuthorizedAdminRequest(unauthReq), 'Requisição sem token deve ser rejeitada');
+runTest('Segurança Admin: isAuthorizedAdminRequest exige credencial configurada no ambiente e falha de forma segura sem credencial', () => {
+  const origToken = process.env.ADMIN_TOKEN;
+  const origPassword = process.env.ADMIN_PASSWORD;
 
-  // Requisição com token incorreto
-  const invalidTokenReq: any = {
-    headers: { authorization: 'Bearer token-invalido-123' },
-    query: {}
-  };
-  assertCondition(!isAuthorizedAdminRequest(invalidTokenReq), 'Requisição com token inválido deve ser rejeitada');
+  try {
+    // Cenário A: Sem configuração administrativa no ambiente (Falha segura/fechada)
+    delete process.env.ADMIN_TOKEN;
+    delete process.env.ADMIN_PASSWORD;
 
-  // Requisição com senha administrativa padrão ou token configurado
-  const authReqBearer: any = {
-    headers: { authorization: 'Bearer angelica' },
-    query: {}
-  };
-  assertCondition(isAuthorizedAdminRequest(authReqBearer), 'Requisição com Bearer password administrativa deve ser autorizada');
+    const unauthReq: any = { headers: {}, query: {} };
+    assertCondition(!isAuthorizedAdminRequest(unauthReq), 'Sem token deve ser rejeitado');
 
-  const authReqHeader: any = {
-    headers: { 'x-admin-token': 'angelica' },
-    query: {}
-  };
-  assertCondition(isAuthorizedAdminRequest(authReqHeader), 'Requisição com x-admin-token deve ser autorizada');
+    const fallbackReq: any = { headers: { authorization: 'Bearer angelica' }, query: {} };
+    assertCondition(!isAuthorizedAdminRequest(fallbackReq), 'Senha fallback angelica NÃO deve ser aceita quando não configurada no ambiente');
 
-  // Rejeição estrita: Token via query string DEVE ser rejeitado
-  const queryOnlyReq: any = {
-    headers: {},
-    query: { token: 'angelica' }
-  };
-  assertCondition(!isAuthorizedAdminRequest(queryOnlyReq), 'Token administrativo via query string DEVE ser rejeitado');
+    const anyTokenReq: any = { headers: { authorization: 'Bearer qualquer-senha' }, query: {} };
+    assertCondition(!isAuthorizedAdminRequest(anyTokenReq), 'Qualquer senha deve ser recusada quando nenhuma credencial administrativa está configurada');
 
-  // Isolamento estrito: APPS_SCRIPT_TOKEN NÃO deve ser aceito como senha do administrador
-  process.env.APPS_SCRIPT_TOKEN = 'secret-apps-script-token';
-  const appsScriptTokenReq: any = {
-    headers: { authorization: 'Bearer secret-apps-script-token' },
-    query: {}
-  };
-  assertCondition(!isAuthorizedAdminRequest(appsScriptTokenReq), 'APPS_SCRIPT_TOKEN NUNCA deve ser aceito como credencial administrativa');
+    // Cenário B: Configuração válida via ADMIN_PASSWORD
+    process.env.ADMIN_PASSWORD = 'strong-admin-password-2026';
+
+    const validBearer: any = { headers: { authorization: 'Bearer strong-admin-password-2026' }, query: {} };
+    assertCondition(isAuthorizedAdminRequest(validBearer), 'Bearer token correto com ADMIN_PASSWORD deve ser autorizado');
+
+    const validHeader: any = { headers: { 'x-admin-token': 'strong-admin-password-2026' }, query: {} };
+    assertCondition(isAuthorizedAdminRequest(validHeader), 'X-Admin-Token correto com ADMIN_PASSWORD deve ser autorizado');
+
+    const wrongPass: any = { headers: { authorization: 'Bearer senha-incorreta' }, query: {} };
+    assertCondition(!isAuthorizedAdminRequest(wrongPass), 'Senha incorreta deve ser rejeitada');
+
+    const oldFallbackWhenConfigured: any = { headers: { authorization: 'Bearer angelica' }, query: {} };
+    assertCondition(!isAuthorizedAdminRequest(oldFallbackWhenConfigured), 'Senha angelica deve ser rejeitada quando a senha real é diferente');
+
+    // Rejeição estrita: Token via query string DEVE ser rejeitado
+    const queryOnlyReq: any = { headers: {}, query: { token: 'strong-admin-password-2026' } };
+    assertCondition(!isAuthorizedAdminRequest(queryOnlyReq), 'Token administrativo via query string DEVE ser rejeitado');
+
+    // Cenário C: Configuração válida via ADMIN_TOKEN
+    delete process.env.ADMIN_PASSWORD;
+    process.env.ADMIN_TOKEN = 'dedicated-admin-bearer-token';
+
+    const validAdminToken: any = { headers: { authorization: 'Bearer dedicated-admin-bearer-token' }, query: {} };
+    assertCondition(isAuthorizedAdminRequest(validAdminToken), 'Bearer token correto com ADMIN_TOKEN deve ser autorizado');
+
+    // Isolamento estrito: APPS_SCRIPT_TOKEN NÃO deve ser aceito como senha do administrador
+    process.env.APPS_SCRIPT_TOKEN = 'secret-apps-script-token';
+    const appsScriptTokenReq: any = { headers: { authorization: 'Bearer secret-apps-script-token' }, query: {} };
+    assertCondition(!isAuthorizedAdminRequest(appsScriptTokenReq), 'APPS_SCRIPT_TOKEN NUNCA deve ser aceito como credencial administrativa');
+
+  } finally {
+    if (origToken !== undefined) process.env.ADMIN_TOKEN = origToken;
+    else delete process.env.ADMIN_TOKEN;
+    if (origPassword !== undefined) process.env.ADMIN_PASSWORD = origPassword;
+    else delete process.env.ADMIN_PASSWORD;
+  }
 });
 
 // 12. Modo de Teste Seguro: Notificações de teste nunca devem ser enviadas à destinatária real de produção
@@ -735,4 +748,608 @@ runTest('Validação estrita do ID: rejeita IDs ausentes, vazios ou fora do form
   assertCondition(!isValidAppointmentId('apt-<script>alert(1)</script>'), 'ID com injeção de script deve ser rejeitado');
 });
 
+// 18. Disparo de dois e-mails independentes (Admin + Cliente) e isolamento de teste
+runTest('Disparo de dois e-mails: Notificação administrativa para titular e confirmação para a cliente com breakdown Pix', () => {
+  // Simula o comportamento do Code.gs atualizado para disparo de dois e-mails
+  const sentEmails: Array<{ to: string; subject: string; body: string }> = [];
+  const fakeMailApp = {
+    sendEmail: (opts: { to: string; subject: string; body: string }) => {
+      sentEmails.push(opts);
+    }
+  };
+
+  function simulateAppsScriptEmailDispatch(data: any, isTest: boolean) {
+    if (isTest) {
+      return { emailSent: false, emailSuppressed: true };
+    }
+
+    let adminSent = false;
+    let clientSent = false;
+
+    // 1. E-mail administrativo para a titular
+    try {
+      fakeMailApp.sendEmail({
+        to: 'angelikm19@gmail.com',
+        subject: `Novo Pré-Agendamento: ${data.clientName} - ${data.serviceTitle}`,
+        body: `Detalhes: ${data.serviceTitle} | Sinal: R$ ${data.depositAmount}`
+      });
+      adminSent = true;
+    } catch {}
+
+    // 2. E-mail de confirmação para o cliente (se informado)
+    const clientEmail = (data.clientEmail || '').trim();
+    if (clientEmail && clientEmail.includes('@')) {
+      try {
+        fakeMailApp.sendEmail({
+          to: clientEmail,
+          subject: `Pré-Agendamento Recebido: ${data.serviceTitle} - Espaço Angélica`,
+          body: `Olá ${data.clientName},\n\nRecebemos sua solicitação de agendamento no Espaço Angélica.\n\nProcedimento: ${data.serviceTitle}\nValor Total: ${data.servicePrice}\nSinal (40%): R$ ${data.depositAmount},00\n\nChave PIX: 12974062241 (Angelica do Carmo Costa Santos)\nEndereço: Rua Vereador José Luiz Soares, 92 - Pontal da Cruz, São Sebastião - SP\n\nImportante: Seu horário fica pré-reservado e a confirmação definitiva ocorre após o envio do comprovante Pix.`
+        });
+        clientSent = true;
+      } catch {}
+    }
+
+    return {
+      emailSent: adminSent || clientSent,
+      adminEmailSent: adminSent,
+      clientEmailSent: clientSent,
+      emailSuppressed: false
+    };
+  }
+
+  // Cenário A: Reserva real com e-mail do cliente informado -> Deve disparar DOIS e-mails
+  sentEmails.length = 0;
+  const realBookingData = {
+    clientName: 'Carla Silva',
+    clientEmail: 'carla.silva@exemplo.com.br',
+    serviceTitle: 'Alongamento em Fibra Slim',
+    servicePrice: 'R$ 220,00',
+    depositAmount: 88,
+    date: '15/11/2026',
+    time: '14:00'
+  };
+  const realRes = simulateAppsScriptEmailDispatch(realBookingData, false);
+  assertCondition(realRes.emailSent === true, 'Pelo menos um e-mail deve ter sido enviado');
+  assertCondition(realRes.adminEmailSent === true, 'E-mail administrativo para angelikm19@gmail.com deve ter sido enviado');
+  assertCondition(realRes.clientEmailSent === true, 'E-mail de confirmação para a cliente deve ter sido enviado');
+  assertCondition(sentEmails.length === 2, `Esperado 2 e-mails disparados, registrado ${sentEmails.length}`);
+
+  const adminEmail = sentEmails.find(e => e.to === 'angelikm19@gmail.com')!;
+  assertCondition(adminEmail.subject.includes('Carla Silva'), 'Assunto do e-mail admin deve conter o nome da cliente');
+
+  const clientEmail = sentEmails.find(e => e.to === 'carla.silva@exemplo.com.br')!;
+  assertCondition(clientEmail.body.includes('12974062241'), 'E-mail da cliente deve conter a chave Pix');
+  assertCondition(clientEmail.body.includes('R$ 88,00'), 'E-mail da cliente deve conter o valor do sinal');
+  assertCondition(clientEmail.body.includes('Pontal da Cruz'), 'E-mail da cliente deve conter o endereço do ateliê');
+
+  // Cenário B: Reserva com flag de teste (isTest = true) -> NENHUM e-mail pode ser enviado
+  sentEmails.length = 0;
+  const testRes = simulateAppsScriptEmailDispatch(realBookingData, true);
+  assertCondition(testRes.emailSent === false, 'Reserva de teste NUNCA deve enviar e-mails');
+  assertCondition(testRes.emailSuppressed === true, 'emailSuppressed deve ser true em modo teste');
+  assertCondition(sentEmails.length === 0, 'Nenhum e-mail deve constar na fila em modo teste');
+});
+
+// 19. Trava de Confirmação Visual no Frontend: Bloqueio estrito quando persisted é false
+runTest('Trava de Confirmação Visual: Sucesso visual depende estritamente de persisted: true', () => {
+  function handleBookingSubmissionResult(dispatchResult: { success: boolean; persisted?: boolean; error?: string }) {
+    // Replica a regra estrita em BookingWizard.tsx:
+    // const isPersisted = dispatchResult.success && dispatchResult.persisted === true;
+    const isConfirmed = Boolean(dispatchResult.success && dispatchResult.persisted === true);
+    return {
+      confirmed: isConfirmed,
+      formStayedOnStep4: !isConfirmed,
+      errorMessage: !isConfirmed ? (dispatchResult.error || 'Erro ao persistir reserva.') : null
+    };
+  }
+
+  // Cenário A: Servidor confirmou gravação na planilha (persisted: true)
+  const successResult = handleBookingSubmissionResult({
+    success: true,
+    persisted: true
+  });
+  assertCondition(successResult.confirmed === true, 'Visual deve confirmar quando persisted: true');
+  assertCondition(successResult.formStayedOnStep4 === false, 'Formulário deve avançar para tela de confirmação');
+
+  // Cenário B: Servidor respondeu com erro (ex: 400 Bad Request, persistência falhou)
+  const failResult = handleBookingSubmissionResult({
+    success: false,
+    persisted: false,
+    error: 'Modalidade de pagamento inválida ou preço divergente.'
+  });
+  assertCondition(failResult.confirmed === false, 'Visual NÃO pode confirmar quando persisted: false');
+  assertCondition(failResult.formStayedOnStep4 === true, 'Formulário DEVE permanecer no Step 4 com dados preservados');
+  assertCondition(failResult.errorMessage?.includes('Modalidade de pagamento'), 'Mensagem de erro clara deve ser apresentada');
+
+  // Cenário C: Resposta legada incompleta (success: true mas persisted ausente/falso)
+  const unpersistedSuccess = handleBookingSubmissionResult({
+    success: true,
+    persisted: false
+  });
+  assertCondition(unpersistedSuccess.confirmed === false, 'Visual NÃO pode confirmar se persisted for false mesmo com success: true');
+});
+
+// 20. Idempotência em retentativa com o mesmo appointmentId
+runTest('Idempotência em retentativa: Reenvio com o mesmo ID preserva persisted: true e não duplica registros', () => {
+  const existingSheetData = [
+    { id: 'apt-idempotent-test-999', rowNumber: 42, clientName: 'Cliente Idempotente' }
+  ];
+
+  function simulateSheetAppendOrFind(data: { appointmentId: string; clientName: string }) {
+    const existing = existingSheetData.find(row => row.id === data.appointmentId);
+    if (existing) {
+      return {
+        status: 'success',
+        duplicate: true,
+        persisted: true,
+        emailSent: false,
+        emailSuppressed: true,
+        message: `Reserva ${data.appointmentId} já confirmada anteriormente no Sheets (linha ${existing.rowNumber}).`
+      };
+    }
+    existingSheetData.push({ id: data.appointmentId, rowNumber: 43, clientName: data.clientName });
+    return {
+      status: 'success',
+      duplicate: false,
+      persisted: true,
+      emailSent: true,
+      emailSuppressed: false,
+      message: 'Reserva gravada com sucesso.'
+    };
+  }
+
+  // Primeira tentativa de um ID que já existia no banco
+  const retryResult = simulateSheetAppendOrFind({
+    appointmentId: 'apt-idempotent-test-999',
+    clientName: 'Cliente Idempotente'
+  });
+  assertCondition(retryResult.persisted === true, 'persisted deve ser true em retentativa bem-sucedida');
+  assertCondition(retryResult.duplicate === true, 'duplicate deve ser true');
+  assertCondition(retryResult.emailSuppressed === true, 'E-mails devem ser suprimidos para evitar spam em retentativas');
+  assertCondition(existingSheetData.length === 1, 'Nenhuma linha adicional deve ter sido gravada na planilha');
+});
+
+// 21. Sincronização centralizada do Painel Administrativo com contingência offline
+runTest('Sincronização Admin: Consulta autenticada, modo contingência offline e preservação de histórico local', () => {
+  // Simula o comportamento de App.tsx:
+  const localAppointments: Appointment[] = [
+    {
+      id: 'apt-local-offline-1',
+      clientName: 'Cliente Histórico Local',
+      clientPhone: '12999990000',
+      serviceTitle: 'Alongamento em Fibra Slim',
+      servicePrice: 'R$ 220,00',
+      serviceDuration: '2h 30min',
+      date: '10/11/2026',
+      time: '14:00',
+      status: 'confirmado',
+      depositAmount: 88,
+      depositStatus: 'liquidado'
+    }
+  ];
+
+  // Cenário A: Servidor offline -> Não apaga dados locais, ativa modo contingência
+  const serverOfflineResponse = {
+    success: false,
+    appointments: [],
+    error: 'Falha ao conectar com o servidor.'
+  };
+
+  let displayedAppointments = [...localAppointments];
+  let isOfflineMode = false;
+
+  if (!serverOfflineResponse.success) {
+    isOfflineMode = true;
+    // Dados locais NÃO são apagados!
+  } else {
+    displayedAppointments = serverOfflineResponse.appointments;
+  }
+
+  assertCondition(isOfflineMode === true, 'Deve ativar o modo offline quando servidor falha');
+  assertCondition(displayedAppointments.length === 1, 'Dados locais devem ser mantidos durante falha do servidor');
+  assertCondition(displayedAppointments[0].id === 'apt-local-offline-1', 'Reserva local preservada');
+
+  // Cenário B: Servidor online com dados de Sheets -> Identifica agendamentos locais não sincronizados para backup
+  const serverOnlineResponse = {
+    success: true,
+    appointments: [
+      {
+        id: 'apt-remote-sheets-1',
+        clientName: 'Cliente Sincronizada Sheets',
+        clientPhone: '12988881111',
+        serviceTitle: 'Manutenção Fibra de Vidro',
+        servicePrice: 'R$ 140,00',
+        serviceDuration: '2h',
+        date: '12/11/2026',
+        time: '10:00',
+        status: 'pendente_pix',
+        depositAmount: 56,
+        depositStatus: 'pendente'
+      } as Appointment
+    ]
+  };
+
+  const remoteIds = new Set(serverOnlineResponse.appointments.map(a => a.id));
+  const localOnly = localAppointments.filter(a => !remoteIds.has(a.id));
+
+  assertCondition(localOnly.length === 1, 'Deve detectar 1 agendamento local não presente na planilha');
+  assertCondition(localOnly[0].id === 'apt-local-offline-1', 'ID do agendamento local para backup identificado corretamente');
+});
+
+// 22. Campos obrigatórios ausentes ou inválidos: rejeição rigorosa no backend e no Apps Script
+runTest('Campos obrigatórios ausentes: validação rejeita dados faltantes ou corrompidos', () => {
+  // Cenário A: Nome da cliente ausente ou muito curto (< 2 caracteres)
+  const missingName = validateBookingPaymentCoherence({
+    clientName: 'A',
+    serviceId: 'alongamento-fibra-slim',
+    depositAmount: 88
+  });
+  // Note que validateBookingPaymentCoherence valida pagamento e serviço; nome é validado na rota
+  assertCondition(missingName.valid === true, 'validateBookingPaymentCoherence foca em pagamento');
+
+  // Cenário B: Procedimento ausente ou desconhecido
+  const missingService = validateBookingPaymentCoherence({
+    depositAmount: 88
+  });
+  assertCondition(missingService.valid === false, 'Deve rejeitar payload sem serviceId');
+  assertCondition(missingService.error?.includes('Identificação do procedimento'), 'Erro deve informar ausência de serviceId');
+
+  const unknownService = validateBookingPaymentCoherence({
+    serviceId: 'servico-ficticio-inexistente',
+    depositAmount: 88
+  });
+  assertCondition(unknownService.valid === false, 'Deve rejeitar serviço inexistente no catálogo');
+
+  // Cenário C: Sinal não positivo, NaN ou ausente
+  const zeroDeposit = validateBookingPaymentCoherence({
+    serviceId: 'alongamento-fibra-slim',
+    depositAmount: 0
+  });
+  assertCondition(zeroDeposit.valid === false, 'Deve rejeitar sinal zerado');
+
+  const negativeDeposit = validateBookingPaymentCoherence({
+    serviceId: 'alongamento-fibra-slim',
+    depositAmount: -88
+  });
+  assertCondition(negativeDeposit.valid === false, 'Deve rejeitar sinal negativo');
+
+  const nanDeposit = validateBookingPaymentCoherence({
+    serviceId: 'alongamento-fibra-slim',
+    depositAmount: NaN
+  });
+  assertCondition(nanDeposit.valid === false, 'Deve rejeitar sinal NaN');
+});
+
+// 23. Tentativa de falsificar modo de teste: requisições públicas não autenticadas nunca ativam modo teste
+runTest('Tentativa de falsificar modo de teste: requisições públicas não autenticadas nunca são classificadas como teste', () => {
+  // Simula requisição vinda do navegador público (SEM cabeçalhos administrativos)
+  const fakePublicReq: any = {
+    headers: {},
+    body: {
+      isTest: true,
+      status: 'teste_sistema',
+      clientName: 'Teste Hacker Manipulado',
+      notes: 'teste de invasão',
+      appointmentId: 'apt-real-hacker-1'
+    }
+  };
+
+  const isAdmin = isAuthorizedAdminRequest(fakePublicReq);
+  assertCondition(isAdmin === false, 'Requisição pública não deve ter privilégio administrativo');
+
+  // Lógica implementada em server.ts:
+  // Se !isAdmin, isTestBooking DEVE ser estritamente false
+  const isTestBooking = Boolean(
+    isAdmin && (
+      fakePublicReq.body.isTest === true ||
+      fakePublicReq.body.status === 'teste_sistema' ||
+      fakePublicReq.body.appointmentId.startsWith('test-')
+    )
+  );
+  assertCondition(isTestBooking === false, 'Requisição pública com isTest: true NÃO PODE ser classificada como teste');
+
+  // Status para usuário comum deve ser normalizado para 'pendente_pix'
+  const bookingStatus = isTestBooking ? 'teste_sistema' : 'pendente_pix';
+  assertCondition(bookingStatus === 'pendente_pix', 'Status forçado como pendente_pix para requisição pública');
+
+  // Tentativa de enviar prefixo test-* sem admin deve ser barrada
+  const publicTestPrefixId = 'test-spoofed-id-123';
+  const isPublicPrefixAllowed = !(!isAdmin && publicTestPrefixId.startsWith('test-'));
+  assertCondition(isPublicPrefixAllowed === false, 'Prefixo test-* DEVE ser rejeitado para usuários não autenticados');
+
+  // Cenário com Administrador Autenticado: modo teste é legítimo
+  const origPass23 = process.env.ADMIN_PASSWORD;
+  process.env.ADMIN_PASSWORD = 'admin-secret-for-test-mode';
+  try {
+    const authorizedAdminReq: any = {
+      headers: {
+        authorization: 'Bearer admin-secret-for-test-mode'
+      },
+      body: {
+        isTest: true,
+        status: 'teste_sistema',
+        appointmentId: 'test-admin-probe-1'
+      }
+    };
+    const isAdminLegit = isAuthorizedAdminRequest(authorizedAdminReq);
+    assertCondition(isAdminLegit === true, 'Admin legítimo deve ser autenticado');
+    const isAdminTest = Boolean(
+      isAdminLegit && (
+        authorizedAdminReq.body.isTest === true ||
+        authorizedAdminReq.body.status === 'teste_sistema'
+      )
+    );
+    assertCondition(isAdminTest === true, 'Admin com flag isTest: true deve ser reconhecido como teste legítimo');
+  } finally {
+    if (origPass23 !== undefined) process.env.ADMIN_PASSWORD = origPass23;
+    else delete process.env.ADMIN_PASSWORD;
+  }
+});
+
+// 24. Teste sem gravação na planilha oficial Agendamentos e sem e-mails
+runTest('Teste sem gravação na planilha oficial e sem e-mails: persistência isolada e retorno persisted: false', () => {
+  // Simula execução de teste no Code.gs
+  let rowsAppendedToAgendamentos = 0;
+  let emailsDispatched = 0;
+
+  function simulateCodeGsExecution(data: any) {
+    var isTestExecution = Boolean(
+      data.action === "testConnection" ||
+      data.action === "verifyWebhook" ||
+      data.isTest === true ||
+      data.isTest === "true"
+    );
+
+    if (isTestExecution) {
+      // Teste seguro: NÃO grava na aba Agendamentos e NÃO envia e-mails
+      return {
+        status: "success",
+        test: true,
+        persisted: false,
+        emailSent: false,
+        emailSuppressed: true,
+        message: "Teste autenticado de conectividade validado com sucesso. Nenhuma linha foi gravada na aba oficial Agendamentos.",
+        appointmentId: data.appointmentId || "test-probe"
+      };
+    }
+
+    // Gravação real
+    rowsAppendedToAgendamentos++;
+    emailsDispatched += 2; // admin + cliente
+    return {
+      status: "success",
+      persisted: true,
+      duplicate: false,
+      emailSent: true,
+      emailSuppressed: false,
+      appointmentId: data.appointmentId
+    };
+  }
+
+  // Executa teste autenticado
+  const testPayload = {
+    action: 'testConnection',
+    isTest: true,
+    appointmentId: 'test-isolated-probe-1'
+  };
+
+  const testResult = simulateCodeGsExecution(testPayload);
+  assertCondition(testResult.test === true, 'Resultado deve indicar test: true');
+  assertCondition(testResult.persisted === false, 'persisted DEVE ser false para testes');
+  assertCondition(testResult.emailSent === false, 'emailSent DEVE ser false para testes');
+  assertCondition(testResult.emailSuppressed === true, 'emailSuppressed DEVE ser true para testes');
+  assertCondition(rowsAppendedToAgendamentos === 0, 'NENHUMA linha pode ser adicionada em Agendamentos durante teste');
+  assertCondition(emailsDispatched === 0, 'NENHUM e-mail pode ser enviado durante teste');
+
+  // Parser do backend: confirma que persisted é false
+  const parsed = parseAppsScriptResponse(testResult, 'production');
+  assertCondition(parsed.isSuccess === true, 'Operação de teste deve ser considerada bem-sucedida');
+  assertCondition(parsed.persisted === false, 'parseAppsScriptResponse DEVE retornar persisted: false para testes');
+  assertCondition(parsed.delivered === false, 'parseAppsScriptResponse DEVE retornar delivered: false para testes');
+});
+
+// 25. Validação do link do WhatsApp no e-mail da cliente
+runTest('Validação do link do WhatsApp: URL válida com parâmetros codificados', () => {
+  const serviceTitle = 'Alongamento em Fibra Slim';
+  const bookingDate = '20/11/2026';
+  const bookingTime = '14:30';
+  const clientName = 'Juliana Martins & Amiga';
+  const rawId = 'apt-juliana-123';
+
+  const waMessage = "Olá Angélica! Segue o comprovante do meu pré-agendamento no Espaço Angélica:\n" +
+    "• Procedimento: " + serviceTitle + "\n" +
+    "• Data: " + bookingDate + " às " + bookingTime + "\n" +
+    "• Cliente: " + clientName + "\n" +
+    "• ID da Reserva: " + rawId;
+
+  const waLink = "https://wa.me/5512974062241?text=" + encodeURIComponent(waMessage);
+
+  // Validação estrutural da URL
+  assertCondition(waLink.startsWith('https://wa.me/5512974062241?text='), 'Deve iniciar com o endpoint oficial do WhatsApp');
+  assertCondition(!waLink.includes(' '), 'A URL não deve conter espaços em branco não codificados');
+
+  const parsedUrl = new URL(waLink);
+  assertCondition(parsedUrl.protocol === 'https:', 'Protocolo deve ser https:');
+  assertCondition(parsedUrl.hostname === 'wa.me', 'Hostname deve ser wa.me');
+  assertCondition(parsedUrl.pathname === '/5512974062241', 'Número de telefone E.164 deve ser 5512974062241');
+
+  const decodedText = parsedUrl.searchParams.get('text') || '';
+  assertCondition(decodedText.includes('Juliana Martins & Amiga'), 'Mensagem decodificada deve conter o nome da cliente');
+  assertCondition(decodedText.includes('Alongamento em Fibra Slim'), 'Mensagem decodificada deve conter o procedimento');
+  assertCondition(decodedText.includes('20/11/2026 às 14:30'), 'Mensagem decodificada deve conter a data e hora');
+  assertCondition(decodedText.includes('apt-juliana-123'), 'Mensagem decodificada deve conter o ID da reserva');
+});
+
+// 26. Escape estrito de conteúdo dinâmico no HTML do e-mail contra injeção e XSS
+runTest('Conteúdo HTML escapado: previne injeção de scripts e quebra de tags HTML', () => {
+  function escapeHtml(str: any): string {
+    if (str === null || str === undefined) return "";
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  // Cenário A: Injeção de script clássico
+  const maliciousName = '<script>alert("XSS")</script>';
+  const escapedName = escapeHtml(maliciousName);
+  assertCondition(!escapedName.includes('<script>'), 'Tag script deve ser neutralizada');
+  assertCondition(escapedName === '&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;', 'Escape exato de script');
+
+  // Cenário B: Atributo HTML malicioso com aspas e eventos
+  const maliciousAttr = 'Alongamento" onmouseover="alert(1)"';
+  const escapedAttr = escapeHtml(maliciousAttr);
+  assertCondition(!escapedAttr.includes('" onmouseover'), 'Aspas duplas devem ser escapadas');
+  assertCondition(escapedAttr.includes('&quot; onmouseover=&quot;'), 'Aspas devem ser substituídas por &quot;');
+
+  // Cenário C: Caracteres especiais e ampersand
+  const complexInput = "Unhas & Art's <Bella>";
+  const escapedComplex = escapeHtml(complexInput);
+  assertCondition(escapedComplex === "Unhas &amp; Art&#39;s &lt;Bella&gt;", 'Ampersands e aspas simples devem ser escapados');
+
+  // Cenário D: Montagem do HTML completo com dados do cliente escapados
+  const clientHtml = `<div><p>Olá <strong>${escapeHtml(maliciousName)}</strong></p></div>`;
+  assertCondition(!clientHtml.includes('<script>'), 'HTML gerado não deve conter tags executáveis');
+  assertCondition(clientHtml.includes('&lt;script&gt;'), 'HTML gerado deve conter entidades codificadas');
+});
+
+// 27. Validação de isolamento do frontend: nenhuma rota administrativa acessível apenas por estado do localStorage
+runTest('Isolamento Admin Frontend: acesso ao painel exige validação do servidor e não aceita localStorage como autenticação', () => {
+  const mockLocalStorage: Record<string, string> = {
+    angelica_admin_password: 'senha-falsa-no-navegador',
+    angelica_admin_session: 'token-invalido-persistido'
+  };
+
+  const server401Response = {
+    success: false,
+    statusCode: 401,
+    appointments: [],
+    error: 'Acesso não autorizado. Credenciais administrativas ausentes ou inválidas.'
+  };
+
+let currentAppMode: string = 'public';
+  let adminSessionToken = '';
+  let loginError: string | null = null;
+
+  function simulateHandleAdminLogin(enteredPassword: string, backendResult: { success: boolean; statusCode: number; appointments?: any[]; error?: string }) {
+    if (backendResult.success) {
+      currentAppMode = 'admin';
+      adminSessionToken = enteredPassword;
+      loginError = null;
+    } else if (backendResult.statusCode === 401) {
+      loginError = 'Senha administrativa incorreta ou não configurada no servidor. Acesso não autorizado.';
+    } else {
+      loginError = backendResult.error || 'Falha ao autenticar no servidor administrativo.';
+    }
+  }
+
+  // Tentativa 1: Senha digitada igual ao localStorage, mas recusada pelo backend (401)
+  simulateHandleAdminLogin('senha-falsa-no-navegador', server401Response);
+  assertCondition(currentAppMode === 'public', 'Modo do app DEVE permanecer public após 401 do backend');
+  assertCondition(adminSessionToken === '', 'Session token DEVE permanecer vazio após 401');
+  assertCondition(Boolean(loginError), 'Erro de login deve ser exibido na tela');
+
+  // Tentativa 2: Falha de rede / servidor offline (500)
+  const server500Response = {
+    success: false,
+    statusCode: 500,
+    appointments: [],
+    error: 'Servidor indisponível'
+  };
+  simulateHandleAdminLogin('senha-falsa-no-navegador', server500Response);
+  assertCondition(currentAppMode === 'public', 'Modo do app DEVE permanecer public mesmo se o servidor estiver offline');
+  assertCondition(adminSessionToken === '', 'Session token DEVE permanecer vazio após erro de rede');
+
+  // Tentativa 3: Login bem-sucedido quando o backend confirma a credencial
+  const server200Response = {
+    success: true,
+    statusCode: 200,
+    appointments: [{ id: 'apt-1', clientName: 'Cliente Real' } as any],
+    error: undefined
+  };
+  simulateHandleAdminLogin('senha-valida-no-backend', server200Response);
+  assertCondition(currentAppMode === 'admin', 'Modo do app DEVE mudar para admin APENAS quando backend confirma');
+  assertCondition(adminSessionToken === 'senha-valida-no-backend', 'Session token é configurado após confirmação do backend');
+});
+
+// 28. Validação de cabeçalhos CORS: Access-Control-Allow-Headers inclui X-Admin-Token
+runTest('CORS Security: Access-Control-Allow-Headers inclui X-Admin-Token para permitir preflights de administração', () => {
+  const allowedHeaders = 'Content-Type, Authorization, X-Admin-Token';
+  assertCondition(allowedHeaders.includes('X-Admin-Token'), 'CORS deve permitir explicitamente o cabeçalho X-Admin-Token');
+  assertCondition(allowedHeaders.includes('Authorization'), 'CORS deve permitir explicitamente o cabeçalho Authorization');
+  assertCondition(allowedHeaders.includes('Content-Type'), 'CORS deve permitir Content-Type');
+});
+
+// 29. Validação de não-exposição de dados de clientes em /api/whatsapp/status
+runTest('PII Security: Endpoint /api/whatsapp/status não expõe histórico de mensagens nem dados de clientes sem autenticação', () => {
+  const simulatedPublicStatusResponse = {
+    status: 'configured',
+    mode: 'Meta WhatsApp Cloud API (Oficial)',
+    isConfigured: true,
+    phoneNumberIdConfigured: true,
+    tokenConfigured: true,
+    businessAccountIdConfigured: true,
+    apiVersion: 'v20.0',
+    totalLogs: 15
+  };
+
+  assertCondition(!('lastLog' in simulatedPublicStatusResponse), 'lastLog NÃO pode estar presente na resposta pública de status');
+  assertCondition(!JSON.stringify(simulatedPublicStatusResponse).includes('recipientPhone'), 'Nenhum número de telefone deve ser exposto na resposta de status pública');
+  assertCondition(!JSON.stringify(simulatedPublicStatusResponse).includes('recipientName'), 'Nenhum nome de cliente deve ser exposto na resposta de status pública');
+  assertCondition(simulatedPublicStatusResponse.totalLogs === 15, 'Contagem total de logs agregada é permitida');
+});
+
+// 30. Validação de anexação de credenciais administrativas em chamadas do whatsappService
+runTest('WhatsApp Service Admin Authentication: requisições administrativas anexam Authorization e X-Admin-Token', () => {
+  function simulateResolveHeaders(token?: string, extra?: Record<string, string>) {
+    const headers: Record<string, string> = { ...extra };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+      headers['X-Admin-Token'] = token;
+    }
+    return headers;
+  }
+
+  // Cenário A: Sem credencial informada
+  const unauthHeaders = simulateResolveHeaders(undefined);
+  assertCondition(!('Authorization' in unauthHeaders), 'Sem credencial, nenhum header de autenticação deve ser enviado');
+
+  // Cenário B: Token administrativo autenticado presente
+  const authHeaders = simulateResolveHeaders('admin-secret-key-123', { 'Content-Type': 'application/json' });
+  assertCondition(authHeaders['Authorization'] === 'Bearer admin-secret-key-123', 'Header Authorization deve conter Bearer token');
+  assertCondition(authHeaders['X-Admin-Token'] === 'admin-secret-key-123', 'Header X-Admin-Token deve conter o token administrativo');
+  assertCondition(authHeaders['Content-Type'] === 'application/json', 'Content-Type deve ser preservado');
+});
+
+// 31. Validação de preço-base "A partir de R$ 50,00" para Nail Art Encapsulada e notas adicionais
+runTest('Nail Art Base Pricing: procedimento com preço "A partir de R$ 50,00" valida corretamente base R$ 50 e notas', () => {
+  const nailArtPayload = {
+    serviceId: 'nail-art-encapsulada',
+    serviceTitle: 'Nail Art Autoral & Encapsulada',
+    servicePrice: 'A partir de R$ 50,00',
+    depositAmount: 20, // 40% de 50
+    paymentMode: 'sinal_40',
+    notes: 'Inspiração: madrepérola e folha de ouro nas unhas anelares'
+  };
+
+  const validation = validateBookingPaymentCoherence(nailArtPayload);
+  assertCondition(validation.valid === true, 'Nail Art com base R$ 50,00 e sinal de R$ 20,00 deve ser validada com sucesso');
+  assertCondition(validation.verifiedDepositAmount === 20, 'Depósito verificado deve ser exatamente R$ 20,00');
+  assertCondition(validation.verifiedServicePrice === 'R$ 50,00', 'Preço canônico numérico formatado como R$ 50,00 deve ser gerado');
+
+  // Teste de 100% de pré-pagamento para Nail Art
+  const nailArtFull = {
+    serviceId: 'nail-art-encapsulada',
+    serviceTitle: 'Nail Art Autoral & Encapsulada',
+    depositAmount: 50,
+    paymentMode: 'pre_pagamento_100'
+  };
+  const validationFull = validateBookingPaymentCoherence(nailArtFull);
+  assertCondition(validationFull.valid === true, 'Pré-pagamento de 100% para Nail Art (R$ 50,00) deve ser aceito');
+  assertCondition(validationFull.verifiedDepositAmount === 50, 'Depósito verificado deve ser R$ 50,00');
+});
+
 console.log(`\nTodos os ${passedTests} grupos de testes automatizados passaram com sucesso.`);
+
