@@ -1004,11 +1004,11 @@ export default function App() {
                         {appointments.length} {appointments.length === 1 ? 'agendamento' : 'agendamentos'}
                       </span>
                     </div>
-                    <p className="font-jakarta text-[11px] text-[#786C63] mt-0.5">
-                      {remoteAppointmentsError
-                        ? `Aviso: ${remoteAppointmentsError}`
-                        : 'Dados carregados da planilha oficial (aba Agendamentos).'}
-                    </p>
+                    {remoteAppointmentsError && (
+                      <p className="font-jakarta text-[11px] text-[#786C63] mt-0.5">
+                        Aviso: {remoteAppointmentsError}
+                      </p>
+                    )}
                   </div>
                 </div>
 
