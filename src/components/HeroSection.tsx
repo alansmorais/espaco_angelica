@@ -20,7 +20,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
         <div className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 rounded-full bg-[#FFFFFF] text-[#49382E] border border-[#E8D9B5] shadow-xs mb-4 sm:mb-5 max-w-[95%]">
           <span className="material-symbols-outlined text-[14px] sm:text-[16px] text-[#D4AF37] shrink-0">stars</span>
           <span className="font-jakarta text-[10px] sm:text-xs uppercase tracking-wider text-[#49382E] font-bold">
-            Atelier de Alta Estética &amp; Escultura Manual
+            Espaço de Alta Estética &amp; Escultura Manual
           </span>
           <span className="material-symbols-outlined text-[14px] sm:text-[16px] text-[#D4AF37] shrink-0 hidden sm:inline">auto_awesome</span>
         </div>

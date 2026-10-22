@@ -78,7 +78,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                   Angelica do Carmo
                 </span>
                 <span className="font-jakarta text-[10px] uppercase tracking-widest text-[#D4AF37] font-bold mt-1">
-                  Haute Atelier
+                  Espaço Angie
                 </span>
               </div>
             </div>
