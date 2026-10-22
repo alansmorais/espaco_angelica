@@ -3,6 +3,7 @@ import { SERVICES_CATALOG, INITIAL_BLACKLIST } from '../../data/mockData';
 import { Appointment, Service, BlacklistEntry, RecurrenceConfig } from '../../types';
 import { sendAppointmentWhatsAppConfirmation } from '../../services/whatsappService';
 import { calculateDeposit40, calculateFullPrepayment, formatBRL } from '../../services/notificationTemplates';
+import { submitManualBooking } from '../../services/emailNotificationService';
 
 interface ManualBookingModalProps {
   isOpen: boolean;
@@ -10,6 +11,7 @@ interface ManualBookingModalProps {
   onSaveAppointment: (apt: Appointment) => void;
   services?: Service[];
   blacklist?: BlacklistEntry[];
+  adminSessionToken?: string;
 }
 
 export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
@@ -17,10 +19,12 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
   onClose,
   onSaveAppointment,
   services = SERVICES_CATALOG,
-  blacklist = INITIAL_BLACKLIST
+  blacklist = INITIAL_BLACKLIST,
+  adminSessionToken
 }) => {
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
+  const [clientEmail, setClientEmail] = useState('');
   const [selectedServiceId, setSelectedServiceId] = useState(services[0]?.id || SERVICES_CATALOG[0].id);
   const [date, setDate] = useState('Quinta, 14 Nov');
   const [time, setTime] = useState('14:30');
@@ -31,8 +35,17 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
   const [totalSessions, setTotalSessions] = useState(3);
   const [notes, setNotes] = useState('');
   const [sendWhatsAppAuto, setSendWhatsAppAuto] = useState<boolean>(true);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [persistedAppointmentId, setPersistedAppointmentId] = useState<string | null>(null);
 
   if (!isOpen) return null;
+
+  const handleClose = () => {
+    if (isSubmitting) return;
+    setSubmitError(null);
+    onClose();
+  };
 
   // Check if client phone is in blacklist
   const normalized = clientPhone.replace(/\D/g, '');
@@ -51,9 +64,32 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!clientName.trim()) {
-      alert('Por favor, informe o nome completo da cliente.');
+    setSubmitError(null);
+
+    const trimmedName = clientName.trim();
+    if (!trimmedName || trimmedName.length < 2) {
+      setSubmitError('Por favor, informe o nome completo da cliente (mínimo de 2 caracteres).');
       return;
+    }
+
+    const trimmedPhone = clientPhone.trim();
+    const phoneDigits = trimmedPhone.replace(/\D/g, '');
+    if (!trimmedPhone || phoneDigits.length < 8) {
+      setSubmitError('Por favor, informe o WhatsApp da cliente com DDD.');
+      return;
+    }
+
+    if (!date.trim() || !time.trim()) {
+      setSubmitError('Por favor, informe a data e o horário do atendimento.');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    // Reuse appointmentId across retries to prevent duplicate Google Sheets records
+    const appointmentId = persistedAppointmentId || `apt-${Date.now()}`;
+    if (!persistedAppointmentId) {
+      setPersistedAppointmentId(appointmentId);
     }
 
     const recurrenceConfig: RecurrenceConfig | undefined = isRecurring
@@ -68,19 +104,17 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
 
     const depositAmount = effectivePaymentMode === 'pre_pagamento_100' ? fullPrepayment : standardDeposit;
 
-    let waStatus: 'enviado' | 'pendente' | 'simulado' | undefined = undefined;
-    let waSentAt: string | undefined = undefined;
-
     const newApt: Appointment = {
-      id: `apt-${Date.now()}`,
-      clientName: clientName.trim(),
-      clientPhone: clientPhone.trim() || '(12) 99999-0000',
+      id: appointmentId,
+      clientName: trimmedName,
+      clientPhone: trimmedPhone,
+      clientEmail: clientEmail.trim() || undefined,
       serviceId: serv.id,
       serviceTitle: serv.title,
       servicePrice: serv.priceFormatted,
       serviceDuration: serv.duration,
-      date,
-      time,
+      date: date.trim(),
+      time: time.trim(),
       status: depositStatus === 'liquidado' ? 'confirmado' : 'pendente_pix',
       depositAmount,
       depositStatus,
@@ -89,7 +123,7 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
       isBlacklisted: isInadimplente,
       recurrence: recurrenceConfig,
       notes: notes.trim() || undefined,
-      clientInitials: clientName
+      clientInitials: trimmedName
         .split(' ')
         .map(n => n[0])
         .slice(0, 2)
@@ -97,17 +131,51 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
         .toUpperCase()
     };
 
-    if (sendWhatsAppAuto && clientPhone.trim()) {
-      try {
-        const waRes = await sendAppointmentWhatsAppConfirmation(newApt);
-        newApt.whatsappStatus = waRes.success ? 'enviado' : 'falha';
-        newApt.whatsappSentAt = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-        newApt.whatsappLastMessage = waRes.previewText || waRes.message;
-      } catch {}
-    }
+    try {
+      const token =
+        (adminSessionToken || '').trim() ||
+        (typeof window !== 'undefined' ? sessionStorage.getItem('angelica_admin_session') || '' : '');
 
-    onSaveAppointment(newApt);
-    onClose();
+      const dispatchResult = await submitManualBooking(newApt, token);
+
+      if (!dispatchResult.success || dispatchResult.persisted !== true) {
+        setIsSubmitting(false);
+        setSubmitError(
+          dispatchResult.message ||
+            'Falha ao persistir agendamento no Google Sheets. O servidor não confirmou a gravação.'
+        );
+        return;
+      }
+
+      // Disparar WhatsApp se habilitado
+      if (sendWhatsAppAuto && trimmedPhone) {
+        try {
+          const waRes = await sendAppointmentWhatsAppConfirmation(newApt);
+          newApt.whatsappStatus = waRes.success ? 'enviado' : 'falha';
+          newApt.whatsappSentAt = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          newApt.whatsappLastMessage = waRes.previewText || waRes.message;
+        } catch {}
+      }
+
+      // Limpar formulário e estado do modal após sucesso
+      setClientName('');
+      setClientPhone('');
+      setClientEmail('');
+      setNotes('');
+      setPersistedAppointmentId(null);
+      setSubmitError(null);
+      setIsSubmitting(false);
+
+      // Notificar salvamento confirmado pelo servidor e fechar modal
+      onSaveAppointment(newApt);
+      onClose();
+    } catch (err: any) {
+      setIsSubmitting(false);
+      setSubmitError(
+        err?.message ||
+          'Falha de comunicação ao conectar ao servidor. Os dados foram mantidos intactos no formulário para nova tentativa.'
+      );
+    }
   };
 
   return (
@@ -122,12 +190,23 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
           </div>
           <button
             type="button"
-            onClick={onClose}
-            className="w-8 h-8 rounded-full bg-[#F7EFEA] border border-[#E8D9B5] flex items-center justify-center text-[#786C63] hover:text-[#49382E]"
+            onClick={handleClose}
+            disabled={isSubmitting}
+            className="w-8 h-8 rounded-full bg-[#F7EFEA] border border-[#E8D9B5] flex items-center justify-center text-[#786C63] hover:text-[#49382E] disabled:opacity-50"
           >
             <span className="material-symbols-outlined text-[18px]">close</span>
           </button>
         </div>
+
+        {submitError && (
+          <div className="p-3.5 mb-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-start gap-2.5 shadow-xs">
+            <span className="material-symbols-outlined text-[20px] text-red-600 shrink-0 mt-0.5">error</span>
+            <div>
+              <strong className="block font-semibold">Falha na Gravação da Reserva</strong>
+              <span>{submitError}</span>
+            </div>
+          </div>
+        )}
 
         {isInadimplente && (
           <div className="p-3 mb-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-center gap-2">
@@ -146,35 +225,50 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
               value={clientName}
               onChange={e => setClientName(e.target.value)}
               placeholder="Ex: Amanda Rezende"
-              className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px]"
+              disabled={isSubmitting}
+              className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px] disabled:opacity-60"
             />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-[#49382E] font-semibold mb-1">WhatsApp com DDD</label>
+              <label className="block text-[#49382E] font-semibold mb-1">WhatsApp com DDD *</label>
               <input
                 type="tel"
                 value={clientPhone}
                 onChange={e => setClientPhone(e.target.value)}
                 placeholder="(12) 98888-7777"
-                className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px]"
+                disabled={isSubmitting}
+                className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px] disabled:opacity-60"
               />
             </div>
             <div>
-              <label className="block text-[#49382E] font-semibold mb-1">Procedimento</label>
-              <select
-                value={selectedServiceId}
-                onChange={e => setSelectedServiceId(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px]"
-              >
-                {services.map(s => (
-                  <option key={s.id} value={s.id}>
-                    {s.title} ({s.priceFormatted})
-                  </option>
-                ))}
-              </select>
+              <label className="block text-[#49382E] font-semibold mb-1">E-mail da Cliente (Opcional)</label>
+              <input
+                type="email"
+                value={clientEmail}
+                onChange={e => setClientEmail(e.target.value)}
+                placeholder="cliente@exemplo.com"
+                disabled={isSubmitting}
+                className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px] disabled:opacity-60"
+              />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-[#49382E] font-semibold mb-1">Procedimento</label>
+            <select
+              value={selectedServiceId}
+              onChange={e => setSelectedServiceId(e.target.value)}
+              disabled={isSubmitting}
+              className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px] disabled:opacity-60"
+            >
+              {services.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.title} ({s.priceFormatted})
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -343,16 +437,29 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#E8D9B5]">
             <button
               type="button"
-              onClick={onClose}
-              className="px-5 py-2.5 rounded-full bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-semibold transition-colors"
+              onClick={handleClose}
+              disabled={isSubmitting}
+              className="px-5 py-2.5 rounded-full bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-semibold transition-colors disabled:opacity-50 cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="px-6 py-2.5 rounded-full bg-[#D4AF37] text-[#3C2F00] font-bold hover:bg-[#E5C158] shadow-md cursor-pointer transition-all"
+              disabled={isSubmitting}
+              className={`px-6 py-2.5 rounded-full font-bold shadow-md transition-all flex items-center gap-2 ${
+                isSubmitting
+                  ? 'bg-[#E8D9B5] text-[#786C63] cursor-not-allowed'
+                  : 'bg-[#D4AF37] text-[#3C2F00] hover:bg-[#E5C158] cursor-pointer'
+              }`}
             >
-              Inserir na Grade
+              {isSubmitting ? (
+                <>
+                  <span className="material-symbols-outlined animate-spin text-[16px]">progress_activity</span>
+                  <span>Gravando no Google Sheets...</span>
+                </>
+              ) : (
+                <span>Inserir na Grade</span>
+              )}
             </button>
           </div>
         </form>

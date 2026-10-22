@@ -91,7 +91,9 @@ export default function App() {
       const localOnly = localList.filter(a => !remoteIds.has(a.id));
       setLocalOnlyCount(localOnly.length);
       if (localOnly.length > 0) {
-        localStorage.setItem('angelica_appointments_local_archive', JSON.stringify(localList));
+        localStorage.setItem('angelica_appointments_local_archive', JSON.stringify(localOnly));
+      } else {
+        localStorage.removeItem('angelica_appointments_local_archive');
       }
     } catch {
       setLocalOnlyCount(0);
@@ -577,8 +579,69 @@ export default function App() {
     setClients(prev => prev.map(c => (c.id === updated.id ? updated : c)));
   };
 
-  const handleManualBookingSave = (newApt: Appointment) => {
-    handleBookingConfirmed(newApt);
+  const handleManualBookingSave = async (newApt: Appointment) => {
+    // 1. Atualiza lista local imediatamente evitando duplicações
+    setAppointments(prev => {
+      const exists = prev.some(a => a.id === newApt.id);
+      return exists ? prev.map(a => (a.id === newApt.id ? newApt : a)) : [newApt, ...prev];
+    });
+
+    // 2. Registra ou atualiza perfil da cliente no CRM do ateliê
+    setClients(prev => {
+      const normalizedPhone = newApt.clientPhone.replace(/\D/g, '');
+      const existingIndex = prev.findIndex(c => c.phone.replace(/\D/g, '') === normalizedPhone);
+      if (existingIndex >= 0) {
+        const updated = [...prev];
+        updated[existingIndex] = {
+          ...updated[existingIndex],
+          lastVisit: `${newApt.date} às ${newApt.time}`,
+          lastService: newApt.serviceTitle
+        };
+        return updated;
+      }
+
+      const initials = newApt.clientName
+        .split(' ')
+        .map(n => n[0])
+        .slice(0, 2)
+        .join('')
+        .toUpperCase();
+
+      const newClientProfile: ClientProfile = {
+        id: `client-${Date.now()}`,
+        name: newApt.clientName,
+        initials,
+        phone: newApt.clientPhone,
+        tier: '1ª Sessão',
+        status: 'nova',
+        lastVisit: `${newApt.date} às ${newApt.time}`,
+        lastService: newApt.serviceTitle,
+        nextMaintenanceDays: 21,
+        daysRemainingOrOverdue: '21 dias rest.',
+        isOverdue: false,
+        ltv: newApt.depositAmount,
+        ltvFormatted: `R$ ${formatBRL(newApt.depositAmount)}`,
+        laminaType: newApt.nailCondition || 'Natural',
+        oiliness: 'Média',
+        allergies: 'Nenhuma informada',
+        onycholysis: 'Lâmina íntegra',
+        preferredShape: 'Almond Clássica',
+        preferredColor: 'Tons Nude / Translúcidos',
+        products: {
+          preparer: 'Desidratador Max + Primer Sem Ácido',
+          baseGel: 'Fiber Base Gel Haute Pink',
+          tensionPoint: 'Gel Construtor Hard Classic',
+          topCoat: 'Diamond Brilho Espelhado'
+        },
+        privateNotes: newApt.notes || 'Cliente cadastrada via agendamento manual administrativo.'
+      };
+
+      return [newClientProfile, ...prev];
+    });
+
+    // 3. Re-sincroniza imediatamente com a planilha oficial do Google Sheets (fonte da verdade)
+    await refreshRemoteAppointments();
+
     if (newApt.whatsappStatus === 'enviado' || newApt.whatsappStatus === 'simulado') {
       setWaGlobalToast({
         message: `Confirmação de agendamento disparada via WhatsApp para ${newApt.clientName} (${newApt.clientPhone})!`,
@@ -1063,6 +1126,7 @@ export default function App() {
         onSaveAppointment={handleManualBookingSave}
         services={services}
         blacklist={blacklist}
+        adminSessionToken={adminSessionToken}
       />
 
       <BlockScheduleModal

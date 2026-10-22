@@ -25,6 +25,7 @@ export interface EmailNotificationPayload {
   date: string;
   time: string;
   depositAmount: number;
+  depositStatus?: Appointment['depositStatus'];
   paymentMode?: 'sinal_40' | 'pre_pagamento_100';
   status: string;
   appointmentId: string;
@@ -114,6 +115,7 @@ export function buildPreBookingEmailPayload(apt: Appointment): EmailNotification
     date: apt.date,
     time: apt.time,
     depositAmount: apt.depositAmount,
+    depositStatus: apt.depositStatus,
     paymentMode: apt.paymentMode,
     status: apt.status || 'pendente_pix',
     appointmentId: apt.id,
@@ -374,13 +376,17 @@ export async function testNotificationWebhook(
  * a partir do remetente autorizado kontakt@alansmsolutions.com.
  * Previne duplicidades e se adapta de forma segura tanto a Webhooks 24/7 quanto ao envio pelo navegador.
  */
-export async function triggerNewPreBookingEmailNotification(apt: Appointment): Promise<EmailDispatchResult> {
+export async function triggerNewPreBookingEmailNotification(
+  apt: Appointment,
+  authToken?: string
+): Promise<EmailDispatchResult> {
   const payload = buildPreBookingEmailPayload(apt);
 
   // Evita duplicidade se a mesma reserva já foi confirmada anteriormente no servidor
   if (isAppointmentAlreadyNotified(apt.id)) {
     return {
       success: true,
+      persisted: true,
       appointmentId: apt.id,
       mode: 'already_notified',
       message: `A notificação para a reserva ${apt.id} já havia sido registrada anteriormente.`,
@@ -396,9 +402,21 @@ export async function triggerNewPreBookingEmailNotification(apt: Appointment): P
       ? `${backendBase}/api/notifications/new-booking`
       : '/api/notifications/new-booking';
 
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+
+    const token =
+      (authToken || '').trim() ||
+      (typeof window !== 'undefined' ? sessionStorage.getItem('angelica_admin_session') || '' : '');
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+      headers['X-Admin-Token'] = token;
+    }
+
     const response = await fetch(targetUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(payload)
     });
 
@@ -461,6 +479,18 @@ export async function triggerNewPreBookingEmailNotification(apt: Appointment): P
       payload
     };
   }
+}
+
+/**
+ * Persiste um agendamento manual criado no painel administrativo diretamente no Google Sheets
+ * através do endpoint oficial do backend seguro (/api/notifications/new-booking).
+ * Transmite a credencial administrativa para validação e persistência prioritária.
+ */
+export async function submitManualBooking(
+  apt: Appointment,
+  authToken?: string
+): Promise<EmailDispatchResult> {
+  return triggerNewPreBookingEmailNotification(apt, authToken);
 }
 
 export interface FetchAppointmentsDetailedResult {

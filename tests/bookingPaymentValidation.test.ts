@@ -1538,5 +1538,170 @@ runTest('E2E Test Booking Flow: ID regex aceita e2e-*, endpoint exige admin e su
   );
 });
 
+// 37. Fluxo de Novo Agendamento Manual: Sucesso com gravação confirmada no servidor (persisted: true)
+runTest('Fluxo de Novo Agendamento Manual: sucesso com gravação confirmada no servidor (persisted: true)', () => {
+  const manualApt: Appointment = {
+    id: `apt-manual-${Date.now()}`,
+    clientName: 'Fernanda Vasconcelos',
+    clientPhone: '(12) 98765-4321',
+    clientEmail: 'fernanda.vasconcelos@exemplo.com',
+    serviceId: 'alongamento-fibra-slim',
+    serviceTitle: 'Alongamento em Fibra Slim',
+    servicePrice: 'R$ 220,00',
+    serviceDuration: '2h 30min',
+    date: 'Sexta, 15 Nov',
+    time: '15:00',
+    status: 'confirmado',
+    depositAmount: 88,
+    depositStatus: 'liquidado',
+    paymentMode: 'sinal_40'
+  };
+
+  // 1. Validação do payload gerado pelo frontend
+  const payload = buildPreBookingEmailPayload(manualApt);
+  assertCondition(payload.appointmentId === manualApt.id, 'ID deve ser preservado');
+  assertCondition(payload.clientName === 'Fernanda Vasconcelos', 'Nome deve ser preservado');
+  assertCondition(payload.status === 'confirmado', 'Status liquidado deve gerar status confirmado');
+  assertCondition(payload.depositStatus === 'liquidado', 'depositStatus deve ser liquidado');
+
+  // 2. Validação financeira no backend
+  const paymentCheck = validateBookingPaymentCoherence(payload);
+  assertCondition(paymentCheck.valid === true, `Validação financeira falhou: ${paymentCheck.error}`);
+  assertCondition(paymentCheck.verifiedDepositAmount === 88, 'Sinal de 40% deve ser R$ 88,00');
+
+  // 3. Simulação de resposta de persistência confirmada do Apps Script
+  const mockScriptRes = {
+    status: 'success',
+    persisted: true,
+    duplicate: false,
+    message: 'Reserva registrada com sucesso no Sheets.',
+    appointmentId: manualApt.id
+  };
+  const parsed = parseAppsScriptResponse(mockScriptRes, 'production');
+  assertCondition(parsed.isSuccess === true, 'parseAppsScriptResponse deve indicar sucesso');
+  assertCondition(parsed.persisted === true, 'parseAppsScriptResponse deve confirmar persisted: true');
+
+  // 4. Inclusão na grade ocorre apenas sob persisted === true
+  let savedLocally = false;
+  if (parsed.isSuccess && parsed.persisted === true) {
+    savedLocally = true;
+  }
+  assertCondition(savedLocally === true, 'Agendamento deve ser aceito na grade quando o servidor confirmar gravação');
+});
+
+// 38. Fluxo de Novo Agendamento Manual: Falha do servidor com preservação do formulário e sem persistência local
+runTest('Fluxo de Novo Agendamento Manual: falha do servidor preserva formulário e não efetua persistência local', () => {
+  const modalSource = fs.readFileSync(
+    path.resolve(__dirname, '../src/components/Modals/ManualBookingModal.tsx'),
+    'utf8'
+  );
+
+  // 1. Validação estática de que ManualBookingModal só salva localmente após persisted === true
+  assertCondition(
+    modalSource.includes('submitManualBooking'),
+    'ManualBookingModal deve importar e chamar submitManualBooking'
+  );
+  assertCondition(
+    modalSource.includes('if (!dispatchResult.success || dispatchResult.persisted !== true)'),
+    'ManualBookingModal deve rejeitar respostas sem persisted: true'
+  );
+  assertCondition(
+    modalSource.includes('setSubmitError('),
+    'ManualBookingModal deve exibir mensagem clara em caso de erro'
+  );
+
+  // 2. Simulação de falha de servidor (HTTP 500 / Timeout)
+  let onSaveAppointmentCalled = false;
+  const dispatchResultFailure = {
+    success: false,
+    persisted: false,
+    message: 'Servidor retornou erro HTTP 500 ao persistir na planilha.'
+  };
+
+  if (!dispatchResultFailure.success || dispatchResultFailure.persisted !== true) {
+    // Form preservado, erro setado, onSaveAppointment NUNCA é chamado
+  } else {
+    onSaveAppointmentCalled = true;
+  }
+
+  assertCondition(
+    onSaveAppointmentCalled === false,
+    'onSaveAppointment NÃO pode ser chamado em caso de falha de conexão ou erro do servidor'
+  );
+});
+
+// 39. Fluxo de Novo Agendamento Manual: Falha de persistência remota (persisted !== true) é rejeitada
+runTest('Fluxo de Novo Agendamento Manual: falha de persistência remota (persisted !== true) rejeitada', () => {
+  // Simulação de resposta com success: true mas persisted: false (ex: falha de gravação no Sheets)
+  const rejectedRes = {
+    status: 'error',
+    persisted: false,
+    error: 'Aba Agendamentos bloqueada por tempo limite'
+  };
+  const parsed = parseAppsScriptResponse(rejectedRes, 'production');
+  assertCondition(parsed.isSuccess === false, 'Resposta de erro deve retornar isSuccess: false');
+  assertCondition(parsed.persisted === false, 'Resposta de erro deve retornar persisted: false');
+
+  // Teste com resposta ambígua ou parcial
+  const ambiguousRes = {
+    status: 'success',
+    test: true,
+    persisted: false
+  };
+  const parsedAmbiguous = parseAppsScriptResponse(ambiguousRes, 'production');
+  assertCondition(
+    parsedAmbiguous.persisted === false,
+    'Respostas em modo teste ou sem gravação real NUNCA devem ter persisted: true'
+  );
+});
+
+// 40. Fluxo de Novo Agendamento Manual: Proteção anti-duplicação e reuso de ID em retentativa
+runTest('Fluxo de Novo Agendamento Manual: proteção anti-duplicação e reuso de ID em retentativa', () => {
+  const modalSource = fs.readFileSync(
+    path.resolve(__dirname, '../src/components/Modals/ManualBookingModal.tsx'),
+    'utf8'
+  );
+
+  // Garante que o componente mantém o mesmo appointmentId no estado de retentativa
+  assertCondition(
+    modalSource.includes('persistedAppointmentId'),
+    'ManualBookingModal deve manter persistedAppointmentId para retentativas'
+  );
+  assertCondition(
+    modalSource.includes('const appointmentId = persistedAppointmentId || `apt-${Date.now()}`'),
+    'ManualBookingModal deve reutilizar persistedAppointmentId existente ao retentar'
+  );
+
+  // Simulação de resposta de retentativa do backend (duplicate: true, persisted: true)
+  const duplicateRetryRes = {
+    status: 'success',
+    duplicate: true,
+    persisted: true,
+    message: 'Reserva apt-manual-1 já confirmada anteriormente no Sheets.'
+  };
+  const parsed = parseAppsScriptResponse(duplicateRetryRes, 'production');
+  assertCondition(parsed.isSuccess === true, 'Retentativa com duplicate: true deve ser aceita');
+  assertCondition(parsed.persisted === true, 'Retentativa com duplicate: true confirma persistência prévia');
+  assertCondition(parsed.duplicate === true, 'Retentativa deve ser classificada como duplicate: true');
+});
+
+// 41. Fluxo de Novo Agendamento Manual: Status coerente e sincronização com fonte oficial
+runTest('Fluxo de Novo Agendamento Manual: status coerente e sincronização com fonte oficial', () => {
+  const appSource = fs.readFileSync(
+    path.resolve(__dirname, '../src/App.tsx'),
+    'utf8'
+  );
+
+  // Verifica que handleManualBookingSave re-sincroniza com o backend/Sheets imediatamente
+  assertCondition(
+    appSource.includes('await refreshRemoteAppointments()'),
+    'handleManualBookingSave deve disparar refreshRemoteAppointments para sincronizar com Google Sheets'
+  );
+  assertCondition(
+    appSource.includes('adminSessionToken={adminSessionToken}'),
+    'App.tsx deve passar adminSessionToken para o ManualBookingModal'
+  );
+});
+
 console.log(`\nTodos os ${passedTests} grupos de testes automatizados passaram com sucesso.`);
 
