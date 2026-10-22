@@ -194,10 +194,10 @@ function doPost(e) {
     try {
       // 5. Validação estrita do ID da reserva (reservas reais públicas exigem prefixo apt-*)
       var rawId = data.appointmentId ? String(data.appointmentId).trim() : "";
-      if (!rawId || !/^(apt|test)-[a-zA-Z0-9_-]{1,64}$/.test(rawId)) {
+      if (!rawId || !/^(apt|test|e2e)-[a-zA-Z0-9_-]{1,64}$/.test(rawId)) {
         return responseJSON({
           status: "error",
-          message: "ID da reserva inválido, ausente ou fora do padrão (permitido: apt-* ou test-*)."
+          message: "ID da reserva inválido, ausente ou fora do padrão (permitido: apt-*, test-* ou e2e-*)."
         });
       }
 
@@ -341,107 +341,118 @@ function doPost(e) {
       ]);
 
       // 11. Disparo de e-mails para reserva real
+      // Reservas E2E autorizadas gravam na planilha oficial mas suprimem estritamente e-mails e notificações
+      var isE2EExecution = Boolean(
+        data.action === "e2eTestBooking" ||
+        data.isE2ETest === true ||
+        data.isE2ETest === "true" ||
+        rawId.indexOf("e2e-") === 0 ||
+        rawId.indexOf("apt-e2e-") === 0
+      );
+
       var emailSent = false;
       var emailError = null;
       var adminEmailSent = false;
       var clientEmailSent = false;
       var errorsList = [];
 
-      // 11.1 Notificação administrativa para a responsável oficial (angelikm19@gmail.com)
-      try {
-        var recipient = "angelikm19@gmail.com";
-        var subject = "Novo pré-agendamento — " + clientName + " — " + bookingDate + " às " + bookingTime;
-        var body = "Olá Angélica,\\n\\nUm novo pré-agendamento foi realizado pelo site!\\n\\n" +
-          "• Cliente: " + clientName + "\\n" +
-          "• Telefone: " + clientPhone + "\\n" +
-          (data.clientEmail ? "• E-mail: " + String(data.clientEmail).trim() + "\\n" : "") +
-          "• Procedimento: " + serviceTitle + " (R$ " + referencePrice.toFixed(2).replace(".", ",") + ")\\n" +
-          "• Data & Horário: " + bookingDate + " às " + bookingTime + "\\n" +
-          "• " + paymentLabel + ": R$ " + amountFormatted + "\\n" +
-          "• Saldo restante: R$ " + balanceFormatted + "\\n" +
-          "• ID da Reserva: " + rawId + "\\n" +
-          (data.notes ? "• Observações: " + String(data.notes).trim() + "\\n\\n" : "\\n") +
-          "Verifique o recebimento do Pix de R$ " + amountFormatted + " na sua conta bancária para validar o agendamento.";
-
-        MailApp.sendEmail({
-          to: recipient,
-          replyTo: (data.clientEmail && isValidEmail(data.clientEmail)) ? String(data.clientEmail).trim() : "kontakt@alansmsolutions.com",
-          subject: subject,
-          body: body
-        });
-        adminEmailSent = true;
-      } catch (mailErr) {
-        errorsList.push("Admin: " + mailErr.toString());
-      }
-
-      // 11.2 Confirmação automática para o e-mail da cliente (se informado e válido)
-      var clientEmailRaw = data.clientEmail ? String(data.clientEmail).trim() : "";
-      if (clientEmailRaw && isValidEmail(clientEmailRaw)) {
+      if (!isE2EExecution) {
+        // 11.1 Notificação administrativa para a responsável oficial (angelikm19@gmail.com)
         try {
-          var clientRecipient = clientEmailRaw;
-          var clientSubject = "Recebemos seu pré-agendamento no Espaço Angélica do Carmo — ID: " + rawId;
-
-          // Link estruturado do WhatsApp com parâmetros válidos e codificados
-          var waMessage = "Olá Angélica! Segue o comprovante do meu pré-agendamento no Espaço Angélica:\\n" +
-            "• Procedimento: " + serviceTitle + "\\n" +
-            "• Data: " + bookingDate + " às " + bookingTime + "\\n" +
+          var recipient = "angelikm19@gmail.com";
+          var subject = "Novo pré-agendamento — " + clientName + " — " + bookingDate + " às " + bookingTime;
+          var body = "Olá Angélica,\\n\\nUm novo pré-agendamento foi realizado pelo site!\\n\\n" +
             "• Cliente: " + clientName + "\\n" +
-            "• ID da Reserva: " + rawId;
-          var waLink = "https://wa.me/5512974062241?text=" + encodeURIComponent(waMessage);
-
-          var clientBody = "Olá " + clientName + ",\\n\\n" +
-            "Recebemos sua solicitação de pré-agendamento no Espaço Angélica do Carmo!\\n\\n" +
-            "IMPORTANTE: Seu horário foi reservado temporariamente e o agendamento será confirmado definitivamente após a validação do recebimento do Pix pela Angélica.\\n\\n" +
-            "Resumo da sua solicitação:\\n" +
+            "• Telefone: " + clientPhone + "\\n" +
+            (data.clientEmail ? "• E-mail: " + String(data.clientEmail).trim() + "\\n" : "") +
             "• Procedimento: " + serviceTitle + " (R$ " + referencePrice.toFixed(2).replace(".", ",") + ")\\n" +
             "• Data & Horário: " + bookingDate + " às " + bookingTime + "\\n" +
             "• " + paymentLabel + ": R$ " + amountFormatted + "\\n" +
-            "• Saldo restante a acertar no dia: R$ " + balanceFormatted + "\\n" +
-            "• ID da Reserva: " + rawId + "\\n\\n" +
-            "Chave Pix do Ateliê: +55 12 97406-2241 (Celular - Espaço Angelica do Carmo)\\n\\n" +
-            "Para agilizar a confirmação, você pode enviar o comprovante Pix diretamente pelo nosso WhatsApp:\\n" +
-            waLink + "\\n\\n" +
-            "Endereço: Rua Vereador José Luiz Soares, 92 - Pontal da Cruz, São Sebastião - SP.\\n\\n" +
-            "Agradecemos pela confiança!\\n" +
-            "Espaço Angélica do Carmo";
-
-          // Conteúdo HTML com escape rigoroso contra XSS e injeção
-          var clientHtmlBody = "<div style=\\"font-family: Arial, sans-serif; color: #49382E; line-height: 1.6; max-width: 600px;\\">" +
-            "<h2 style=\\"color: #D4AF37;\\">Espaço Angélica do Carmo</h2>" +
-            "<p>Olá <strong>" + escapeHtml(clientName) + "</strong>,</p>" +
-            "<p>Recebemos sua solicitação de pré-agendamento!</p>" +
-            "<p style=\\"background: #FFF8E7; padding: 12px; border-left: 4px solid #D4AF37; border-radius: 4px;\\">" +
-            "<strong>Atenção:</strong> Seu horário está reservado temporariamente e o agendamento será confirmado definitivamente após a validação do recebimento do Pix pela Angélica." +
-            "</p>" +
-            "<h3 style=\\"border-bottom: 1px solid #E8D9B5; padding-bottom: 6px;\\">Resumo do Agendamento</h3>" +
-            "<ul>" +
-            "<li><strong>Procedimento:</strong> " + escapeHtml(serviceTitle) + " (R$ " + escapeHtml(referencePrice.toFixed(2).replace(".", ",")) + ")</li>" +
-            "<li><strong>Data e Horário:</strong> " + escapeHtml(bookingDate) + " às " + escapeHtml(bookingTime) + "</li>" +
-            "<li><strong>" + escapeHtml(paymentLabel) + ":</strong> R$ " + escapeHtml(amountFormatted) + "</li>" +
-            "<li><strong>Saldo restante no dia:</strong> R$ " + escapeHtml(balanceFormatted) + "</li>" +
-            "<li><strong>ID da Reserva:</strong> <code>" + escapeHtml(rawId) + "</code></li>" +
-            "</ul>" +
-            "<p><strong>Chave Pix Celular:</strong> <code>+55 12 97406-2241</code> (Espaço Angelica do Carmo)</p>" +
-            "<p style=\\"margin: 24px 0;\\">" +
-            "<a href=\\"" + escapeHtml(waLink) + "\\" style=\\"background-color: #25D366; color: #ffffff; padding: 12px 20px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;\\">" +
-            "📲 Enviar Comprovante pelo WhatsApp" +
-            "</a>" +
-            "</p>" +
-            "<p style=\\"font-size: 13px; color: #786C63;\\">" +
-            "Endereço: Rua Vereador José Luiz Soares, 92 - Pontal da Cruz, São Sebastião - SP" +
-            "</p>" +
-            "</div>";
+            "• Saldo restante: R$ " + balanceFormatted + "\\n" +
+            "• ID da Reserva: " + rawId + "\\n" +
+            (data.notes ? "• Observações: " + String(data.notes).trim() + "\\n\\n" : "\\n") +
+            "Verifique o recebimento do Pix de R$ " + amountFormatted + " na sua conta bancária para validar o agendamento.";
 
           MailApp.sendEmail({
-            to: clientRecipient,
-            replyTo: "kontakt@alansmsolutions.com",
-            subject: clientSubject,
-            body: clientBody,
-            htmlBody: clientHtmlBody
+            to: recipient,
+            replyTo: (data.clientEmail && isValidEmail(data.clientEmail)) ? String(data.clientEmail).trim() : "kontakt@alansmsolutions.com",
+            subject: subject,
+            body: body
           });
-          clientEmailSent = true;
-        } catch (clientErr) {
-          errorsList.push("Cliente: " + clientErr.toString());
+          adminEmailSent = true;
+        } catch (mailErr) {
+          errorsList.push("Admin: " + mailErr.toString());
+        }
+
+        // 11.2 Confirmação automática para o e-mail da cliente (se informado e válido)
+        var clientEmailRaw = data.clientEmail ? String(data.clientEmail).trim() : "";
+        if (clientEmailRaw && isValidEmail(clientEmailRaw)) {
+          try {
+            var clientRecipient = clientEmailRaw;
+            var clientSubject = "Recebemos seu pré-agendamento no Espaço Angélica do Carmo — ID: " + rawId;
+
+            // Link estruturado do WhatsApp com parâmetros válidos e codificados
+            var waMessage = "Olá Angélica! Segue o comprovante do meu pré-agendamento no Espaço Angélica:\\n" +
+              "• Procedimento: " + serviceTitle + "\\n" +
+              "• Data: " + bookingDate + " às " + bookingTime + "\\n" +
+              "• Cliente: " + clientName + "\\n" +
+              "• ID da Reserva: " + rawId;
+            var waLink = "https://wa.me/5512974062241?text=" + encodeURIComponent(waMessage);
+
+            var clientBody = "Olá " + clientName + ",\\n\\n" +
+              "Recebemos sua solicitação de pré-agendamento no Espaço Angélica do Carmo!\\n\\n" +
+              "IMPORTANTE: Seu horário foi reservado temporariamente e o agendamento será confirmado definitivamente após a validação do recebimento do Pix pela Angélica.\\n\\n" +
+              "Resumo da sua solicitação:\\n" +
+              "• Procedimento: " + serviceTitle + " (R$ " + referencePrice.toFixed(2).replace(".", ",") + ")\\n" +
+              "• Data & Horário: " + bookingDate + " às " + bookingTime + "\\n" +
+              "• " + paymentLabel + ": R$ " + amountFormatted + "\\n" +
+              "• Saldo restante a acertar no dia: R$ " + balanceFormatted + "\\n" +
+              "• ID da Reserva: " + rawId + "\\n\\n" +
+              "Chave Pix do Ateliê: +55 12 97406-2241 (Celular - Espaço Angelica do Carmo)\\n\\n" +
+              "Para agilizar a confirmação, você pode enviar o comprovante Pix diretamente pelo nosso WhatsApp:\\n" +
+              waLink + "\\n\\n" +
+              "Endereço: Rua Vereador José Luiz Soares, 92 - Pontal da Cruz, São Sebastião - SP.\\n\\n" +
+              "Agradecemos pela confiança!\\n" +
+              "Espaço Angélica do Carmo";
+
+            // Conteúdo HTML com escape rigoroso contra XSS e injeção
+            var clientHtmlBody = "<div style=\\"font-family: Arial, sans-serif; color: #49382E; line-height: 1.6; max-width: 600px;\\">" +
+              "<h2 style=\\"color: #D4AF37;\\">Espaço Angélica do Carmo</h2>" +
+              "<p>Olá <strong>" + escapeHtml(clientName) + "</strong>,</p>" +
+              "<p>Recebemos sua solicitação de pré-agendamento!</p>" +
+              "<p style=\\"background: #FFF8E7; padding: 12px; border-left: 4px solid #D4AF37; border-radius: 4px;\\">" +
+              "<strong>Atenção:</strong> Seu horário está reservado temporariamente e o agendamento será confirmado definitivamente após a validação do recebimento do Pix pela Angélica." +
+              "</p>" +
+              "<h3 style=\\"border-bottom: 1px solid #E8D9B5; padding-bottom: 6px;\\">Resumo do Agendamento</h3>" +
+              "<ul>" +
+              "<li><strong>Procedimento:</strong> " + escapeHtml(serviceTitle) + " (R$ " + escapeHtml(referencePrice.toFixed(2).replace(".", ",")) + ")</li>" +
+              "<li><strong>Data e Horário:</strong> " + escapeHtml(bookingDate) + " às " + escapeHtml(bookingTime) + "</li>" +
+              "<li><strong>" + escapeHtml(paymentLabel) + ":</strong> R$ " + escapeHtml(amountFormatted) + "</li>" +
+              "<li><strong>Saldo restante no dia:</strong> R$ " + escapeHtml(balanceFormatted) + "</li>" +
+              "<li><strong>ID da Reserva:</strong> <code>" + escapeHtml(rawId) + "</code></li>" +
+              "</ul>" +
+              "<p><strong>Chave Pix Celular:</strong> <code>+55 12 97406-2241</code> (Espaço Angelica do Carmo)</p>" +
+              "<p style=\\"margin: 24px 0;\\">" +
+              "<a href=\\"" + escapeHtml(waLink) + "\\" style=\\"background-color: #25D366; color: #ffffff; padding: 12px 20px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;\\">" +
+              "📲 Enviar Comprovante pelo WhatsApp" +
+              "</a>" +
+              "</p>" +
+              "<p style=\\"font-size: 13px; color: #786C63;\\">" +
+              "Endereço: Rua Vereador José Luiz Soares, 92 - Pontal da Cruz, São Sebastião - SP" +
+              "</p>" +
+              "</div>";
+
+            MailApp.sendEmail({
+              to: clientRecipient,
+              replyTo: "kontakt@alansmsolutions.com",
+              subject: clientSubject,
+              body: clientBody,
+              htmlBody: clientHtmlBody
+            });
+            clientEmailSent = true;
+          } catch (clientErr) {
+            errorsList.push("Cliente: " + clientErr.toString());
+          }
         }
       }
 
@@ -455,9 +466,11 @@ function doPost(e) {
         persisted: true,
         duplicate: false,
         emailSent: emailSent,
-        emailSuppressed: false,
+        emailSuppressed: isE2EExecution ? true : false,
         emailError: emailError,
-        message: "Reserva registrada com sucesso no Sheets.",
+        message: isE2EExecution
+          ? "Reserva de teste E2E gravada com sucesso no Sheets (e-mails e notificações suprimidos)."
+          : "Reserva registrada com sucesso no Sheets.",
         appointmentId: rawId
       });
     } finally {
