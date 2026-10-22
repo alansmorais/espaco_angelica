@@ -11,6 +11,7 @@ interface CalendarTabProps {
   appointments?: Appointment[];
   timeSlots?: TimeSlotConfig[];
   onUpdateAppointment?: (apt: Appointment) => void;
+  onDeleteAppointment?: (apt: Appointment) => Promise<void>;
 }
 
 export const CalendarTab: React.FC<CalendarTabProps> = ({
@@ -19,7 +20,8 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
   onSelectClientForDossier,
   appointments = [],
   timeSlots = INITIAL_TIME_SLOTS,
-  onUpdateAppointment
+  onUpdateAppointment,
+  onDeleteAppointment
 }) => {
   const [selectedSlotKey, setSelectedSlotKey] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'dia' | 'semana' | 'mes'>('semana');
@@ -47,6 +49,19 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
         depositStatus: 'liquidado'
       });
       showNotice(`Atendimento de ${apt.clientName} finalizado e marcado como concluído.`);
+    }
+  };
+
+  const handleDeleteAppointment = async (apt: Appointment) => {
+    if (!onDeleteAppointment || !confirm(`Deseja excluir permanentemente o agendamento de ${apt.clientName} em ${apt.date} às ${apt.time}?`)) {
+      return;
+    }
+    try {
+      await onDeleteAppointment(apt);
+      setSelectedSlotKey(null);
+      showNotice(`Agendamento de ${apt.clientName} excluído da planilha.`);
+    } catch (err: any) {
+      showNotice(err.message || 'Não foi possível excluir o agendamento.');
     }
   };
 
@@ -426,6 +441,16 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
               </div>
 
               <div className="pt-3 border-t border-[#E8D9B5] flex flex-col gap-2">
+                {onDeleteAppointment && (
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteAppointment(selectedAppointment)}
+                    className="w-full py-2.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border border-red-200"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">delete</span>
+                    <span>Excluir Agendamento</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => handleSendReminderWhatsApp(selectedAppointment)}

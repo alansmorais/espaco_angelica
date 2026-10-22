@@ -1467,7 +1467,46 @@ runTest('Server New Booking Test Isolation: isTestBooking bloqueia recordServerA
   assertCondition(testReturnSnippet.includes('emailSuppressed: true'), 'isTestBooking deve retornar emailSuppressed: true');
 });
 
-// 35. Validação de integridade do domínio personalizado (CNAME) e sincronia exata do Code.gs
+// 35. Validação do fluxo de exclusão autenticada e sincronização autoritativa da planilha
+runTest('Appointment Deletion: exclusão autenticada remove registros de Sheets, cache e armazenamento local', () => {
+  const serverPath = path.resolve(__dirname, '../server.ts');
+  const serverContent = fs.readFileSync(serverPath, 'utf8');
+  const deleteRouteStart = serverContent.indexOf("app.delete('/api/appointments/:appointmentId'");
+  const deleteRouteEnd = serverContent.indexOf('export interface CanonicalCatalogService', deleteRouteStart);
+  const deleteRoute = serverContent.substring(deleteRouteStart, deleteRouteEnd);
+
+  assertCondition(deleteRouteStart !== -1, 'server.ts deve expor a rota DELETE autenticada de agendamentos');
+  assertCondition(
+    deleteRoute.indexOf('isAuthorizedAdminRequest(req)') < deleteRoute.indexOf('fetch(cfg.webhookUrl'),
+    'A rota DELETE deve autenticar antes de chamar o Apps Script'
+  );
+  assertCondition(deleteRoute.includes("action: 'deleteAppointment'"), 'A rota DELETE deve delegar a exclusão ao Apps Script');
+  assertCondition(deleteRoute.includes('deletedAppointmentIds.add(appointmentId)'), 'A rota deve impedir que o cache ressuscite uma exclusão');
+
+  const scriptPath = path.resolve(__dirname, '../Code.gs');
+  const scriptContent = fs.readFileSync(scriptPath, 'utf8');
+  const deleteActionStart = scriptContent.indexOf('if (data.action === "deleteAppointment")');
+  const deleteActionEnd = scriptContent.indexOf('// 3. Mecanismo de Teste', deleteActionStart);
+  const deleteAction = scriptContent.substring(deleteActionStart, deleteActionEnd);
+  assertCondition(
+    scriptContent.indexOf('var auth = validateAuthorization(tokenProvided)') < deleteActionStart,
+    'A exclusão do Apps Script deve ficar após autenticação obrigatória'
+  );
+  assertCondition(deleteAction.includes('deleteSheet.deleteRow(rowIndex + 1)'), 'O Apps Script deve remover a linha identificada na planilha');
+
+  assertCondition(
+    serverContent.includes("resData?.status === 'success' && Array.isArray(resData?.appointments)") &&
+      serverContent.includes('if (hasAuthoritativeSheetData)'),
+    'Uma leitura válida da planilha, inclusive vazia, deve substituir o cache do servidor'
+  );
+
+  const appPath = path.resolve(__dirname, '../src/App.tsx');
+  const appContent = fs.readFileSync(appPath, 'utf8');
+  assertCondition(appContent.includes('deleteRemoteAppointment(appointment.id, adminSessionToken)'), 'O painel deve chamar a exclusão remota autenticada');
+  assertCondition(appContent.includes("['angelica_appointments', 'angelica_appointments_local_archive']"), 'A exclusão deve limpar os dois caches locais de agendamentos');
+});
+
+// 36. Validação de integridade do domínio personalizado (CNAME) e sincronia exata do Code.gs
 runTest('Custom Domain & Apps Script Sync: public/CNAME configurado e Code.gs 100% idêntico a codeGsTemplate.ts', () => {
   const cnamePath = path.resolve(__dirname, '../public/CNAME');
   assertCondition(fs.existsSync(cnamePath), 'public/CNAME deve existir para inclusão automática no build do Vite');
@@ -1502,7 +1541,7 @@ runTest('Custom Domain & Apps Script Sync: public/CNAME configurado e Code.gs 10
   );
 });
 
-// 36. Validação do fluxo de teste E2E controlado: permissão de prefixo e supressão de notificações
+// 37. Validação do fluxo de teste E2E controlado: permissão de prefixo e supressão de notificações
 runTest('E2E Test Booking Flow: ID regex aceita e2e-*, endpoint exige admin e suprime notificações', () => {
   // 1. Validação de regex do ID para prefixo e2e-
   assertCondition(isValidAppointmentId('e2e-test-1792607999999'), 'isValidAppointmentId deve aceitar prefixo e2e-test-*');
@@ -1704,4 +1743,3 @@ runTest('Fluxo de Novo Agendamento Manual: status coerente e sincronização com
 });
 
 console.log(`\nTodos os ${passedTests} grupos de testes automatizados passaram com sucesso.`);
-

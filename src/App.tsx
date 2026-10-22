@@ -27,6 +27,7 @@ import { sendAppointmentWhatsAppConfirmation } from './services/whatsappService'
 import { playDiscreteAdminNotificationSound, registerUserInteraction } from './services/soundNotificationService';
 import { calculateDeposit40, formatBRL } from './services/notificationTemplates';
 import {
+  deleteRemoteAppointment,
   fetchRemoteAppointments,
   fetchRemoteAppointmentsDetailed
 } from './services/emailNotificationService';
@@ -571,8 +572,34 @@ export default function App() {
     }
   };
 
-  const handleDeleteAppointment = (id: string) => {
-    setAppointments(prev => prev.filter(a => a.id !== id));
+  const handleDeleteAppointment = async (appointment: Appointment) => {
+    const result = await deleteRemoteAppointment(appointment.id, adminSessionToken);
+    if (!result.success) {
+      throw new Error(result.error || 'Não foi possível excluir o agendamento.');
+    }
+
+    setAppointments(prev => prev.filter(a => a.id !== appointment.id));
+    let archiveCount: number | null = null;
+    for (const storageKey of ['angelica_appointments', 'angelica_appointments_local_archive']) {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        if (!raw) continue;
+
+        const storedAppointments: Appointment[] = JSON.parse(raw);
+        const remaining = storedAppointments.filter(a => a.id !== appointment.id);
+        if (remaining.length > 0) {
+          localStorage.setItem(storageKey, JSON.stringify(remaining));
+        } else {
+          localStorage.removeItem(storageKey);
+        }
+        if (storageKey === 'angelica_appointments_local_archive') {
+          archiveCount = remaining.length;
+        }
+      } catch (err) {
+        console.error(`Não foi possível atualizar ${storageKey} após excluir o agendamento:`, err);
+      }
+    }
+    if (archiveCount !== null) setLocalOnlyCount(archiveCount);
   };
 
   const handleUpdateClient = (updated: ClientProfile) => {
@@ -1050,6 +1077,7 @@ export default function App() {
                   appointments={appointments}
                   timeSlots={timeSlots}
                   onUpdateAppointment={handleUpdateAppointment}
+                  onDeleteAppointment={handleDeleteAppointment}
                 />
               )}
 

@@ -86,6 +86,50 @@ function doPost(e) {
       return fetchAppointmentsFromSheet();
     }
 
+    if (data.action === "deleteAppointment") {
+      var appointmentIdToDelete = data.appointmentId ? String(data.appointmentId).trim() : "";
+      if (!/^(apt|test|e2e)-[a-zA-Z0-9_-]{1,64}$/.test(appointmentIdToDelete)) {
+        return responseJSON({ status: "error", message: "ID do agendamento inválido." });
+      }
+
+      var deleteLock = LockService.getScriptLock();
+      try {
+        deleteLock.waitLock(15000);
+      } catch (lockErr) {
+        return responseJSON({ status: "error", message: "Tempo limite esgotado ao aguardar bloqueio para exclusão." });
+      }
+
+      try {
+        var deleteSheet = getOfficialSheet();
+        if (!deleteSheet) {
+          return responseJSON({ status: "error", message: "Aba 'Agendamentos' não encontrada na planilha oficial." });
+        }
+
+        var appointmentRows = deleteSheet.getDataRange().getValues();
+        var deletedCount = 0;
+        for (var rowIndex = appointmentRows.length - 1; rowIndex >= 1; rowIndex--) {
+          var rowAppointmentId = appointmentRows[rowIndex][9] ? String(appointmentRows[rowIndex][9]).trim() : "";
+          if (rowAppointmentId === appointmentIdToDelete) {
+            deleteSheet.deleteRow(rowIndex + 1);
+            deletedCount++;
+          }
+        }
+
+        return responseJSON({
+          status: "success",
+          deleted: deletedCount > 0,
+          notFound: deletedCount === 0,
+          deletedCount: deletedCount,
+          appointmentId: appointmentIdToDelete,
+          message: deletedCount > 0
+            ? "Agendamento removido da planilha."
+            : "Agendamento já não consta na planilha."
+        });
+      } finally {
+        deleteLock.releaseLock();
+      }
+    }
+
     // 3. Mecanismo de Teste Autenticado e Controlado pelo Backend
     // Testes NÃO gravam na aba oficial 'Agendamentos' e NÃO enviam e-mails/WhatsApp
     var isTestExecution = Boolean(

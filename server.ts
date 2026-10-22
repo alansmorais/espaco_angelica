@@ -144,7 +144,7 @@ app.use((req: Request, res: Response, next) => {
 
   if (origin && isOriginAllowed(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Token');
     res.setHeader('Access-Control-Max-Age', '86400');
   }
@@ -380,8 +380,10 @@ export interface ServerStoredAppointment {
 }
 
 export const serverAppointments: ServerStoredAppointment[] = [];
+const deletedAppointmentIds = new Set<string>();
 
 export function recordServerAppointment(apt: ServerStoredAppointment): void {
+  deletedAppointmentIds.delete(apt.id);
   const existingIdx = serverAppointments.findIndex(a => a.id === apt.id);
   if (existingIdx >= 0) {
     serverAppointments[existingIdx] = apt;
@@ -434,6 +436,7 @@ app.get('/api/appointments', async (req: Request, res: Response) => {
   try {
     const cfg = resolveAppsScriptConfig();
     let externalAppointments: any[] = [];
+    let hasAuthoritativeSheetData = false;
 
     if (cfg.configured && cfg.webhookUrl) {
       try {
@@ -456,8 +459,9 @@ app.get('/api/appointments', async (req: Request, res: Response) => {
           try {
             resData = JSON.parse(rawText);
           } catch {}
-          if (Array.isArray(resData?.appointments)) {
+          if (resData?.status === 'success' && Array.isArray(resData?.appointments)) {
             externalAppointments = resData.appointments;
+            hasAuthoritativeSheetData = true;
           }
         }
       } catch {
@@ -465,12 +469,26 @@ app.get('/api/appointments', async (req: Request, res: Response) => {
       }
     }
 
+    if (hasAuthoritativeSheetData) {
+      const appointments = externalAppointments.filter(
+        apt => apt.id && !deletedAppointmentIds.has(String(apt.id))
+      );
+      return res.json({
+        success: true,
+        appointments,
+        source: 'sheets_synced',
+        total: appointments.length
+      });
+    }
+
     const mergedMap = new Map<string, any>();
     for (const apt of serverAppointments) {
-      mergedMap.set(apt.id, apt);
+      if (!deletedAppointmentIds.has(apt.id)) {
+        mergedMap.set(apt.id, apt);
+      }
     }
     for (const ext of externalAppointments) {
-      if (ext.id) {
+      if (ext.id && !deletedAppointmentIds.has(String(ext.id))) {
         mergedMap.set(ext.id, { ...mergedMap.get(ext.id), ...ext });
       }
     }
@@ -486,6 +504,84 @@ app.get('/api/appointments', async (req: Request, res: Response) => {
       success: false,
       error: 'Erro ao listar agendamentos do servidor.',
       details: err.message
+    });
+  }
+});
+
+app.delete('/api/appointments/:appointmentId', async (req: Request, res: Response) => {
+  if (!isAuthorizedAdminRequest(req)) {
+    return res.status(401).json({
+      success: false,
+      error: 'Acesso não autorizado. Credenciais administrativas ausentes ou inválidas.'
+    });
+  }
+
+  const appointmentId = String(req.params.appointmentId || '').trim();
+  if (!/^(apt|test|e2e)-[a-zA-Z0-9_-]{1,64}$/.test(appointmentId)) {
+    return res.status(400).json({
+      success: false,
+      error: 'ID do agendamento inválido.'
+    });
+  }
+
+  const cfg = resolveAppsScriptConfig();
+  if (!cfg.configured || !cfg.webhookUrl) {
+    return res.status(503).json({
+      success: false,
+      error: cfg.safetyError || 'Integração com Google Apps Script não configurada.'
+    });
+  }
+
+  try {
+    const scriptRes = await fetch(cfg.webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8'
+      },
+      body: JSON.stringify({
+        action: 'deleteAppointment',
+        appointmentId,
+        token: cfg.token
+      }),
+      redirect: 'follow',
+      signal: AbortSignal.timeout(15000)
+    });
+
+    const rawText = await scriptRes.text();
+    let scriptData: any;
+    try {
+      scriptData = JSON.parse(rawText);
+    } catch {
+      return res.status(502).json({
+        success: false,
+        error: 'Resposta inválida do Google Apps Script ao excluir o agendamento.'
+      });
+    }
+
+    if (!scriptRes.ok || scriptData?.status !== 'success' || (!scriptData.deleted && !scriptData.notFound)) {
+      return res.status(502).json({
+        success: false,
+        error: scriptData?.message || `Google Apps Script recusou a exclusão (HTTP ${scriptRes.status}).`
+      });
+    }
+
+    deletedAppointmentIds.add(appointmentId);
+    const cachedIndex = serverAppointments.findIndex(apt => apt.id === appointmentId);
+    if (cachedIndex >= 0) {
+      serverAppointments.splice(cachedIndex, 1);
+    }
+
+    return res.json({
+      success: true,
+      deleted: Boolean(scriptData.deleted),
+      alreadyDeleted: Boolean(scriptData.notFound),
+      appointmentId,
+      message: scriptData.message
+    });
+  } catch (err: any) {
+    return res.status(502).json({
+      success: false,
+      error: `Falha ao comunicar com Google Apps Script: ${err.message || 'erro desconhecido'}.`
     });
   }
 });

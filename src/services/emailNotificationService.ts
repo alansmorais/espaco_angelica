@@ -575,6 +575,60 @@ export async function fetchRemoteAppointmentsDetailed(authToken?: string): Promi
   }
 }
 
+export interface DeleteAppointmentResult {
+  success: boolean;
+  error?: string;
+  statusCode?: number;
+}
+
+export async function deleteRemoteAppointment(
+  appointmentId: string,
+  authToken?: string
+): Promise<DeleteAppointmentResult> {
+  try {
+    const backendBase = getBackendApiUrl();
+    const targetUrl = backendBase
+      ? `${backendBase}/api/appointments/${encodeURIComponent(appointmentId)}`
+      : `/api/appointments/${encodeURIComponent(appointmentId)}`;
+    const token = (authToken || '').trim();
+    const headers: Record<string, string> = {
+      Accept: 'application/json'
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    const response = await fetch(targetUrl, {
+      method: 'DELETE',
+      headers
+    });
+    let data: any;
+    try {
+      data = await response.json();
+    } catch {
+      return {
+        success: false,
+        error: 'Resposta inválida do servidor ao excluir o agendamento.',
+        statusCode: response.status
+      };
+    }
+
+    if (response.ok && data?.success) {
+      return { success: true, statusCode: response.status };
+    }
+    return {
+      success: false,
+      error: data?.error || `Erro HTTP ${response.status} ao excluir agendamento.`,
+      statusCode: response.status
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: `Falha de rede ao excluir agendamento: ${err.message || 'servidor indisponível'}.`
+    };
+  }
+}
+
 /**
  * Busca agendamentos centralizados persistidos no backend seguro (Cloud Run / Google Sheets)
  * para exibição no painel administrativo compartilhado.

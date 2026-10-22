@@ -7,7 +7,7 @@ import { formatBRL } from '../../services/notificationTemplates';
 interface PixReconciliationTabProps {
   appointments?: Appointment[];
   onUpdateAppointment?: (apt: Appointment) => void;
-  onDeleteAppointment?: (id: string) => void;
+  onDeleteAppointment?: (apt: Appointment) => Promise<void>;
 }
 
 export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
@@ -141,18 +141,23 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
     }
   };
 
-  const handleReject = (apt: Appointment) => {
+  const handleReject = async (apt: Appointment) => {
     if (confirm(`Deseja recusar a solicitação de ${apt.clientName} e liberar o horário na grade?`)) {
       if (onDeleteAppointment) {
-        onDeleteAppointment(apt.id);
+        try {
+          await onDeleteAppointment(apt);
+          showToast(`Solicitação de ${apt.clientName} excluída da planilha.`, true);
+        } catch (err: any) {
+          showToast(err.message || 'Não foi possível excluir o agendamento.', true);
+        }
       } else if (onUpdateAppointment) {
         onUpdateAppointment({
           ...apt,
           status: 'cancelado',
           depositStatus: 'recusado'
         });
+        showToast(`Solicitação de ${apt.clientName} cancelada e vaga liberada.`, true);
       }
-      showToast(`Solicitação de ${apt.clientName} cancelada e vaga liberada.`, true);
     }
   };
 
