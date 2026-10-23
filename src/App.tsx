@@ -422,13 +422,18 @@ export default function App() {
     const syncPublicBlockedDates = async () => {
       try {
         const blocked = await fetchRemoteBlockedDates();
-        if (!isMounted || !Array.isArray(blocked) || blocked.length === 0) return;
+        if (!isMounted || !Array.isArray(blocked)) return;
+        const blockedDateKeys = new Set(blocked.map(String));
         setAppointments(prev => {
+          // Remove stale display-only blocks when the authoritative backend says a date is unblocked.
+          const withoutStaleRemoteBlocks = prev.filter(a =>
+            !a.id.startsWith('apt-block-remote-') || blockedDateKeys.has(String(a.date))
+          );
           const newBlocks: Appointment[] = blocked.map(bDate => ({
-            id: `apt-block-remote-${bDate.replace(/[^a-zA-Z0-9]/g, '')}`,
+            id: `apt-block-remote-${String(bDate).replace(/[^a-zA-Z0-9]/g, '')}`,
             clientName: 'Dia Bloqueado',
             clientPhone: '',
-            date: bDate,
+            date: String(bDate),
             time: 'Dia Inteiro',
             serviceTitle: 'Bloqueio de Agenda',
             servicePrice: 'R$ 0,00',
@@ -438,10 +443,10 @@ export default function App() {
             depositAmount: 0,
             depositStatus: 'liquidado' as const
           }));
-          const existingIds = new Set(prev.map(a => a.id));
-          const existingDates = new Set(prev.filter(a => a.status === 'bloqueado').map(a => a.date));
-          const toAdd = newBlocks.filter(b => !existingIds.has(b.id) && !existingDates.has(b.date));
-          return toAdd.length > 0 ? [...toAdd, ...prev] : prev;
+          const existingIds = new Set(withoutStaleRemoteBlocks.map(a => a.id));
+          const existingDates = new Set(withoutStaleRemoteBlocks.filter(a => a.status === 'bloqueado').map(a => String(a.date)));
+          const toAdd = newBlocks.filter(b => !existingIds.has(b.id) && !existingDates.has(String(b.date)));
+          return toAdd.length > 0 ? [...toAdd, ...withoutStaleRemoteBlocks] : withoutStaleRemoteBlocks;
         });
       } catch {}
     };
