@@ -970,6 +970,36 @@ export async function deleteRemoteService(
   }
 }
 
+export interface DrivePhoto {
+  id: string;
+  name: string;
+  url: string;
+  thumbnailUrl: string;
+  updatedAt?: string;
+}
+
+/** Lista fotos da pasta oficial via Apps Script, protegendo a ação com o token administrativo configurado. */
+export async function listDrivePhotos(): Promise<{ success: boolean; photos?: DrivePhoto[]; error?: string }> {
+  const endpoint = getNotificationWebhookUrl();
+  const token = getNotificationWebhookToken();
+  if (!endpoint) return { success: false, error: 'Configure o URL do Google Apps Script nas definições antes de selecionar fotos.' };
+  if (!token) return { success: false, error: 'Token administrativo do Google Apps Script não configurado.' };
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'listDrivePhotos', token })
+    });
+    const data = await response.json();
+    if (response.ok && data?.status === 'success' && Array.isArray(data.photos)) {
+      return { success: true, photos: data.photos as DrivePhoto[] };
+    }
+    return { success: false, error: data?.message || 'Não foi possível carregar as fotos do Google Drive.' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Falha de ligação ao Google Apps Script.' };
+  }
+}
+
 export async function uploadServicePhoto(
   file: File,
   authToken?: string
