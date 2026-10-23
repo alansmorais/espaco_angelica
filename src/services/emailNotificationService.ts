@@ -544,6 +544,43 @@ export async function revokeAdminSession(token: string): Promise<void> {
   }
 }
 
+export interface PublicAvailabilityResult {
+  success: boolean;
+  appointments: Appointment[];
+  blockedDates: string[];
+  updatedAt?: string;
+  error?: string;
+}
+
+export async function fetchPublicAvailability(): Promise<PublicAvailabilityResult> {
+  try {
+    const backendBase = getBackendApiUrl();
+    const targetUrl = backendBase ? `${backendBase}/api/public/availability` : '/api/public/availability';
+    const response = await fetch(targetUrl, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.success !== true || !Array.isArray(data.slots)) {
+      return { success: false, appointments: [], blockedDates: [], error: data?.error || `Falha ao consultar disponibilidade (HTTP ${response.status}).` };
+    }
+    const appointments: Appointment[] = data.slots.map((slot: any) => ({
+      id: String(slot.id || ''),
+      clientName: '',
+      clientPhone: '',
+      serviceTitle: '',
+      date: String(slot.date || ''),
+      time: String(slot.time || ''),
+      status: String(slot.status || 'pendente_pix') as Appointment['status']
+    }));
+    return {
+      success: true,
+      appointments,
+      blockedDates: Array.isArray(data.blockedDates) ? data.blockedDates.map(String) : [],
+      updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined
+    };
+  } catch (error: any) {
+    return { success: false, appointments: [], blockedDates: [], error: error?.message || 'Falha de conexão ao consultar disponibilidade.' };
+  }
+}
+
 export interface FetchAppointmentsDetailedResult {
   success: boolean;
   appointments: Appointment[];
