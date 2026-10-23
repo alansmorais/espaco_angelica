@@ -566,7 +566,30 @@ function doPost(e) {
         });
       }
 
-      var referencePrice = canonical.price;
+      // Recalculate the complete service total from the official Apps Script catalogue.
+      var additionalIds = Array.isArray(data.additionalServiceIds) ? data.additionalServiceIds : [];
+      var additionalTitles = [];
+      var additionalTotal = 0;
+      var seenAdditionalIds = {};
+      for (var ai = 0; ai < additionalIds.length; ai++) {
+        var additionalId = String(additionalIds[ai] || '').trim();
+        if (!additionalId || additionalId === serviceKey || seenAdditionalIds[additionalId]) {
+          return responseJSON({ status: "error", message: "Serviço adicional inválido ou duplicado." });
+        }
+        seenAdditionalIds[additionalId] = true;
+        var additionalCanonical = OFFICIAL_CATALOG[additionalId];
+        if (!additionalCanonical) {
+          return responseJSON({ status: "error", message: "Serviço adicional fora do catálogo oficial: " + additionalId });
+        }
+        additionalTitles.push(additionalCanonical.title);
+        additionalTotal += Number(additionalCanonical.price);
+      }
+
+      var referencePrice = Number(canonical.price) + additionalTotal;
+      var expectedServiceTitle = [canonical.title].concat(additionalTitles).join(" + ");
+      if (String(data.serviceTitle || '').trim().toLowerCase() !== expectedServiceTitle.toLowerCase()) {
+        return responseJSON({ status: "error", message: "Os serviços informados não correspondem ao catálogo oficial." });
+      }
       var expected40 = Math.round(referencePrice * 0.4 * 100) / 100;
       var expected100 = Math.round(referencePrice * 100) / 100;
       var depositNum = Number(data.depositAmount);
@@ -603,7 +626,7 @@ function doPost(e) {
       }
 
       var resolvedMode = data.paymentMode || (matches100 ? "pre_pagamento_100" : "sinal_40");
-      var serviceTitle = canonical.title;
+      var serviceTitle = expectedServiceTitle;
       var balanceNum = Math.max(0, referencePrice - depositNum);
       var amountFormatted = depositNum.toFixed(2).replace(".", ",");
       var balanceFormatted = balanceNum.toFixed(2).replace(".", ",");
