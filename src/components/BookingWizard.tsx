@@ -95,12 +95,13 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
     ...Array.from({ length: monthStartOffset }, () => null),
     ...Array.from({ length: daysInVisibleMonth }, (_, index) => index + 1)
   ];
-  const dateLabel = (date: Date) => date.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
   const isPastDate = (date: Date) => toDateKey(date) < toDateKey(today);
   const isDateUnavailable = (date: Date) => {
     const key = toDateKey(date);
     const sameDayAppointments = appointments.filter(a => areDatesEqual(a.date, key) && !['cancelado', 'teste_sistema'].includes(a.status));
-    return isDateBlocked(key) || (sameDayAppointments.length > 0 && sameDayAppointments.every(a => a.status === 'bloqueado'));
+    const weekday = date.getDay();
+    const outsideWorkingDays = weekday === 0 || weekday === 1;
+    return outsideWorkingDays || isDateBlocked(key) || (sameDayAppointments.length > 0 && sameDayAppointments.every(a => a.status === 'bloqueado'));
   };
 
   // Price calculations (40% deposit or 100% full prepayment of selected procedure's official price)
