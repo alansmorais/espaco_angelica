@@ -274,6 +274,32 @@ export default function App() {
     }
   });
 
+  // Restore an existing server-issued session after refresh; expired sessions are rejected server-side.
+  useEffect(() => {
+    const token = adminSessionToken;
+    if (!token) return;
+    let active = true;
+    void fetchRemoteAppointmentsDetailed(token).then(result => {
+      if (!active) return;
+      if (result.success) {
+        setAppointments(result.appointments);
+        setRemoteAppointmentsError(null);
+        setAppMode('admin');
+        calculateLocalOnlyCount(result.appointments);
+      } else {
+        try { sessionStorage.removeItem('angelica_admin_session'); } catch {}
+        setAdminSessionToken('');
+        setAppMode('public');
+      }
+    }).catch(() => {
+      if (!active) return;
+      setRemoteAppointmentsError('Não foi possível validar a sessão administrativa.');
+    });
+    return () => { active = false; };
+  // Intentionally run only once on page load to validate the stored session.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Save to localStorage whenever states change
   useEffect(() => {
     try {
