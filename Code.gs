@@ -350,6 +350,35 @@ function doPost(e) {
       }
     }
 
+    if (data.action === "listDrivePhotos") {
+      try {
+        // Lista somente imagens da pasta oficial. Esta ação permanece protegida
+        // pelo mesmo token administrativo aplicado às restantes ações.
+        var photoFolderId = "1JGypjL9OqGL5i2OUrjiGMKxkWD11YuAw";
+        var photoFolder = DriveApp.getFolderById(photoFolderId);
+        var photoFiles = photoFolder.getFiles();
+        var photos = [];
+        while (photoFiles.hasNext()) {
+          var photoFile = photoFiles.next();
+          var photoMime = String(photoFile.getMimeType() || "");
+          if (photoMime.indexOf("image/") !== 0 || photoFile.isTrashed()) continue;
+          photos.push({
+            id: photoFile.getId(),
+            name: photoFile.getName(),
+            url: "https://drive.google.com/uc?export=view&id=" + photoFile.getId(),
+            thumbnailUrl: "https://drive.google.com/thumbnail?id=" + photoFile.getId() + "&sz=w400",
+            updatedAt: photoFile.getLastUpdated().toISOString()
+          });
+        }
+        photos.sort(function(a, b) {
+          return String(b.updatedAt).localeCompare(String(a.updatedAt));
+        });
+        return responseJSON({ status: "success", photos: photos, total: photos.length });
+      } catch (photoListError) {
+        return responseJSON({ status: "error", message: "Não foi possível listar as fotos da pasta do Google Drive: " + photoListError.message });
+      }
+    }
+
     if (data.action === "uploadPhoto") {
       if (!data.imageBase64) {
         return responseJSON({ status: "error", message: "Conteúdo da imagem (base64) ausente." });
