@@ -8,17 +8,6 @@
 
 var TARGET_SPREADSHEET_ID = "1dB23gq_EiQtCT-TQcdEK1yHV0lk5X0TkkIZKbnqTRs0";
 
-// Catálogo Oficial Canônico de Procedimentos e Preços
-var OFFICIAL_CATALOG = {
-  "alongamento-fibra-slim": { title: "Alongamento em Fibra Slim", price: 220 },
-  "manutencao-fibra-vidro": { title: "Manutenção Fibra de Vidro", price: 140 },
-  "manutencao-fibra": { title: "Manutenção Fibra de Vidro", price: 140 },
-  "blindagem-diamante": { title: "Blindagem Diamante & Banho Gel", price: 130 },
-  "esmaltacao-gel-premium": { title: "Esmaltação em Gel Premium", price: 95 },
-  "nail-art-encapsulada": { title: "Nail Art Autoral & Encapsulada", price: 30 },
-  "spa-das-maos-ouro": { title: "Spa das Mãos & Esfoliação", price: 85 }
-};
-
 function validateAuthorization(tokenProvided) {
   var expectedToken = PropertiesService.getScriptProperties().getProperty("APPS_SCRIPT_TOKEN");
 
@@ -60,37 +49,12 @@ function getServicesSheet() {
   try {
     var ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
     if (!ss) return null;
-    var sheet = ss.getSheetByName("Servicos");
-    if (!sheet) {
-      sheet = ss.insertSheet("Servicos");
-      var headerRow = [
-        "ID",
-        "Título",
-        "Categoria",
-        "Preço",
-        "Preço Formatado",
-        "Duração",
-        "Badge",
-        "Descrição",
-        "Observação",
-        "Imagem URL",
-        "Especificações",
-        "Ativo",
-        "Atualizado Em"
-      ];
-      sheet.appendRow(headerRow);
-      var defaults = [
-        ["alongamento-fibra-slim", "Alongamento em Fibra Slim", "alongamento", 220, "R$ 220,00", "2h 30min", "Mais Pedido", "Extensão com aspecto natural, alta durabilidade e acabamento fino.", "Inclui cutilagem combinada e hidratação", "https://images.unsplash.com/photo-1604654894610-df63bc536371?auto=format&fit=crop&w=800&q=80", "Fibra de alta pureza, Acabamento anatômico, Cutilagem combinada", true, new Date()],
-        ["manutencao-fibra-vidro", "Manutenção Fibra de Vidro", "manutencao", 140, "R$ 140,00", "1h 45min", "", "Reposição de estrutura, nivelamento e reforço das tensões.", "Recomendado a cada 21 a 28 dias", "https://images.unsplash.com/photo-1632345031435-8727f6897d53?auto=format&fit=crop&w=800&q=80", "Nivelamento milimétrico, Selagem de bordas, Troca de top coat", true, new Date()],
-        ["blindagem-diamante", "Blindagem Diamante & Banho Gel", "blindagem", 130, "R$ 130,00", "1h 30min", "Brilho Intenso", "Camada protetora sobre as unhas naturais, conferindo brilho vitrificado e resistência.", "Ideal para quem busca manter o comprimento natural sem quebras", "https://images.unsplash.com/photo-1519014816548-bf5fe059798b?auto=format&fit=crop&w=800&q=80", "Gel autonivelante de alta densidade, Brilho espelhado, Resistência a impactos", true, new Date()],
-        ["esmaltacao-gel-premium", "Esmaltação em Gel Premium", "esmaltacao", 95, "R$ 95,00", "1h 15min", "", "Secagem imediata em cabine LED/UV com brilho impecável por até 20 dias.", "Unhas prontas para sair sem borrar", "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=800&q=80", "Durabilidade 15 a 21 dias, Secagem instantânea, Não lasca", true, new Date()],
-        ["nail-art-encapsulada", "Nail Art Autoral & Encapsulada", "nailart", 30, "A partir de R$ 30,00", "45min", "Autoral", "Design personalizado: encapsulados, francesinha reversa, marmorizados e aplicações.", "Preço base por par ou aplicação conforme complexidade", "https://images.unsplash.com/photo-1599940824399-b87987ceb72a?auto=format&fit=crop&w=800&q=80", "Pigmentos importados, Pedrarias de alta fixação, Efeitos 3D e foil", true, new Date()],
-        ["spa-das-maos-ouro", "Spa das Mãos & Esfoliação", "spa", 85, "R$ 85,00", "50min", "Relaxamento", "Esfoliação enzimática, hidratação profunda com máscara térmica e massagem relaxante.", "Tratamento rejuvenescedor para mãos e cutículas", "https://images.unsplash.com/photo-1560750588-73207b1ef5b8?auto=format&fit=crop&w=800&q=80", "Esfoliação botânica, Máscara com colágeno, Massagem relaxante", true, new Date()]
-      ];
-      for (var d = 0; d < defaults.length; d++) {
-        sheet.appendRow(defaults[d]);
-      }
-    }
+
+    // Use the existing official catalogue tab. Never create or populate a replacement
+    // sheet with sample services: a missing tab must be reported as a configuration error.
+    var sheet = ss.getSheetByName("Serviços") || ss.getSheetByName("Servicos");
+    if (!sheet) return null;
+
     return sheet;
   } catch (e) {
     return null;
@@ -247,7 +211,7 @@ function doPost(e) {
     if (data.action === "getServices") {
       var servSheet = getServicesSheet();
       if (!servSheet) {
-        return responseJSON({ status: "error", message: "Aba 'Servicos' não encontrada na planilha oficial." });
+        return responseJSON({ status: "error", message: "Aba 'Serviços' (ou 'Servicos') não encontrada na planilha oficial." });
       }
       var sRows = servSheet.getDataRange().getValues();
       var servicesList = [];
@@ -292,7 +256,7 @@ function doPost(e) {
       try {
         var saveServSheet = getServicesSheet();
         if (!saveServSheet) {
-          return responseJSON({ status: "error", message: "Aba 'Servicos' não encontrada na planilha oficial." });
+          return responseJSON({ status: "error", message: "Aba 'Serviços' (ou 'Servicos') não encontrada na planilha oficial." });
         }
 
         var existingRows = saveServSheet.getDataRange().getValues();
@@ -358,7 +322,7 @@ function doPost(e) {
       try {
         var delServSheet = getServicesSheet();
         if (!delServSheet) {
-          return responseJSON({ status: "error", message: "Aba 'Servicos' não encontrada na planilha oficial." });
+          return responseJSON({ status: "error", message: "Aba 'Serviços' (ou 'Servicos') não encontrada na planilha oficial." });
         }
 
         var allServRows = delServSheet.getDataRange().getValues();
@@ -559,48 +523,65 @@ function doPost(e) {
         });
       }
 
-      // 7. Validação financeira baseada no catálogo canônico
-      var serviceKey = data.serviceId ? String(data.serviceId).trim().toLowerCase() : "";
-      var canonical = OFFICIAL_CATALOG[serviceKey];
-      if (!canonical && data.serviceTitle) {
-        var titleLower = String(data.serviceTitle).trim().toLowerCase();
-        for (var k in OFFICIAL_CATALOG) {
-          if (OFFICIAL_CATALOG[k].title.toLowerCase() === titleLower) {
-            canonical = OFFICIAL_CATALOG[k];
-            break;
+      // 7. Validação financeira baseada exclusivamente na aba oficial 'Serviços'.
+// Não aceitar preços ou títulos enviados pelo navegador como fonte de verdade.
+      var servicesSheetForBooking = getServicesSheet();
+      if (!servicesSheetForBooking) {
+        return responseJSON({ status: "error", message: "Aba 'Serviços' (ou 'Servicos') não encontrada na planilha oficial." });
+      }
+
+      var serviceRowsForBooking = servicesSheetForBooking.getDataRange().getValues();
+      if (serviceRowsForBooking.length < 2) {
+        return responseJSON({ status: "error", message: "O catálogo oficial de serviços está vazio. Nenhum agendamento foi gravado." });
+      }
+
+      function findOfficialService(serviceId, serviceTitle) {
+        var idToFind = String(serviceId || "").trim().toLowerCase();
+        var titleToFind = String(serviceTitle || "").trim().toLowerCase();
+        for (var rowIndex = 1; rowIndex < serviceRowsForBooking.length; rowIndex++) {
+          var serviceRow = serviceRowsForBooking[rowIndex];
+          var rowId = String(serviceRow[0] || "").trim();
+          if (!rowId) continue;
+          var isActive = serviceRow[11] !== false && String(serviceRow[11]).toLowerCase() !== "false";
+          if (!isActive) continue;
+          if (idToFind && rowId.toLowerCase() === idToFind) {
+            return { id: rowId, title: String(serviceRow[1] || "").trim(), price: Number(serviceRow[3]), active: true };
+          }
+          if (!idToFind && titleToFind && String(serviceRow[1] || "").trim().toLowerCase() === titleToFind) {
+            return { id: rowId, title: String(serviceRow[1] || "").trim(), price: Number(serviceRow[3]), active: true };
           }
         }
+        return null;
       }
 
-      if (!canonical) {
-        return responseJSON({
-          status: "error",
-          message: "Procedimento desconhecido ou fora do catálogo oficial do ateliê."
-        });
+      var serviceKey = data.serviceId ? String(data.serviceId).trim() : "";
+      var canonical = findOfficialService(serviceKey, data.serviceTitle);
+      if (!canonical || !canonical.title || !isFinite(canonical.price) || canonical.price < 0) {
+        return responseJSON({ status: "error", message: "Procedimento não encontrado, inativo ou com preço inválido no catálogo oficial. Nenhum agendamento foi gravado." });
       }
 
-      // Recalculate the complete service total from the official Apps Script catalogue.
       var additionalIds = Array.isArray(data.additionalServiceIds) ? data.additionalServiceIds : [];
       var additionalTitles = [];
       var additionalTotal = 0;
       var seenAdditionalIds = {};
       for (var ai = 0; ai < additionalIds.length; ai++) {
-        var additionalId = String(additionalIds[ai] || '').trim();
-        if (!additionalId || additionalId === serviceKey || seenAdditionalIds[additionalId]) {
+        var additionalId = String(additionalIds[ai] || "").trim();
+        var additionalIdKey = additionalId.toLowerCase();
+        if (!additionalId || additionalIdKey === String(canonical.id).toLowerCase() || seenAdditionalIds[additionalIdKey]) {
           return responseJSON({ status: "error", message: "Serviço adicional inválido ou duplicado." });
         }
-        seenAdditionalIds[additionalId] = true;
-        var additionalCanonical = OFFICIAL_CATALOG[additionalId];
-        if (!additionalCanonical) {
-          return responseJSON({ status: "error", message: "Serviço adicional fora do catálogo oficial: " + additionalId });
+        seenAdditionalIds[additionalIdKey] = true;
+        var additionalCanonical = findOfficialService(additionalId, "");
+        if (!additionalCanonical || !additionalCanonical.title || !isFinite(additionalCanonical.price) || additionalCanonical.price < 0) {
+          return responseJSON({ status: "error", message: "Serviço adicional não encontrado, inativo ou com preço inválido no catálogo oficial: " + additionalId });
         }
         additionalTitles.push(additionalCanonical.title);
-        additionalTotal += Number(additionalCanonical.price);
+        additionalTotal += additionalCanonical.price;
       }
 
-      var referencePrice = Number(canonical.price) + additionalTotal;
+      var referencePrice = canonical.price + additionalTotal;
       var expectedServiceTitle = [canonical.title].concat(additionalTitles).join(" + ");
-      if (String(data.serviceTitle || '').trim().toLowerCase() !== expectedServiceTitle.toLowerCase()) {
+      if (String(data.serviceTitle || "").trim().toLowerCase() !== expectedServiceTitle.toLowerCase()) {
         return responseJSON({ status: "error", message: "Os serviços informados não correspondem ao catálogo oficial." });
       }
       var expected40 = Math.round(referencePrice * 0.4 * 100) / 100;
@@ -608,34 +589,19 @@ function doPost(e) {
       var depositNum = Number(data.depositAmount);
 
       if (isNaN(depositNum) || !isFinite(depositNum) || depositNum <= 0) {
-        return responseJSON({
-          status: "error",
-          message: "Valor do sinal/pagamento inválido ou ausente."
-        });
+        return responseJSON({ status: "error", message: "Valor do sinal/pagamento inválido ou ausente." });
       }
 
       var matches40 = Math.abs(depositNum - expected40) < 0.01;
       var matches100 = Math.abs(depositNum - expected100) < 0.01;
-
       if (!matches40 && !matches100) {
-        return responseJSON({
-          status: "error",
-          message: "Valor do sinal/pagamento (R$ " + depositNum.toFixed(2) + ") não corresponde a 40% (R$ " + expected40.toFixed(2) + ") nem a 100% (R$ " + expected100.toFixed(2) + ") do preço oficial de " + canonical.title + "."
-        });
+        return responseJSON({ status: "error", message: "Valor do sinal/pagamento não corresponde a 40% (R$ " + expected40.toFixed(2) + ") nem a 100% (R$ " + expected100.toFixed(2) + ") do preço oficial de " + canonical.title + "." });
       }
-
       if (data.paymentMode === "sinal_40" && !matches40) {
-        return responseJSON({
-          status: "error",
-          message: "Valor diverge de 40% do procedimento oficial."
-        });
+        return responseJSON({ status: "error", message: "Valor diverge de 40% do procedimento oficial." });
       }
-
       if (data.paymentMode === "pre_pagamento_100" && !matches100) {
-        return responseJSON({
-          status: "error",
-          message: "Valor diverge de 100% do procedimento oficial."
-        });
+        return responseJSON({ status: "error", message: "Valor diverge de 100% do procedimento oficial." });
       }
 
       var resolvedMode = data.paymentMode || (matches100 ? "pre_pagamento_100" : "sinal_40");
@@ -986,7 +952,7 @@ function doGet(e) {
     if (e.parameter.action === "getServices") {
       var servSheet = getServicesSheet();
       if (!servSheet) {
-        return responseJSON({ status: "error", message: "Aba 'Servicos' não encontrada na planilha oficial." });
+        return responseJSON({ status: "error", message: "Aba 'Serviços' (ou 'Servicos') não encontrada na planilha oficial." });
       }
       var sRows = servSheet.getDataRange().getValues();
       var servicesList = [];
