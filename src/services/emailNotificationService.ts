@@ -20,6 +20,10 @@ export interface EmailNotificationPayload {
   clientPhone: string;
   clientEmail?: string;
   serviceId?: string;
+  additionalServiceIds?: string[];
+  customRequest?: string;
+  appointmentLocation?: 'salon' | 'home';
+  homeAddress?: string;
   serviceTitle: string;
   servicePrice?: string;
   date: string;
@@ -110,6 +114,10 @@ export function buildPreBookingEmailPayload(apt: Appointment): EmailNotification
     clientPhone: apt.clientPhone,
     clientEmail: apt.clientEmail,
     serviceId: apt.serviceId,
+    additionalServiceIds: apt.additionalServiceIds,
+    customRequest: apt.customRequest,
+    appointmentLocation: apt.appointmentLocation,
+    homeAddress: apt.homeAddress,
     serviceTitle: apt.serviceTitle,
     servicePrice: apt.servicePrice,
     date: apt.date,
