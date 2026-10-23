@@ -1105,7 +1105,7 @@ export function validateBookingPaymentCoherence(payload: any): {
       };
     }
     const normalizedId = serviceId.trim();
-    canonicalService = OFFICIAL_SERVICES_BY_ID[normalizedId] || DYNAMIC_SERVICES_BY_ID[normalizedId];
+    canonicalService = DYNAMIC_SERVICES_BY_ID[normalizedId] || OFFICIAL_SERVICES_BY_ID[normalizedId];
     if (!canonicalService) {
       return {
         valid: false,
@@ -1139,7 +1139,7 @@ export function validateBookingPaymentCoherence(payload: any): {
   }
 
   // Resolve every additional service against the server-side catalogue. Never trust browser-supplied prices.
-  const additionalServices = additionalServiceIds.map(id => OFFICIAL_SERVICES_BY_ID[id] || DYNAMIC_SERVICES_BY_ID[id]);
+  const additionalServices = additionalServiceIds.map(id => DYNAMIC_SERVICES_BY_ID[id] || OFFICIAL_SERVICES_BY_ID[id]);
   if (additionalServices.some(service => !service)) {
     return { valid: false, error: 'Um ou mais serviços adicionais não existem no catálogo oficial.' };
   }
