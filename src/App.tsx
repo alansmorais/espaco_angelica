@@ -35,7 +35,9 @@ import {
   fetchRemoteBlockedDates,
   fetchRemoteServices,
   saveRemoteService,
-  deleteRemoteService
+  deleteRemoteService,
+  createAdminSession,
+  revokeAdminSession
 } from './services/emailNotificationService';
 
 // Public Components
@@ -116,11 +118,16 @@ export default function App() {
     setAdminLoginError(null);
 
     try {
-      const result = await fetchRemoteAppointmentsDetailed(entered);
+      const session = await createAdminSession(entered);
+      if (!session.success || !session.token) {
+        setAdminLoginError(session.error || 'Não foi possível criar uma sessão administrativa segura.');
+        return;
+      }
+      const result = await fetchRemoteAppointmentsDetailed(session.token);
       if (result.success) {
-        setAdminSessionToken(entered);
+        setAdminSessionToken(session.token);
         try {
-          sessionStorage.setItem('angelica_admin_session', entered);
+          sessionStorage.setItem('angelica_admin_session', session.token);
         } catch {}
         setAppointments(result.appointments);
         setRemoteAppointmentsError(null);
@@ -163,6 +170,8 @@ export default function App() {
   };
 
   const handleAdminLogout = () => {
+    const token = adminSessionToken;
+    if (token) void revokeAdminSession(token);
     try {
       sessionStorage.removeItem('angelica_admin_session');
     } catch {}
