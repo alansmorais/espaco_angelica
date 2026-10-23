@@ -15,6 +15,7 @@ import { buildPreBookingEmailPayload } from '../src/services/emailNotificationSe
 import { Appointment, BlacklistEntry } from '../src/types';
 import {
   OFFICIAL_SERVICES_BY_ID,
+  registerDynamicService,
   validateBookingPaymentCoherence,
   isOriginAllowed,
   allowedOrigins,
@@ -43,6 +44,17 @@ const EXPECTED_SERVICES = [
   { id: 'nail-art-encapsulada', title: 'Nail Art Autoral & Encapsulada', price: 30, deposit40: 12, full100: 30, balance40: 18 },
   { id: 'spa-das-maos-ouro', title: 'Spa das Mãos & Esfoliação', price: 85, deposit40: 34, full100: 85, balance40: 51 }
 ];
+
+// Test-only fixtures: production validation now accepts prices only from the live official catalogue.
+// Register these in-memory records explicitly so unit tests do not depend on a production fallback.
+for (const service of EXPECTED_SERVICES) {
+  registerDynamicService({
+    id: service.id,
+    title: service.title,
+    price: service.price,
+    priceFormatted: `R$ ${service.price.toFixed(2).replace('.', ',')}`
+  });
+}
 
 let passedTests = 0;
 

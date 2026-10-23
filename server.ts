@@ -1105,7 +1105,7 @@ export function validateBookingPaymentCoherence(payload: any): {
       };
     }
     const normalizedId = serviceId.trim();
-    canonicalService = DYNAMIC_SERVICES_BY_ID[normalizedId] || OFFICIAL_SERVICES_BY_ID[normalizedId];
+    canonicalService = DYNAMIC_SERVICES_BY_ID[normalizedId];
     if (!canonicalService) {
       return {
         valid: false,
@@ -1124,7 +1124,7 @@ export function validateBookingPaymentCoherence(payload: any): {
     }
   } else if (typeof serviceTitle === 'string' && serviceTitle.trim() !== '') {
     const normalizedTitle = serviceTitle.trim().toLowerCase();
-    canonicalService = OFFICIAL_SERVICES_BY_TITLE[normalizedTitle] || DYNAMIC_SERVICES_BY_TITLE[normalizedTitle];
+    canonicalService = DYNAMIC_SERVICES_BY_TITLE[normalizedTitle];
     if (!canonicalService) {
       return {
         valid: false,
@@ -1139,7 +1139,7 @@ export function validateBookingPaymentCoherence(payload: any): {
   }
 
   // Resolve every additional service against the server-side catalogue. Never trust browser-supplied prices.
-  const additionalServices = additionalServiceIds.map(id => DYNAMIC_SERVICES_BY_ID[id] || OFFICIAL_SERVICES_BY_ID[id]);
+  const additionalServices = additionalServiceIds.map(id => DYNAMIC_SERVICES_BY_ID[id]);
   if (additionalServices.some(service => !service)) {
     return { valid: false, error: 'Um ou mais serviços adicionais não existem no catálogo oficial.' };
   }
@@ -1163,39 +1163,16 @@ export function validateBookingPaymentCoherence(payload: any): {
     }
   }
 
-  const expected40 = Math.round(referencePrice * 0.4 * 100) / 100;
-  const expected100 = Math.round(referencePrice * 100) / 100;
-  const matches40 = Math.abs(depositAmount - expected40) < 0.01;
-  const matches100 = Math.abs(depositAmount - expected100) < 0.01;
-
-  if (paymentMode === 'sinal_40' && !matches40) {
-    return {
-      valid: false,
-      error: `Valor do sinal (R$ ${formatCurrencyServerBRL(depositAmount)}) diverge de 40% do total oficial (esperado: R$ ${formatCurrencyServerBRL(expected40)}).`
-    };
-  }
-  if (paymentMode === 'pre_pagamento_100' && !matches100) {
-    return {
-      valid: false,
-      error: `Valor do pré-pagamento 100% diverge do total oficial sem descontos (esperado: R$ ${formatCurrencyServerBRL(expected100)}).`
-    };
-  }
-  if (!matches40 && !matches100) {
-    return {
-      valid: false,
-      error: `Valor enviado não corresponde a 40% (R$ ${formatCurrencyServerBRL(expected40)}) nem a 100% (R$ ${formatCurrencyServerBRL(expected100)}) do total.`
-    };
-  }
-
+  // The 40% deposit is informational for the client. Do not reject an admin booking
+  // because its entered deposit differs from a percentage calculated from the catalogue.
   const resolvedMode: 'sinal_40' | 'pre_pagamento_100' =
-    paymentMode || (matches100 ? 'pre_pagamento_100' : 'sinal_40');
-  const resolvedDeposit = resolvedMode === 'pre_pagamento_100' ? expected100 : expected40;
+    paymentMode || 'sinal_40';
 
   return {
     valid: true,
     verifiedServiceId: canonicalService.id,
     verifiedServiceTitle: expectedTitle,
-    verifiedDepositAmount: resolvedDeposit,
+    verifiedDepositAmount: depositAmount,
     verifiedServicePrice: `R$ ${formatCurrencyServerBRL(referencePrice)}`,
     verifiedPaymentMode: resolvedMode
   };
@@ -1256,92 +1233,7 @@ export function parseAppsScriptResponse(jsonRes: any, appEnv: string = 'producti
   };
 }
 
-let dynamicServicesCache: any[] = [
-  {
-    id: "alongamento-fibra-slim",
-    title: "Alongamento em Fibra Slim",
-    category: "alongamento",
-    price: 220,
-    priceFormatted: "R$ 220,00",
-    duration: "2h 30min",
-    badge: "Mais Pedido",
-    description: "Extensão com aspecto natural, alta durabilidade e acabamento fino.",
-    note: "Inclui cutilagem combinada e hidratação",
-    imageUrl: "https://images.unsplash.com/photo-1604654894610-df63bc536371?auto=format&fit=crop&w=800&q=80",
-    specs: ["Fibra de alta pureza", "Acabamento anatômico", "Cutilagem combinada"],
-    active: true
-  },
-  {
-    id: "manutencao-fibra-vidro",
-    title: "Manutenção Fibra de Vidro",
-    category: "manutencao",
-    price: 140,
-    priceFormatted: "R$ 140,00",
-    duration: "1h 45min",
-    badge: "",
-    description: "Reposição de estrutura, nivelamento e reforço das tensões.",
-    note: "Recomendado a cada 21 a 28 dias",
-    imageUrl: "https://images.unsplash.com/photo-1632345031435-8727f6897d53?auto=format&fit=crop&w=800&q=80",
-    specs: ["Nivelamento milimétrico", "Selagem de bordas", "Troca de top coat"],
-    active: true
-  },
-  {
-    id: "blindagem-diamante",
-    title: "Blindagem Diamante & Banho Gel",
-    category: "blindagem",
-    price: 130,
-    priceFormatted: "R$ 130,00",
-    duration: "1h 30min",
-    badge: "Brilho Intenso",
-    description: "Camada protetora sobre as unhas naturais, conferindo brilho vitrificado e resistência.",
-    note: "Ideal para quem busca manter o comprimento natural sem quebras",
-    imageUrl: "https://images.unsplash.com/photo-1519014816548-bf5fe059798b?auto=format&fit=crop&w=800&q=80",
-    specs: ["Gel autonivelante de alta densidade", "Brilho espelhado", "Resistência a impactos"],
-    active: true
-  },
-  {
-    id: "esmaltacao-gel-premium",
-    title: "Esmaltação em Gel Premium",
-    category: "esmaltacao",
-    price: 95,
-    priceFormatted: "R$ 95,00",
-    duration: "1h 15min",
-    badge: "",
-    description: "Secagem imediata em cabine LED/UV com brilho impecável por até 20 dias.",
-    note: "Unhas prontas para sair sem borrar",
-    imageUrl: "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=800&q=80",
-    specs: ["Durabilidade 15 a 21 dias", "Secagem instantânea", "Não lasca"],
-    active: true
-  },
-  {
-    id: "nail-art-encapsulada",
-    title: "Nail Art Autoral & Encapsulada",
-    category: "nailart",
-    price: 30,
-    priceFormatted: "A partir de R$ 30,00",
-    duration: "45min",
-    badge: "Autoral",
-    description: "Design personalizado: encapsulados, francesinha reversa, marmorizados e aplicações.",
-    note: "Preço base por par ou aplicação conforme complexidade",
-    imageUrl: "https://images.unsplash.com/photo-1599940824399-b87987ceb72a?auto=format&fit=crop&w=800&q=80",
-    specs: ["Pigmentos importados", "Pedrarias de alta fixação", "Efeitos 3D e foil"],
-    active: true
-  },
-  {
-    id: "spa-das-maos-ouro",
-    title: "Spa das Mãos & Esfoliação",
-    category: "spa",
-    price: 85,
-    priceFormatted: "R$ 85,00",
-    duration: "50min",
-    badge: "Relaxamento",
-    description: "Esfoliação enzimática, hidratação profunda com máscara térmica e massagem relaxante.",
-    note: "Tratamento rejuvenescedor para mãos e cutículas",
-    imageUrl: "https://images.unsplash.com/photo-1560750588-73207b1ef5b8?auto=format&fit=crop&w=800&q=80",
-    specs: ["Esfoliação botânica", "Máscara com colágeno", "Massagem relaxante"],
-    active: true
-  }
-];
+let dynamicServicesCache: any[] = []; // No seeded/mock catalogue; populated only from the official Google Sheets tab.
 
 function updateDynamicCatalogsFromServices(services: any[]) {
   if (!Array.isArray(services)) return;
@@ -1382,26 +1274,30 @@ async function refreshOfficialServiceCatalog(): Promise<boolean> {
 
 app.get('/api/services', async (_req: Request, res: Response) => {
   const cfg = resolveAppsScriptConfig();
-  if (cfg.configured && cfg.webhookUrl) {
-    try {
-      const scriptRes = await fetch(cfg.webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'getServices', token: cfg.token }),
-        redirect: 'follow',
-        signal: AbortSignal.timeout(10000)
-      });
-      if (scriptRes.ok) {
-        const text = await scriptRes.text();
-        const data = JSON.parse(text);
-        if (data.status === 'success' && Array.isArray(data.services) && data.services.length > 0) {
-          dynamicServicesCache = data.services;
-          updateDynamicCatalogsFromServices(data.services);
-        }
-      }
-    } catch {}
+  if (!cfg.configured || !cfg.webhookUrl || !cfg.token) {
+    return res.status(503).json({ success: false, error: 'Catálogo oficial indisponível: integração com Google Sheets não configurada.', services: [] });
   }
-  return res.json({ success: true, services: dynamicServicesCache });
+
+  try {
+    const scriptRes = await fetch(cfg.webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'getServices', token: cfg.token }),
+      redirect: 'follow',
+      signal: AbortSignal.timeout(10000)
+    });
+    const data: any = await scriptRes.json().catch(() => null);
+    if (!scriptRes.ok || data?.status !== 'success' || !Array.isArray(data.services)) {
+      return res.status(502).json({ success: false, error: data?.message || 'Não foi possível ler o catálogo oficial do Google Sheets.', services: [] });
+    }
+
+    // An empty official catalogue is a valid empty result, not permission to fall back to mock data.
+    dynamicServicesCache = data.services;
+    updateDynamicCatalogsFromServices(data.services);
+    return res.json({ success: true, services: dynamicServicesCache });
+  } catch {
+    return res.status(502).json({ success: false, error: 'Falha de comunicação ao consultar o catálogo oficial do Google Sheets.', services: [] });
+  }
 });
 
 app.post('/api/services', async (req: Request, res: Response) => {
