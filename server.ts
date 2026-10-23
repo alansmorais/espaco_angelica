@@ -476,19 +476,41 @@ function isAuthorizedAdminRequest(req: Request): boolean {
   return false;
 }
 
-app.get('/api/public/availability', (_req: Request, res: Response) => {
+app.get('/api/public/availability', async (_req: Request, res: Response) => {
   // Public-safe availability only: never return client names, phone numbers, email, notes, or payment data.
-  const activeSlots = serverAppointments
-    .filter(a => !deletedAppointmentIds.has(a.id) && !['cancelado', 'teste_sistema'].includes(String(a.status)))
-    .map(a => ({
-      id: String(a.id || ''),
-      date: String(a.date || ''),
-      time: String(a.time || ''),
-      status: String(a.status || 'pendente_pix')
-    }));
-  const blockedDates = Array.from(new Set(activeSlots.filter(a => a.status === 'bloqueado').map(a => a.date)));
   res.setHeader('Cache-Control', 'no-store');
-  return res.json({ success: true, slots: activeSlots, blockedDates, updatedAt: new Date().toISOString() });
+  const cfg = resolveAppsScriptConfig();
+  if (!cfg.configured || !cfg.webhookUrl) {
+    return res.status(503).json({ success: false, error: 'A disponibilidade oficial não está configurada.' });
+  }
+  try {
+    const scriptRes = await fetch(cfg.webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'getAppointments', token: cfg.token }),
+      redirect: 'follow',
+      signal: AbortSignal.timeout(10000)
+    });
+    const data = await scriptRes.json().catch(() => null);
+    if (!scriptRes.ok || data?.status !== 'success' || !Array.isArray(data?.appointments)) {
+      return res.status(503).json({ success: false, error: 'Não foi possível confirmar a disponibilidade na agenda oficial.' });
+    }
+    const authoritative = data.appointments.filter((a: any) => a?.id && !deletedAppointmentIds.has(String(a.id)));
+    // Refresh server snapshot used by the final pre-check.
+    serverAppointments.splice(0, serverAppointments.length, ...authoritative);
+    const slots = authoritative
+      .filter((a: any) => !['cancelado', 'teste_sistema'].includes(String(a.status)))
+      .map((a: any) => ({
+        id: String(a.id || ''),
+        date: String(a.date || ''),
+        time: String(a.time || ''),
+        status: String(a.status || 'pendente_pix')
+      }));
+    const blockedDates = Array.from(new Set(slots.filter((a: any) => a.status === 'bloqueado').map((a: any) => a.date)));
+    return res.json({ success: true, slots, blockedDates, updatedAt: new Date().toISOString() });
+  } catch {
+    return res.status(503).json({ success: false, error: 'A agenda oficial está temporariamente inacessível. Não exibiremos horários sem confirmação.' });
+  }
 });
 
 app.get('/api/appointments', async (req: Request, res: Response) => {
