@@ -87,11 +87,15 @@ function doPost(e) {
 
     var data = JSON.parse(e.postData.contents);
 
-    // 1. Validação de autenticação estrita: aceita exclusivamente APPS_SCRIPT_TOKEN
-    var tokenProvided = data.token || data.authToken || data.key || (e.parameter && e.parameter.token);
-    var auth = validateAuthorization(tokenProvided);
-    if (!auth.valid) {
-      return responseJSON({ status: "error", message: auth.error });
+    // Agendamento público: usa validações de cliente, catálogo, data, horário,
+    // concorrência e duplicidade abaixo. Ações administrativas continuam exigindo token.
+    var isPublicBooking = data.action === "createBooking";
+    if (!isPublicBooking) {
+      var tokenProvided = data.token || data.authToken || data.key || (e.parameter && e.parameter.token);
+      var auth = validateAuthorization(tokenProvided);
+      if (!auth.valid) {
+        return responseJSON({ status: "error", message: auth.error });
+      }
     }
 
     // 2. Leitura administrativa segura via POST (token no corpo)
