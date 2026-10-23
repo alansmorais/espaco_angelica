@@ -875,16 +875,17 @@ export async function updateRemoteAppointment(
 
 export async function fetchRemoteServices(): Promise<Service[]> {
   try {
-    const backendBase = getBackendApiUrl();
-    const targetUrl = backendBase ? `${backendBase}/api/services` : '/api/services';
-    const response = await fetch(targetUrl, {
-      headers: { Accept: 'application/json' }
+    const endpoint = getNotificationWebhookUrl();
+    if (!endpoint) return [];
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+      body: JSON.stringify({ action: 'getServices' })
     });
-    if (response.ok) {
-      const data = await response.json();
-      if (data?.success && Array.isArray(data.services) && data.services.length > 0) {
-        return data.services as Service[];
-      }
+    if (!response.ok) return [];
+    const data = await response.json();
+    if (data?.status === 'success' && Array.isArray(data.services)) {
+      return data.services as Service[];
     }
     return [];
   } catch {
