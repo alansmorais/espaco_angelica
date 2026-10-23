@@ -1,4 +1,4 @@
-export type ServiceCategory = 'alongamento' | 'blindagem' | 'nailart' | 'spa';
+export type ServiceCategory = 'alongamento' | 'blindagem' | 'nailart' | 'spa' | 'depilacao';
 
 export interface Service {
   id: string;

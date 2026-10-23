@@ -90,6 +90,17 @@ export const ServiceCatalog: React.FC<ServiceCatalogProps> = ({
             </button>
             <button
               type="button"
+              onClick={() => setActiveCategory('depilacao')}
+              className={`px-4 py-2 rounded-full font-jakarta text-[11px] sm:text-[12px] font-semibold transition-all cursor-pointer whitespace-nowrap min-h-[44px] flex items-center shrink-0 snap-start active:scale-95 ${
+                activeCategory === 'depilacao'
+                  ? 'bg-[#D4AF37] text-[#3C2F00] shadow-xs font-bold'
+                  : 'text-[#786C63] hover:text-[#49382E]'
+              }`}
+            >
+              Depilação
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveCategory('spa')}
               className={`px-4 py-2 rounded-full font-jakarta text-[11px] sm:text-[12px] font-semibold transition-all cursor-pointer whitespace-nowrap min-h-[44px] flex items-center shrink-0 snap-start active:scale-95 ${
                 activeCategory === 'spa'

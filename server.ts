@@ -1163,10 +1163,20 @@ export function validateBookingPaymentCoherence(payload: any): {
     }
   }
 
-  // The deposit amount is informational for booking; do not reject a booking
-  // because it differs from the percentage calculated from the catalogue.
+  // Validate the payment against the server-calculated total. Never trust the
+  // amount supplied by the browser, including when multiple services are selected.
   const resolvedMode: 'sinal_40' | 'pre_pagamento_100' =
     paymentMode || 'sinal_40';
+  const expectedDepositAmount = resolvedMode === 'pre_pagamento_100'
+    ? referencePrice
+    : Math.round(referencePrice * 0.4);
+
+  if (Math.abs(depositAmount - expectedDepositAmount) > 0.01) {
+    return {
+      valid: false,
+      error: `Valor do sinal/pagamento (R$ ${formatCurrencyServerBRL(depositAmount)}) não corresponde a ${resolvedMode === 'pre_pagamento_100' ? '100%' : '40%'} (R$ ${formatCurrencyServerBRL(expectedDepositAmount)}) do preço oficial de ${expectedTitle}.`
+    };
+  }
 
   return {
     valid: true,

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { SERVICES_CATALOG, SERVICE_PHOTO_PRESETS } from '../../data/mockData';
 import { Service, ServiceCategory, Appointment } from '../../types';
-import { uploadServicePhoto } from '../../services/emailNotificationService';
+import { uploadServicePhoto, listDrivePhotos, DrivePhoto } from '../../services/emailNotificationService';
 
 interface FinancialTabProps {
   services?: Service[];
@@ -106,6 +106,11 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
   // Async action states
   const [isSavingService, setIsSavingService] = useState<boolean>(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState<boolean>(false);
+  const [isDrivePickerOpen, setIsDrivePickerOpen] = useState(false);
+  const [drivePhotos, setDrivePhotos] = useState<DrivePhoto[]>([]);
+  const [isLoadingDrivePhotos, setIsLoadingDrivePhotos] = useState(false);
+  const [drivePhotoError, setDrivePhotoError] = useState<string | null>(null);
+
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   // Deletion modal state
@@ -228,6 +233,16 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
       // Reset input value so same file can be re-selected if desired
       e.target.value = '';
     }
+  };
+
+  const handleOpenDrivePicker = async () => {
+    setIsDrivePickerOpen(true);
+    setIsLoadingDrivePhotos(true);
+    setDrivePhotoError(null);
+    const result = await listDrivePhotos();
+    if (result.success) setDrivePhotos(result.photos || []);
+    else setDrivePhotoError(result.error || 'Não foi possível carregar as fotos.');
+    setIsLoadingDrivePhotos(false);
   };
 
   const handleSaveService = async (e: React.FormEvent) => {
@@ -534,6 +549,7 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
               <option value="blindagem">Blindagem &amp; Gel</option>
               <option value="nailart">Nail Art Autoral</option>
               <option value="spa">Spa &amp; Cuidados</option>
+              <option value="depilacao">Depilação</option>
             </select>
 
             {/* Availability Status Filter */}
@@ -724,6 +740,32 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
               </div>
             )}
 
+            {isDrivePickerOpen && (
+              <div className="fixed inset-0 z-[80] bg-black/60 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Escolher foto do Google Drive">
+                <div className="w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-2xl bg-white border border-[#E8D9B5] shadow-2xl flex flex-col">
+                  <div className="p-4 border-b border-[#E8D9B5] flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="font-syne text-lg font-bold text-[#49382E]">Escolher do Google Drive</h3>
+                      <p className="font-jakarta text-xs text-[#786C63]">Fotos da pasta oficial do ateliê</p>
+                    </div>
+                    <button type="button" onClick={() => setIsDrivePickerOpen(false)} className="rounded-lg p-2 hover:bg-[#F7EFEA]" aria-label="Fechar seletor">✕</button>
+                  </div>
+                  <div className="p-4 overflow-y-auto">
+                    {isLoadingDrivePhotos && <p className="text-sm text-[#786C63]">A carregar fotografias...</p>}
+                    {drivePhotoError && <p className="p-3 rounded-lg bg-red-50 text-red-700 text-sm">{drivePhotoError}</p>}
+                    {!isLoadingDrivePhotos && !drivePhotoError && drivePhotos.length === 0 && <p className="text-sm text-[#786C63]">Não foram encontradas fotografias na pasta.</p>}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                      {drivePhotos.map(photo => (
+                        <button key={photo.id} type="button" onClick={() => { setFormImageUrl(photo.url); setIsDrivePickerOpen(false); showNotification('Foto do Google Drive selecionada. Guarde o procedimento para confirmar a alteração.', 'success'); }} className="text-left rounded-xl overflow-hidden border border-[#E8D9B5] hover:border-[#D4AF37] hover:ring-2 hover:ring-[#D4AF37]/40 focus:outline-none focus:ring-2 focus:ring-[#D4AF37]">
+                          <img src={photo.thumbnailUrl || photo.url} alt={photo.name} loading="lazy" className="w-full aspect-square object-cover bg-[#F7EFEA]" />
+                          <span className="block p-2 text-[11px] text-[#49382E] truncate" title={photo.name}>{photo.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
             <form onSubmit={handleSaveService} className="space-y-5 font-jakarta text-xs">
               {/* Image Selection Section */}
               <div className="p-4 rounded-xl bg-[#FDFBF9] border border-[#E8D9B5] space-y-3">
@@ -759,6 +801,15 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
                           className="hidden"
                         />
                       </label>
+                      <button
+                        type="button"
+                        onClick={handleOpenDrivePicker}
+                        disabled={isUploadingPhoto}
+                        className="px-3 py-1.5 rounded-lg bg-[#FBF2D5] hover:bg-[#F3E4A8] text-[#49382E] font-semibold inline-flex items-center gap-1.5 border border-[#E8D9B5] transition-colors cursor-pointer disabled:opacity-60"
+                      >
+                        <span className="material-symbols-outlined text-[15px] text-[#D4AF37]">add_to_drive</span>
+                        Escolher do Google Drive
+                      </button>
                       {formImageUrl && (
                         <button
                           type="button"

@@ -90,7 +90,8 @@ function doPost(e) {
     // Agendamento público: usa validações de cliente, catálogo, data, horário,
     // concorrência e duplicidade abaixo. Ações administrativas continuam exigindo token.
     var isPublicBooking = data.action === "createBooking";
-    if (!isPublicBooking) {
+    var isPublicCatalogueRead = data.action === "getServices";
+    if (!isPublicBooking && !isPublicCatalogueRead) {
       var tokenProvided = data.token || data.authToken || data.key || (e.parameter && e.parameter.token);
       var auth = validateAuthorization(tokenProvided);
       if (!auth.valid) {
@@ -241,6 +242,34 @@ function doPost(e) {
           updatedAt: sRow[12] ? new Date(sRow[12]).toISOString() : new Date().toISOString()
         });
       }
+      // Lê a aba real Depilação como categoria adicional, sem criar dados.
+      var catalogueBook = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
+      var depSheet = catalogueBook.getSheetByName("Depilação") || catalogueBook.getSheetByName("Depilacao");
+      if (depSheet && depSheet.getLastRow() > 1) {
+        var depRows = depSheet.getDataRange().getValues();
+        for (var d = 1; d < depRows.length; d++) {
+          var dRow = depRows[d];
+          var dId = String(dRow[0] || '').trim();
+          if (!dId) continue;
+          var dSpecsVal = String(dRow[10] || '');
+          var dSpecs = dSpecsVal ? dSpecsVal.split(',').map(function(item) { return item.trim(); }).filter(Boolean) : [];
+          servicesList.push({
+            id: dId,
+            title: String(dRow[1] || ''),
+            category: 'depilacao',
+            price: Number(dRow[3] || 0),
+            priceFormatted: String(dRow[4] || ('R$ ' + Number(dRow[3] || 0).toFixed(2).replace('.', ','))),
+            duration: String(dRow[5] || '30min'),
+            badge: String(dRow[6] || ''),
+            description: String(dRow[7] || ''),
+            note: String(dRow[8] || ''),
+            imageUrl: String(dRow[9] || ''),
+            specs: dSpecs,
+            active: dRow[11] !== false && String(dRow[11]).toLowerCase() !== 'false',
+            updatedAt: dRow[12] ? new Date(dRow[12]).toISOString() : new Date().toISOString()
+          });
+        }
+      }
       return responseJSON({ status: "success", services: servicesList, total: servicesList.length });
     }
 
@@ -258,9 +287,11 @@ function doPost(e) {
       }
 
       try {
-        var saveServSheet = getServicesSheet();
+        var saveServSheet = (String(data.category || "").toLowerCase() === "depilacao" || String(data.category || "").toLowerCase() === "depilação")
+          ? (SpreadsheetApp.openById(TARGET_SPREADSHEET_ID).getSheetByName("Depilação") || SpreadsheetApp.openById(TARGET_SPREADSHEET_ID).getSheetByName("Depilacao"))
+          : getServicesSheet();
         if (!saveServSheet) {
-          return responseJSON({ status: "error", message: "Aba 'Serviços' (ou 'Servicos') não encontrada na planilha oficial." });
+          return responseJSON({ status: "error", message: "Aba de catálogo correspondente à categoria não encontrada na planilha oficial." });
         }
 
         var existingRows = saveServSheet.getDataRange().getValues();
@@ -347,6 +378,35 @@ function doPost(e) {
         });
       } finally {
         delServLock.releaseLock();
+      }
+    }
+
+    if (data.action === "listDrivePhotos") {
+      try {
+        // Lista somente imagens da pasta oficial. Esta ação permanece protegida
+        // pelo mesmo token administrativo aplicado às restantes ações.
+        var photoFolderId = "1JGypjL9OqGL5i2OUrjiGMKxkWD11YuAw";
+        var photoFolder = DriveApp.getFolderById(photoFolderId);
+        var photoFiles = photoFolder.getFiles();
+        var photos = [];
+        while (photoFiles.hasNext()) {
+          var photoFile = photoFiles.next();
+          var photoMime = String(photoFile.getMimeType() || "");
+          if (photoMime.indexOf("image/") !== 0 || photoFile.isTrashed()) continue;
+          photos.push({
+            id: photoFile.getId(),
+            name: photoFile.getName(),
+            url: "https://drive.google.com/uc?export=view&id=" + photoFile.getId(),
+            thumbnailUrl: "https://drive.google.com/thumbnail?id=" + photoFile.getId() + "&sz=w400",
+            updatedAt: photoFile.getLastUpdated().toISOString()
+          });
+        }
+        photos.sort(function(a, b) {
+          return String(b.updatedAt).localeCompare(String(a.updatedAt));
+        });
+        return responseJSON({ status: "success", photos: photos, total: photos.length });
+      } catch (photoListError) {
+        return responseJSON({ status: "error", message: "Não foi possível listar as fotos da pasta do Google Drive: " + photoListError.message });
       }
     }
 

@@ -875,16 +875,17 @@ export async function updateRemoteAppointment(
 
 export async function fetchRemoteServices(): Promise<Service[]> {
   try {
-    const backendBase = getBackendApiUrl();
-    const targetUrl = backendBase ? `${backendBase}/api/services` : '/api/services';
-    const response = await fetch(targetUrl, {
-      headers: { Accept: 'application/json' }
+    const endpoint = getNotificationWebhookUrl();
+    if (!endpoint) return [];
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+      body: JSON.stringify({ action: 'getServices' })
     });
-    if (response.ok) {
-      const data = await response.json();
-      if (data?.success && Array.isArray(data.services) && data.services.length > 0) {
-        return data.services as Service[];
-      }
+    if (!response.ok) return [];
+    const data = await response.json();
+    if (data?.status === 'success' && Array.isArray(data.services)) {
+      return data.services as Service[];
     }
     return [];
   } catch {
@@ -967,6 +968,36 @@ export async function deleteRemoteService(
     return { success: false, error: data?.error || `Erro HTTP ${response.status} ao excluir procedimento.` };
   } catch (err: any) {
     return { success: false, error: `Falha de rede: ${err.message || 'servidor indisponível'}.` };
+  }
+}
+
+export interface DrivePhoto {
+  id: string;
+  name: string;
+  url: string;
+  thumbnailUrl: string;
+  updatedAt?: string;
+}
+
+/** Lista fotos da pasta oficial via Apps Script, protegendo a ação com o token administrativo configurado. */
+export async function listDrivePhotos(): Promise<{ success: boolean; photos?: DrivePhoto[]; error?: string }> {
+  const endpoint = getNotificationWebhookUrl();
+  const token = getNotificationWebhookToken();
+  if (!endpoint) return { success: false, error: 'Configure o URL do Google Apps Script nas definições antes de selecionar fotos.' };
+  if (!token) return { success: false, error: 'Token administrativo do Google Apps Script não configurado.' };
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'listDrivePhotos', token })
+    });
+    const data = await response.json();
+    if (response.ok && data?.status === 'success' && Array.isArray(data.photos)) {
+      return { success: true, photos: data.photos as DrivePhoto[] };
+    }
+    return { success: false, error: data?.message || 'Não foi possível carregar as fotos do Google Drive.' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Falha de ligação ao Google Apps Script.' };
   }
 }
 
