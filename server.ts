@@ -681,7 +681,12 @@ app.put('/api/appointments/:appointmentId', async (req: Request, res: Response) 
         time: updates.time,
         depositAmount: updates.depositAmount !== undefined ? Number(updates.depositAmount) : undefined,
         status: updates.status,
-        notes: updates.notes
+        notes: updates.notes,
+        appointmentLocation: updates.appointmentLocation,
+        homeAddress: updates.homeAddress,
+        additionalServiceIds: updates.additionalServiceIds,
+        customRequest: updates.customRequest,
+        serviceId: updates.serviceId
       }),
       redirect: 'follow',
       signal: AbortSignal.timeout(15000)
