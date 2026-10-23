@@ -382,17 +382,19 @@ function doPost(e) {
       }
 
       try {
-        var folderName = "Espaco_Angie_Fotos";
-        var folders = DriveApp.getFoldersByName(folderName);
-        var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+        // Pasta oficial de fotos dos serviços e imagens de apresentação.
+        // O usuário/conta que executa este Apps Script precisa ter permissão de editor nesta pasta.
+        var folderId = "1JGypjL9OqGL5i2OUrjiGMKxkWD11YuAw";
+        var folder = DriveApp.getFolderById(folderId);
         var contentType = data.mimeType || "image/jpeg";
         var decoded = Utilities.base64Decode(data.imageBase64);
-        var fileName = data.fileName || ("foto-" + new Date().getTime() + ".jpg");
+        var fileName = data.fileName || ("servico-" + new Date().getTime() + ".jpg");
         var blob = Utilities.newBlob(decoded, contentType, fileName);
         var file = folder.createFile(blob);
         file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
         var fileId = file.getId();
-        var photoUrl = "https://lh3.googleusercontent.com/d/" + fileId;
+        // URL direta para incorporar a imagem em cartões, ícones e catálogo público.
+        var photoUrl = "https://drive.google.com/uc?export=view&id=" + fileId;
 
         return responseJSON({
           status: "success",

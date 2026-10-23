@@ -212,22 +212,14 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
       // Client-side canvas compression to avoid memory / storage quota overflow
       const compressed = await compressImageFile(file);
 
-      // Immediate local preview
-      const reader = new FileReader();
-      reader.onload = event => {
-        if (event.target?.result) {
-          setFormImageUrl(event.target.result as string);
-        }
-      };
-      reader.readAsDataURL(compressed);
-
-      // Upload to server/Drive for permanent URL
+      // A foto só pode ser usada no catálogo após receber uma URL permanente do Google Drive.
       const uploadRes = await uploadServicePhoto(compressed, adminSessionToken);
       if (uploadRes.success && uploadRes.url) {
         setFormImageUrl(uploadRes.url);
-        showNotification('Foto enviada e vinculada com sucesso ao catálogo.', 'success');
-      } else if (uploadRes.error) {
-        setFormError(`Aviso no upload: ${uploadRes.error}. Pré-visualização local mantida.`);
+        showNotification('Foto enviada e vinculada com sucesso ao Google Drive.', 'success');
+      } else {
+        setFormImageUrl('');
+        setFormError(uploadRes.error || 'O Google Drive não confirmou o upload. Tente novamente antes de salvar o serviço.');
       }
     } catch (err: any) {
       setFormError(`Erro ao processar imagem: ${err.message || 'Falha no processamento'}`);

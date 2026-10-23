@@ -1,6 +1,7 @@
 import React from 'react';
 import { Appointment } from '../../types';
 import { formatBRL } from '../../services/notificationTemplates';
+import { OverviewCalendar } from './OverviewCalendar';
 
 interface OverviewTabProps {
   onOpenManualBooking: () => void;
@@ -90,6 +91,8 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           </div>
         </div>
       </div>
+
+      <OverviewCalendar appointments={todayAppointments} onOpenAgenda={() => onNavigateToTab('agenda-bloqueios')} />
 
       {/* 4 KPIs Cards (Calculated from Real Data) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">

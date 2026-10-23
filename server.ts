@@ -1414,54 +1414,57 @@ app.post('/api/upload-photo', async (req: Request, res: Response) => {
   }
 
   const validMimes = ['image/jpeg', 'image/png', 'image/webp'];
-  const detectedMime = mimeType && validMimes.includes(mimeType) ? mimeType : 'image/jpeg';
-  const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z+]+;base64,/, '');
+  if (!mimeType || !validMimes.includes(mimeType)) {
+    return res.status(400).json({ success: false, error: 'Formato de imagem não suportado. Utilize JPEG, PNG ou WebP.' });
+  }
 
+  const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z+]+;base64,/, '');
   if (cleanBase64.length > 7.5 * 1024 * 1024) {
     return res.status(400).json({ success: false, error: 'A imagem excede o tamanho máximo permitido de 5MB.' });
   }
 
   const cfg = resolveAppsScriptConfig();
-  if (cfg.configured && cfg.webhookUrl) {
-    try {
-      const scriptRes = await fetch(cfg.webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'uploadPhoto',
-          token: cfg.token,
-          imageBase64: cleanBase64,
-          fileName: fileName || `foto-${Date.now()}.jpg`,
-          mimeType: detectedMime
-        }),
-        redirect: 'follow',
-        signal: AbortSignal.timeout(20000)
-      });
-      const data = JSON.parse(await scriptRes.text());
-      if (scriptRes.ok && data.status === 'success' && data.url) {
-        return res.json({ success: true, url: data.url, storage: 'google_drive' });
-      }
-    } catch {}
+  if (!cfg.configured || !cfg.webhookUrl || !cfg.token) {
+    return res.status(503).json({
+      success: false,
+      error: 'Upload para o Google Drive não está configurado no backend. Nenhuma foto foi salva.'
+    });
   }
 
   try {
-    const ext = detectedMime === 'image/png' ? 'png' : detectedMime === 'image/webp' ? 'webp' : 'jpg';
-    const uniqueName = `servico-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
-    const uploadDirs = [
-      path.resolve(__dirname, 'dist', 'uploads'),
-      path.resolve(__dirname, 'uploads')
-    ];
-    const buffer = Buffer.from(cleanBase64, 'base64');
-    for (const dir of uploadDirs) {
-      if (!fs.existsSync(dir)) {
-        try { fs.mkdirSync(dir, { recursive: true }); } catch {}
-      }
-      fs.writeFileSync(path.join(dir, uniqueName), buffer);
+    const scriptRes = await fetch(cfg.webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'uploadPhoto',
+        token: cfg.token,
+        imageBase64: cleanBase64,
+        fileName: fileName || `foto-${Date.now()}.jpg`,
+        mimeType
+      }),
+      redirect: 'follow',
+      signal: AbortSignal.timeout(20000)
+    });
+
+    const rawText = await scriptRes.text();
+    let data: any = null;
+    try {
+      data = JSON.parse(rawText);
+    } catch {}
+
+    if (!scriptRes.ok || data?.status !== 'success' || typeof data?.url !== 'string' || !data.url.startsWith('https://')) {
+      return res.status(502).json({
+        success: false,
+        error: data?.message || `Google Apps Script não confirmou o upload para o Google Drive (HTTP ${scriptRes.status}). Nenhuma URL temporária foi salva.`
+      });
     }
-    const publicUrl = `/uploads/${uniqueName}`;
-    return res.json({ success: true, url: publicUrl, storage: 'local_storage' });
-  } catch (saveErr: any) {
-    return res.status(500).json({ success: false, error: `Falha ao salvar imagem no servidor: ${saveErr.message}` });
+
+    return res.json({ success: true, url: data.url, storage: 'google_drive' });
+  } catch (err: any) {
+    return res.status(502).json({
+      success: false,
+      error: `Falha ao enviar foto para o Google Drive: ${err.message || 'servidor indisponível'}. Nenhuma foto foi salva como URL temporária.`
+    });
   }
 });
 
