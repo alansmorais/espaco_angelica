@@ -982,6 +982,9 @@ export function validateBookingPaymentCoherence(payload: any): {
   }
 
   const { serviceId, serviceTitle, servicePrice, depositAmount, paymentMode, status } = payload;
+  const additionalServiceIds: string[] = Array.isArray(payload.additionalServiceIds)
+    ? [...new Set(payload.additionalServiceIds.filter((id: unknown): id is string => typeof id === 'string' && id.trim() !== ''))]
+    : [];
 
   if (typeof depositAmount !== 'number' || !Number.isFinite(depositAmount) || depositAmount <= 0) {
     return {
@@ -1019,7 +1022,7 @@ export function validateBookingPaymentCoherence(payload: any): {
       };
     }
 
-    if (typeof serviceTitle === 'string' && serviceTitle.trim() !== '') {
+    if (typeof serviceTitle === 'string' && serviceTitle.trim() !== '' && additionalServiceIds.length === 0) {
       const normalizedTitle = serviceTitle.trim().toLowerCase();
       if (normalizedTitle !== canonicalService.title.toLowerCase()) {
         return {
@@ -1044,18 +1047,31 @@ export function validateBookingPaymentCoherence(payload: any): {
     };
   }
 
-  // Reject spoofed or unparseable servicePrice if sent by the browser
+  // Resolve every additional service against the server-side catalogue. Never trust browser-supplied prices.
+  const additionalServices = additionalServiceIds.map(id => OFFICIAL_SERVICES_BY_ID[id] || DYNAMIC_SERVICES_BY_ID[id]);
+  if (additionalServices.some(service => !service)) {
+    return { valid: false, error: 'Um ou mais serviços adicionais não existem no catálogo oficial.' };
+  }
+  if (additionalServiceIds.includes(String(serviceId || ''))) {
+    return { valid: false, error: 'O procedimento principal não pode ser repetido como serviço adicional.' };
+  }
+  const referencePrice = canonicalService.price + additionalServices.reduce((sum, service) => sum + service!.price, 0);
+  const expectedTitle = [canonicalService.title, ...additionalServices.map(service => service!.title)].join(' + ');
+  if (additionalServices.length > 0 && typeof serviceTitle === 'string' && serviceTitle.trim().toLowerCase() !== expectedTitle.toLowerCase()) {
+    return { valid: false, error: 'Os nomes dos serviços não correspondem ao catálogo oficial.' };
+  }
+
+  // Reject spoofed or unparseable combined price if sent by the browser.
   if (servicePrice !== undefined && servicePrice !== null && String(servicePrice).trim() !== '') {
     const parsedPrice = parseBRLString(String(servicePrice));
-    if (parsedPrice === null || Math.abs(parsedPrice - canonicalService.price) > 0.01) {
+    if (parsedPrice === null || Math.abs(parsedPrice - referencePrice) > 0.01) {
       return {
         valid: false,
-        error: `Preço informado (${servicePrice}) diverge da tabela oficial para "${canonicalService.title}" (R$ ${formatCurrencyServerBRL(canonicalService.price)}).`
+        error: `Preço informado (${servicePrice}) diverge da soma oficial dos serviços selecionados (R$ ${formatCurrencyServerBRL(referencePrice)}).`
       };
     }
   }
 
-  const referencePrice = canonicalService.price;
   const expected40 = Math.round(referencePrice * 0.4 * 100) / 100;
   const expected100 = Math.round(referencePrice * 100) / 100;
   const matches40 = Math.abs(depositAmount - expected40) < 0.01;
@@ -1064,21 +1080,19 @@ export function validateBookingPaymentCoherence(payload: any): {
   if (paymentMode === 'sinal_40' && !matches40) {
     return {
       valid: false,
-      error: `Valor do sinal (R$ ${formatCurrencyServerBRL(depositAmount)}) diverge de 40% do procedimento (esperado: R$ ${formatCurrencyServerBRL(expected40)}).`
+      error: `Valor do sinal (R$ ${formatCurrencyServerBRL(depositAmount)}) diverge de 40% do total oficial (esperado: R$ ${formatCurrencyServerBRL(expected40)}).`
     };
   }
-
   if (paymentMode === 'pre_pagamento_100' && !matches100) {
     return {
       valid: false,
-      error: `Valor do pré-pagamento 100% (R$ ${formatCurrencyServerBRL(depositAmount)}) diverge do total oficial do procedimento sem descontos (esperado: R$ ${formatCurrencyServerBRL(expected100)}).`
+      error: `Valor do pré-pagamento 100% diverge do total oficial sem descontos (esperado: R$ ${formatCurrencyServerBRL(expected100)}).`
     };
   }
-
   if (!matches40 && !matches100) {
     return {
       valid: false,
-      error: `Valor enviado (R$ ${formatCurrencyServerBRL(depositAmount)}) não corresponde a 40% (R$ ${formatCurrencyServerBRL(expected40)}) nem a 100% (R$ ${formatCurrencyServerBRL(expected100)}) do procedimento.`
+      error: `Valor enviado não corresponde a 40% (R$ ${formatCurrencyServerBRL(expected40)}) nem a 100% (R$ ${formatCurrencyServerBRL(expected100)}) do total.`
     };
   }
 
@@ -1089,7 +1103,7 @@ export function validateBookingPaymentCoherence(payload: any): {
   return {
     valid: true,
     verifiedServiceId: canonicalService.id,
-    verifiedServiceTitle: canonicalService.title,
+    verifiedServiceTitle: expectedTitle,
     verifiedDepositAmount: resolvedDeposit,
     verifiedServicePrice: `R$ ${formatCurrencyServerBRL(referencePrice)}`,
     verifiedPaymentMode: resolvedMode
