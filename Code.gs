@@ -689,8 +689,6 @@ function doPost(e) {
         }
       }
 
-      /* Previous duplicate-ID loop replaced by a single atomic duplicate and slot-conflict check. */
-      /*
       // 10. Grava linha na aba oficial 'Agendamentos' (apenas após validação completa)
       sheet.appendRow([
         new Date(),
