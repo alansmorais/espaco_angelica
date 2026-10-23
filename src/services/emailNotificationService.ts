@@ -611,7 +611,8 @@ export async function fetchRemoteAppointmentsDetailed(authToken?: string): Promi
 
     const response = await fetch(targetUrl, {
       method: 'GET',
-      headers
+      headers,
+      signal: AbortSignal.timeout(12000)
     });
 
     if (response.ok) {
