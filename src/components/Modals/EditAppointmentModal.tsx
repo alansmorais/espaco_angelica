@@ -20,6 +20,10 @@ export const EditAppointmentModal: React.FC<EditAppointmentModalProps> = ({
   const [clientPhone, setClientPhone] = useState('');
   const [clientEmail, setClientEmail] = useState('');
   const [serviceTitle, setServiceTitle] = useState('');
+  const [additionalServiceIds, setAdditionalServiceIds] = useState<string[]>([]);
+  const [customRequest, setCustomRequest] = useState('');
+  const [appointmentLocation, setAppointmentLocation] = useState<'salon' | 'home'>('salon');
+  const [homeAddress, setHomeAddress] = useState('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   const [status, setStatus] = useState<SlotStatus>('pendente_pix');
@@ -33,6 +37,10 @@ export const EditAppointmentModal: React.FC<EditAppointmentModalProps> = ({
       setClientPhone(appointment.clientPhone || '');
       setClientEmail(appointment.clientEmail || '');
       setServiceTitle(appointment.serviceTitle || '');
+      setAdditionalServiceIds(appointment.additionalServiceIds || []);
+      setCustomRequest(appointment.customRequest || '');
+      setAppointmentLocation(appointment.appointmentLocation || 'salon');
+      setHomeAddress(appointment.homeAddress || '');
       setDate(appointment.date || '');
       setTime(appointment.time || '');
       setStatus(appointment.status || 'pendente_pix');
@@ -62,24 +70,34 @@ export const EditAppointmentModal: React.FC<EditAppointmentModalProps> = ({
       setSubmitError('O horário do agendamento é obrigatório.');
       return;
     }
+    if (appointmentLocation === 'home' && homeAddress.trim().length < 8) {
+      setSubmitError('Informe o endereço completo para atendimento em domicílio.');
+      return;
+    }
 
     setIsSubmitting(true);
     setSubmitError(null);
 
     // Encontra preço/id correspondente se o serviço foi selecionado do catálogo
     const matchedService = services.find(s => s.title.toLowerCase() === serviceTitle.toLowerCase());
+    const additionalServices = services.filter(service => additionalServiceIds.includes(service.id) && service.id !== matchedService?.id);
+    const combinedPrice = matchedService ? matchedService.price + additionalServices.reduce((sum, service) => sum + service.price, 0) : undefined;
 
     const updatedApt: Appointment = {
       ...appointment,
       clientName: clientName.trim(),
       clientPhone: clientPhone.trim(),
       clientEmail: clientEmail.trim() || undefined,
-      serviceTitle: serviceTitle.trim(),
+      serviceTitle: [matchedService?.title || serviceTitle.trim(), ...additionalServices.map(service => service.title)].join(' + '),
       ...(matchedService && {
         serviceId: matchedService.id,
-        servicePrice: matchedService.priceFormatted,
+        servicePrice: combinedPrice === undefined ? matchedService.priceFormatted : `R$ ${combinedPrice.toFixed(2).replace('.', ',')}`,
         serviceDuration: matchedService.duration
       }),
+      additionalServiceIds,
+      customRequest: customRequest.trim() || undefined,
+      appointmentLocation,
+      homeAddress: appointmentLocation === 'home' ? homeAddress.trim() : undefined,
       date: date.trim(),
       time: time.trim(),
       status,
@@ -227,6 +245,30 @@ export const EditAppointmentModal: React.FC<EditAppointmentModalProps> = ({
               <option value="concluido">Concluído (Atendimento realizado)</option>
               <option value="cancelado">Cancelado</option>
             </select>
+          </div>
+
+          <div className="rounded-xl border border-[#E8D9B5] p-3 space-y-3">
+            <label className="block text-[#49382E] font-bold mb-1">Serviços adicionais</label>
+            {services.filter(service => service.id !== appointment?.serviceId).map(service => (
+              <label key={service.id} className="flex items-center gap-2">
+                <input type="checkbox" checked={additionalServiceIds.includes(service.id)}
+                  onChange={e => setAdditionalServiceIds(current => e.target.checked ? [...current, service.id] : current.filter(id => id !== service.id))} />
+                <span className="flex-1">{service.title}</span><span>{service.priceFormatted}</span>
+              </label>
+            ))}
+            <label className="block text-[#49382E] font-bold">Pedido personalizado (preço sujeito à confirmação)
+              <textarea value={customRequest} onChange={e => setCustomRequest(e.target.value)} rows={2}
+                className="mt-1 w-full px-3 py-2 rounded-xl bg-white border border-[#E8D9B5]" />
+            </label>
+            <label className="block text-[#49382E] font-bold">Local do atendimento</label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2"><input type="radio" name="editLocation" checked={appointmentLocation === 'salon'} onChange={() => setAppointmentLocation('salon')} /> Salão</label>
+              <label className="flex items-center gap-2"><input type="radio" name="editLocation" checked={appointmentLocation === 'home'} onChange={() => setAppointmentLocation('home')} /> Domicílio</label>
+            </div>
+            {appointmentLocation === 'home' && <label className="block text-[#49382E] font-bold">Endereço completo *
+              <textarea required value={homeAddress} onChange={e => setHomeAddress(e.target.value)} rows={2}
+                className="mt-1 w-full px-3 py-2 rounded-xl bg-white border border-[#E8D9B5]" />
+            </label>}
           </div>
 
           <div>
