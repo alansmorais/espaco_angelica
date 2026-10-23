@@ -592,19 +592,9 @@ function doPost(e) {
         return responseJSON({ status: "error", message: "Valor do sinal/pagamento inválido ou ausente." });
       }
 
-      var matches40 = Math.abs(depositNum - expected40) < 0.01;
-      var matches100 = Math.abs(depositNum - expected100) < 0.01;
-      if (!matches40 && !matches100) {
-        return responseJSON({ status: "error", message: "Valor do sinal/pagamento não corresponde a 40% (R$ " + expected40.toFixed(2) + ") nem a 100% (R$ " + expected100.toFixed(2) + ") do preço oficial de " + canonical.title + "." });
-      }
-      if (data.paymentMode === "sinal_40" && !matches40) {
-        return responseJSON({ status: "error", message: "Valor diverge de 40% do procedimento oficial." });
-      }
-      if (data.paymentMode === "pre_pagamento_100" && !matches100) {
-        return responseJSON({ status: "error", message: "Valor diverge de 100% do procedimento oficial." });
-      }
-
-      var resolvedMode = data.paymentMode || (matches100 ? "pre_pagamento_100" : "sinal_40");
+      // O sinal é uma orientação de pagamento; não rejeitar a reserva por divergência percentual.
+      var matches100 = data.paymentMode === "pre_pagamento_100";
+      var resolvedMode = data.paymentMode || "sinal_40";
       var serviceTitle = expectedServiceTitle;
       var balanceNum = Math.max(0, referencePrice - depositNum);
       var amountFormatted = depositNum.toFixed(2).replace(".", ",");
