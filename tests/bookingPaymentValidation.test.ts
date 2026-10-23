@@ -1875,8 +1875,8 @@ runTest('Bloqueio de Agenda: BookingWizard e Backend impedem reservas em datas b
     'BookingWizard deve ter o helper isDateBlocked'
   );
   assertCondition(
-    wizardContent.includes('available: !isDateBlocked'),
-    'BookingWizard deve marcar available: false para datas bloqueadas'
+    wizardContent.includes('isDateUnavailable') && wizardContent.includes('const disabled = past || unavailable'),
+    'BookingWizard deve desabilitar datas passadas, bloqueadas ou indisponíveis no calendário dinâmico'
   );
 
   // 3. Frontend: handleConfirmBooking impede submissão em data bloqueada
