@@ -42,7 +42,15 @@ function getOfficialSheet() {
   try {
     var ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
     if (!ss) return null;
-    return ss.getSheetByName("Agendamentos");
+    var sheet = ss.getSheetByName("Agendamentos");
+    if (!sheet) return null;
+    // Add new optional columns without overwriting existing booking data or legacy columns.
+    var extensionHeaders = ["Local do Atendimento", "Endereço Domiciliar", "IDs Serviços Adicionais", "Pedido Personalizado", "ID Serviço Principal"];
+    for (var h = 0; h < extensionHeaders.length; h++) {
+      var cell = sheet.getRange(1, 12 + h);
+      if (!String(cell.getValue() || "").trim()) cell.setValue(extensionHeaders[h]);
+    }
+    return sheet;
   } catch (e) {
     return null;
   }
@@ -218,6 +226,11 @@ function doPost(e) {
         if (data.depositAmount !== undefined) updateSheet.getRange(foundRowIndex, 8).setValue(Number(data.depositAmount));
         if (data.status !== undefined) updateSheet.getRange(foundRowIndex, 9).setValue(String(data.status).trim());
         if (data.notes !== undefined) updateSheet.getRange(foundRowIndex, 11).setValue(String(data.notes).trim());
+        if (data.appointmentLocation !== undefined) updateSheet.getRange(foundRowIndex, 12).setValue(String(data.appointmentLocation).trim());
+        if (data.homeAddress !== undefined) updateSheet.getRange(foundRowIndex, 13).setValue(String(data.homeAddress).trim());
+        if (data.additionalServiceIds !== undefined) updateSheet.getRange(foundRowIndex, 14).setValue(JSON.stringify(Array.isArray(data.additionalServiceIds) ? data.additionalServiceIds : []));
+        if (data.customRequest !== undefined) updateSheet.getRange(foundRowIndex, 15).setValue(String(data.customRequest).trim());
+        if (data.serviceId !== undefined) updateSheet.getRange(foundRowIndex, 16).setValue(String(data.serviceId).trim());
 
         return responseJSON({
           status: "success",
@@ -701,7 +714,12 @@ function doPost(e) {
         depositNum,
         data.status || 'pendente_pix',
         rawId,
-        data.notes ? String(data.notes).trim() : ''
+        data.notes ? String(data.notes).trim() : '',
+        data.appointmentLocation ? String(data.appointmentLocation) : 'salon',
+        data.appointmentLocation === 'home' ? String(data.homeAddress || '').trim() : '',
+        JSON.stringify(Array.isArray(data.additionalServiceIds) ? data.additionalServiceIds : []),
+        data.customRequest ? String(data.customRequest).trim() : '',
+        data.serviceId ? String(data.serviceId).trim() : ''
       ]);
 
       // 11. Disparo de e-mails para reserva real
@@ -893,7 +911,12 @@ function fetchAppointmentsFromSheet() {
       time: timeStr,
       depositAmount: Number(row[7] || 0),
       status: String(row[8] || 'pendente_pix'),
-      notes: String(row[10] || '')
+      notes: String(row[10] || ''),
+      appointmentLocation: String(row[11] || 'salon') === 'home' ? 'home' : 'salon',
+      homeAddress: String(row[12] || '') || undefined,
+      additionalServiceIds: (function() { try { var parsed = JSON.parse(String(row[13] || '[]')); return Array.isArray(parsed) ? parsed : []; } catch (e) { return []; } })(),
+      customRequest: String(row[14] || '') || undefined,
+      serviceId: String(row[15] || '') || undefined
     });
   }
   return responseJSON({ status: "success", appointments: appointments, total: appointments.length });
