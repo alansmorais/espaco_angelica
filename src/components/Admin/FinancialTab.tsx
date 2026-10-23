@@ -549,6 +549,7 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
               <option value="blindagem">Blindagem &amp; Gel</option>
               <option value="nailart">Nail Art Autoral</option>
               <option value="spa">Spa &amp; Cuidados</option>
+              <option value="depilacao">Depilação</option>
             </select>
 
             {/* Availability Status Filter */}
