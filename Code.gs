@@ -15,7 +15,7 @@ var OFFICIAL_CATALOG = {
   "manutencao-fibra": { title: "Manutenção Fibra de Vidro", price: 140 },
   "blindagem-diamante": { title: "Blindagem Diamante & Banho Gel", price: 130 },
   "esmaltacao-gel-premium": { title: "Esmaltação em Gel Premium", price: 95 },
-  "nail-art-encapsulada": { title: "Nail Art Autoral & Encapsulada", price: 50 },
+  "nail-art-encapsulada": { title: "Nail Art Autoral & Encapsulada", price: 30 },
   "spa-das-maos-ouro": { title: "Spa das Mãos & Esfoliação", price: 85 }
 };
 
@@ -76,7 +76,7 @@ function getServicesSheet() {
         ["manutencao-fibra-vidro", "Manutenção Fibra de Vidro", "manutencao", 140, "R$ 140,00", "1h 45min", "", "Reposição de estrutura, nivelamento e reforço das tensões.", "Recomendado a cada 21 a 28 dias", "https://images.unsplash.com/photo-1632345031435-8727f6897d53?auto=format&fit=crop&w=800&q=80", "Nivelamento milimétrico, Selagem de bordas, Troca de top coat", true, new Date()],
         ["blindagem-diamante", "Blindagem Diamante & Banho Gel", "blindagem", 130, "R$ 130,00", "1h 30min", "Brilho Intenso", "Camada protetora sobre as unhas naturais, conferindo brilho vitrificado e resistência.", "Ideal para quem busca manter o comprimento natural sem quebras", "https://images.unsplash.com/photo-1519014816548-bf5fe059798b?auto=format&fit=crop&w=800&q=80", "Gel autonivelante de alta densidade, Brilho espelhado, Resistência a impactos", true, new Date()],
         ["esmaltacao-gel-premium", "Esmaltação em Gel Premium", "esmaltacao", 95, "R$ 95,00", "1h 15min", "", "Secagem imediata em cabine LED/UV com brilho impecável por até 20 dias.", "Unhas prontas para sair sem borrar", "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=800&q=80", "Durabilidade 15 a 21 dias, Secagem instantânea, Não lasca", true, new Date()],
-        ["nail-art-encapsulada", "Nail Art Autoral & Encapsulada", "nailart", 50, "A partir de R$ 50,00", "45min", "Autoral", "Design personalizado: encapsulados, francesinha reversa, marmorizados e aplicações.", "Preço base por par ou aplicação conforme complexidade", "https://images.unsplash.com/photo-1599940824399-b87987ceb72a?auto=format&fit=crop&w=800&q=80", "Pigmentos importados, Pedrarias de alta fixação, Efeitos 3D e foil", true, new Date()],
+        ["nail-art-encapsulada", "Nail Art Autoral & Encapsulada", "nailart", 30, "A partir de R$ 30,00", "45min", "Autoral", "Design personalizado: encapsulados, francesinha reversa, marmorizados e aplicações.", "Preço base por par ou aplicação conforme complexidade", "https://images.unsplash.com/photo-1599940824399-b87987ceb72a?auto=format&fit=crop&w=800&q=80", "Pigmentos importados, Pedrarias de alta fixação, Efeitos 3D e foil", true, new Date()],
         ["spa-das-maos-ouro", "Spa das Mãos & Esfoliação", "spa", 85, "R$ 85,00", "50min", "Relaxamento", "Esfoliação enzimática, hidratação profunda com máscara térmica e massagem relaxante.", "Tratamento rejuvenescedor para mãos e cutículas", "https://images.unsplash.com/photo-1560750588-73207b1ef5b8?auto=format&fit=crop&w=800&q=80", "Esfoliação botânica, Máscara com colágeno, Massagem relaxante", true, new Date()]
       ];
       for (var d = 0; d < defaults.length; d++) {
