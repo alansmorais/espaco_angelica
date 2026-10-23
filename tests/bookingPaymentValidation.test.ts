@@ -40,7 +40,7 @@ const EXPECTED_SERVICES = [
   { id: 'manutencao-fibra-vidro', title: 'Manutenção Fibra de Vidro', price: 140, deposit40: 56, full100: 140, balance40: 84 },
   { id: 'blindagem-diamante', title: 'Blindagem Diamante & Banho Gel', price: 130, deposit40: 52, full100: 130, balance40: 78 },
   { id: 'esmaltacao-gel-premium', title: 'Esmaltação em Gel Premium', price: 95, deposit40: 38, full100: 95, balance40: 57 },
-  { id: 'nail-art-encapsulada', title: 'Nail Art Autoral & Encapsulada', price: 50, deposit40: 20, full100: 50, balance40: 30 },
+  { id: 'nail-art-encapsulada', title: 'Nail Art Autoral & Encapsulada', price: 30, deposit40: 12, full100: 30, balance40: 18 },
   { id: 'spa-das-maos-ouro', title: 'Spa das Mãos & Esfoliação', price: 85, deposit40: 34, full100: 85, balance40: 51 }
 ];
 
