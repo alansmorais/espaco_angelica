@@ -28,8 +28,8 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
 }) => {
   const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
   const [selectedSlotKey, setSelectedSlotKey] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<'dia' | 'semana' | 'mes'>('semana');
-  const [selectedDayLabel, setSelectedDayLabel] = useState<string>('Quinta, 14 Nov');
+  const [activeView, setActiveView] = useState<'dia' | 'semana' | 'mes'>('mes');
+  const [selectedDayLabel, setSelectedDayLabel] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [actionNotice, setActionNotice] = useState<string | null>(null);
 
   const showNotice = (msg: string) => {
@@ -115,13 +115,18 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
     window.open(`https://wa.me/${phoneDigits}?text=${msg}`, '_blank');
   };
 
-  const daysHeader = [
-    { label: 'Terça', num: '12', full: 'Terça, 12 Nov' },
-    { label: 'Quarta', num: '13', full: 'Quarta, 13 Nov' },
-    { label: 'Quinta', num: '14', full: 'Quinta, 14 Nov' },
-    { label: 'Sexta', num: '15', full: 'Sexta, 15 Nov' },
-    { label: 'Sábado', num: '16', full: 'Sábado, 16 Nov' }
-  ];
+  const [visibleMonth, setVisibleMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const formatDate = (date: Date) => date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+  const selectedDate = new Date(selectedDayLabel + 'T12:00:00');
+  const daysHeader = Array.from({ length: 5 }, (_, i) => {
+    const date = new Date(selectedDate);
+    date.setDate(date.getDate() + i - 2);
+    return { label: date.toLocaleDateString('pt-BR', { weekday: 'short' }), num: String(date.getDate()), full: formatDate(date) };
+  });
+  const monthStart = (visibleMonth.getDay() + 6) % 7;
+  const daysInMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 0).getDate();
+  const monthCells = [...Array(monthStart).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)] as (number | null)[];
+  const dayAppointments = appointments.filter(a => a.status !== 'cancelado' && areDatesEqual(a.date, selectedDayLabel));
 
   return (
     <div className="flex flex-col gap-6 text-[#49382E]">
@@ -132,7 +137,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
           <div className="flex items-center gap-2 bg-[#F7EFEA] px-4 py-1.5 rounded-full border border-[#E8D9B5]">
             <span className="material-symbols-outlined text-[#D4AF37] text-[18px]">calendar_month</span>
             <span className="font-syne text-sm sm:text-base text-[#49382E] font-bold tracking-tight">
-              Grade Semanal de Atendimentos
+              Calendário de Atendimentos
             </span>
           </div>
 
@@ -227,6 +232,33 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
         {/* Calendar Timetable Grid (8 cols) */}
         <div className="xl:col-span-8 flex flex-col bg-[#FFFFFF] rounded-2xl p-4 lg:p-6 border border-[#E8D9B5] shadow-xs overflow-hidden">
+          {activeView === 'mes' && (
+            <div className="mb-5 border border-[#E8D9B5] rounded-2xl p-3 sm:p-4">
+              <div className="flex items-center justify-between mb-4">
+                <button type="button" aria-label="Mês anterior" onClick={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1))} className="px-3 py-2 border rounded-lg">‹</button>
+                <strong className="capitalize">{visibleMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</strong>
+                <button type="button" aria-label="Próximo mês" onClick={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1))} className="px-3 py-2 border rounded-lg">›</button>
+              </div>
+              <div className="grid grid-cols-7 gap-1 text-center text-xs">
+                {['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].map(d => <strong key={d} className="py-2">{d}</strong>)}
+                {monthCells.map((day, i) => {
+                  const date = day ? formatDate(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), day)) : '';
+                  const items = day ? appointments.filter(a => a.status !== 'cancelado' && areDatesEqual(a.date, date)) : [];
+                  const blocked = items.some(a => a.status === 'bloqueado');
+                  return <button key={i} type="button" disabled={!day} onClick={() => { if (day) { setSelectedDayLabel(date); setSelectedSlotKey(null); } }} className={`min-h-14 rounded-lg border flex flex-col items-center justify-center gap-1 ${!day ? 'border-transparent' : date === selectedDayLabel ? 'bg-[#FBF2D5] border-[#D4AF37]' : 'border-[#E8D9B5] hover:bg-[#F7EFEA]'}`}>
+                    {day || ''}{items.length > 0 && <span className={`text-[10px] rounded-full px-1.5 ${blocked ? 'bg-red-100 text-red-800' : 'bg-[#D4AF37] text-[#3C2F00]'}`}>{items.length}{blocked ? ' 🔒' : ''}</span>}
+                  </button>;
+                })}
+              </div>
+              <div className="mt-4 border-t pt-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                  <strong>Agendamentos de {selectedDate.toLocaleDateString('pt-BR')}</strong>
+                  <button type="button" onClick={() => onOpenBlockModal(selectedDayLabel)} className="px-3 py-2 rounded-lg bg-[#D4AF37] text-xs font-bold">Bloquear esta data / horário</button>
+                </div>
+                {dayAppointments.length === 0 ? <p className="text-xs text-[#786C63]">Nenhum agendamento nesta data.</p> : dayAppointments.map(a => <button key={a.id} type="button" onClick={() => setSelectedSlotKey(a.id)} className="w-full text-left p-3 mb-1 rounded-lg border border-[#E8D9B5] hover:bg-[#FBF2D5] text-xs"><strong>{a.time} · {a.clientName}</strong> — {a.serviceTitle} ({a.status})</button>)}
+              </div>
+            </div>
+          )}
           {/* Day Selector Buttons */}
           <div className="grid grid-cols-5 gap-2 pb-4 border-b border-[#E8D9B5] mb-4">
             {daysHeader.map(d => {
