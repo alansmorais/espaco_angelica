@@ -8,17 +8,6 @@
 
 var TARGET_SPREADSHEET_ID = "1dB23gq_EiQtCT-TQcdEK1yHV0lk5X0TkkIZKbnqTRs0";
 
-// Catálogo Oficial Canônico de Procedimentos e Preços
-var OFFICIAL_CATALOG = {
-  "alongamento-fibra-slim": { title: "Alongamento em Fibra Slim", price: 220 },
-  "manutencao-fibra-vidro": { title: "Manutenção Fibra de Vidro", price: 140 },
-  "manutencao-fibra": { title: "Manutenção Fibra de Vidro", price: 140 },
-  "blindagem-diamante": { title: "Blindagem Diamante & Banho Gel", price: 130 },
-  "esmaltacao-gel-premium": { title: "Esmaltação em Gel Premium", price: 95 },
-  "nail-art-encapsulada": { title: "Nail Art Autoral & Encapsulada", price: 30 },
-  "spa-das-maos-ouro": { title: "Spa das Mãos & Esfoliação", price: 85 }
-};
-
 function validateAuthorization(tokenProvided) {
   var expectedToken = PropertiesService.getScriptProperties().getProperty("APPS_SCRIPT_TOKEN");
 
