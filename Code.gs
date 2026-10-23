@@ -649,6 +649,8 @@ function doPost(e) {
 
       // 9. Proteção anti-duplicidade atômica na planilha (Coluna J: ID Agendamento)
       var existing = sheet.getDataRange().getValues();
+      var requestedDateKey = normalizeBookingDate(bookingDate);
+      var requestedTimeKey = normalizeBookingTime(bookingTime);
       for (var i = 1; i < existing.length; i++) {
         var existingId = existing[i][9] ? String(existing[i][9]).trim() : "";
         if (existingId && existingId.toLowerCase() === rawId.toLowerCase()) {
@@ -673,8 +675,22 @@ function doPost(e) {
             }
           });
         }
+        var existingStatus = String(existing[i][8] || 'pendente_pix').toLowerCase();
+        var existingDateKey = normalizeBookingDate(existing[i][5]);
+        var existingTimeKey = normalizeBookingTime(existing[i][6]);
+        if (requestedDateKey && requestedTimeKey &&
+            requestedDateKey === existingDateKey && requestedTimeKey === existingTimeKey &&
+            ['cancelado', 'bloqueado', 'teste_sistema'].indexOf(existingStatus) === -1) {
+          return responseJSON({
+            status: "error",
+            conflict: true,
+            message: "Este horário acabou de ser reservado. Escolha outro horário."
+          });
+        }
       }
 
+      /* Previous duplicate-ID loop replaced by a single atomic duplicate and slot-conflict check. */
+      /*
       // 10. Grava linha na aba oficial 'Agendamentos' (apenas após validação completa)
       sheet.appendRow([
         new Date(),
@@ -829,6 +845,27 @@ function doPost(e) {
   } catch (err) {
     return responseJSON({ status: "error", message: err.toString() });
   }
+}
+
+function normalizeBookingDate(value) {
+  var tz = Session.getScriptTimeZone() || "America/Sao_Paulo";
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, tz, "yyyy-MM-dd");
+  }
+  var text = String(value || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.substring(0, 10);
+  var dmy = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (dmy) return dmy[3] + "-" + dmy[2] + "-" + dmy[1];
+  return text;
+}
+
+function normalizeBookingTime(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone() || "America/Sao_Paulo", "HH:mm");
+  }
+  var text = String(value || "").trim();
+  var match = text.match(/^(\d{1,2}):(\d{2})/);
+  return match ? ("0" + match[1]).slice(-2) + ":" + match[2] : text;
 }
 
 function fetchAppointmentsFromSheet() {
