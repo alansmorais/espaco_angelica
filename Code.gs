@@ -90,7 +90,8 @@ function doPost(e) {
     // Agendamento público: usa validações de cliente, catálogo, data, horário,
     // concorrência e duplicidade abaixo. Ações administrativas continuam exigindo token.
     var isPublicBooking = data.action === "createBooking";
-    if (!isPublicBooking) {
+    var isPublicCatalogueRead = data.action === "getServices";
+    if (!isPublicBooking && !isPublicCatalogueRead) {
       var tokenProvided = data.token || data.authToken || data.key || (e.parameter && e.parameter.token);
       var auth = validateAuthorization(tokenProvided);
       if (!auth.valid) {
