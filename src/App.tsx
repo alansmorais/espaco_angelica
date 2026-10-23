@@ -31,11 +31,14 @@ import {
   updateRemoteAppointment,
   fetchRemoteAppointments,
   fetchRemoteAppointmentsDetailed,
+  fetchPublicAvailability,
   submitBlockSchedule,
   fetchRemoteBlockedDates,
   fetchRemoteServices,
   saveRemoteService,
-  deleteRemoteService
+  deleteRemoteService,
+  createAdminSession,
+  revokeAdminSession
 } from './services/emailNotificationService';
 
 // Public Components
@@ -116,11 +119,16 @@ export default function App() {
     setAdminLoginError(null);
 
     try {
-      const result = await fetchRemoteAppointmentsDetailed(entered);
+      const session = await createAdminSession(entered);
+      if (!session.success || !session.token) {
+        setAdminLoginError(session.error || 'Não foi possível criar uma sessão administrativa segura.');
+        return;
+      }
+      const result = await fetchRemoteAppointmentsDetailed(session.token);
       if (result.success) {
-        setAdminSessionToken(entered);
+        setAdminSessionToken(session.token);
         try {
-          sessionStorage.setItem('angelica_admin_session', entered);
+          sessionStorage.setItem('angelica_admin_session', session.token);
         } catch {}
         setAppointments(result.appointments);
         setRemoteAppointmentsError(null);
@@ -163,6 +171,8 @@ export default function App() {
   };
 
   const handleAdminLogout = () => {
+    const token = adminSessionToken;
+    if (token) void revokeAdminSession(token);
     try {
       sessionStorage.removeItem('angelica_admin_session');
     } catch {}
@@ -197,13 +207,17 @@ export default function App() {
   const [services, setServices] = useState<Service[]>(() => {
     try {
       const saved = localStorage.getItem('angelica_services');
-      return saved ? JSON.parse(saved) : SERVICES_CATALOG;
+      return saved ? JSON.parse(saved) : [];
     } catch {
       return SERVICES_CATALOG;
     }
   });
 
   const activeServices = services.filter(s => s.active !== false);
+  const [publicAvailability, setPublicAvailability] = useState<Appointment[]>([]);
+  const [publicBlockedDates, setPublicBlockedDates] = useState<string[]>([]);
+  const [publicAvailabilityLoaded, setPublicAvailabilityLoaded] = useState(false);
+  const [publicAvailabilityError, setPublicAvailabilityError] = useState<string | null>(null);
   const [selectedService, setSelectedService] = useState<Service>(
     activeServices[0] || services[0] || SERVICES_CATALOG[0]
   );
@@ -250,20 +264,46 @@ export default function App() {
   const [appointments, setAppointments] = useState<Appointment[]>(() => {
     try {
       const saved = localStorage.getItem('angelica_appointments');
-      return saved ? JSON.parse(saved) : INITIAL_TODAY_APPOINTMENTS;
+      return saved ? JSON.parse(saved) : [];
     } catch {
-      return INITIAL_TODAY_APPOINTMENTS;
+      return [];
     }
   });
 
   const [clients, setClients] = useState<ClientProfile[]>(() => {
     try {
       const saved = localStorage.getItem('angelica_clients');
-      return saved ? JSON.parse(saved) : INITIAL_CLIENTS;
+      return saved ? JSON.parse(saved) : [];
     } catch {
-      return INITIAL_CLIENTS;
+      return [];
     }
   });
+
+  // Restore an existing server-issued session after refresh; expired sessions are rejected server-side.
+  useEffect(() => {
+    const token = adminSessionToken;
+    if (!token) return;
+    let active = true;
+    void fetchRemoteAppointmentsDetailed(token).then(result => {
+      if (!active) return;
+      if (result.success) {
+        setAppointments(result.appointments);
+        setRemoteAppointmentsError(null);
+        setAppMode('admin');
+        calculateLocalOnlyCount(result.appointments);
+      } else {
+        try { sessionStorage.removeItem('angelica_admin_session'); } catch {}
+        setAdminSessionToken('');
+        setAppMode('public');
+      }
+    }).catch(() => {
+      if (!active) return;
+      setRemoteAppointmentsError('Não foi possível validar a sessão administrativa.');
+    });
+    return () => { active = false; };
+  // Intentionally run only once on page load to validate the stored session.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Save to localStorage whenever states change
   useEffect(() => {
@@ -354,6 +394,27 @@ export default function App() {
       clearInterval(interval);
     };
   }, [appMode, adminSessionToken]);
+
+  // Public availability synchronization; expose only date/time/status and fail closed when unavailable.
+  useEffect(() => {
+    let isMounted = true;
+    const syncAvailability = async () => {
+      const result = await fetchPublicAvailability();
+      if (!isMounted) return;
+      if (result.success) {
+        setPublicAvailability(result.appointments);
+        setPublicBlockedDates(result.blockedDates);
+        setPublicAvailabilityLoaded(true);
+        setPublicAvailabilityError(null);
+      } else {
+        setPublicAvailabilityLoaded(false);
+        setPublicAvailabilityError(result.error || 'A disponibilidade oficial não está acessível.');
+      }
+    };
+    void syncAvailability();
+    const interval = setInterval(() => { void syncAvailability(); }, 30000);
+    return () => { isMounted = false; clearInterval(interval); };
+  }, []);
 
   // Public Blocked Dates Synchronization (Sem expor PII de clientes)
   useEffect(() => {
@@ -901,18 +962,25 @@ export default function App() {
               selectedServiceId={selectedService.id}
             />
 
-            {/* Fluxo de Agendamento Dinâmico (Wizard com Recorrência, Horários e Pré-pagamento Pix) */}
-            <BookingWizard
-              selectedService={activeServices.find(s => s.id === selectedService?.id) || activeServices[0] || services[0]}
-              onBookingConfirmed={handleBookingConfirmed}
-              timeSlots={timeSlots}
-              blacklist={blacklist}
-              studioAddress={studioAddress}
-              services={activeServices}
-              onSelectService={handleSelectService}
-              appointments={appointments}
-              blockedDates={appointments.filter(a => a.status === 'bloqueado').map(a => a.date)}
-            />
+            {/* Public booking is unavailable until the real service catalogue loads; never show a mock service as bookable. */}
+            {activeServices.length > 0 && publicAvailabilityLoaded ? (
+              <BookingWizard
+                selectedService={activeServices.find(s => s.id === selectedService?.id) || activeServices[0]}
+                onBookingConfirmed={handleBookingConfirmed}
+                timeSlots={timeSlots}
+                blacklist={blacklist}
+                studioAddress={studioAddress}
+                services={activeServices}
+                onSelectService={handleSelectService}
+                appointments={publicAvailability}
+                blockedDates={publicBlockedDates}
+              />
+            ) : (
+              <section id="wizard-agendamento" className="mx-auto my-12 max-w-3xl rounded-2xl border border-[#E8D9B5] bg-white p-8 text-center">
+                <h2 className="font-syne text-xl font-bold text-[#49382E]">Agenda temporariamente indisponível</h2>
+                <p className="mt-2 text-sm text-[#786C63]">{!publicAvailabilityLoaded ? (publicAvailabilityError || 'Carregando a disponibilidade oficial da agenda…') : 'Não foi possível carregar o catálogo oficial de serviços. Nenhum serviço de demonstração será exibido. Tente novamente em instantes ou entre em contato com o espaço.'}</p>
+              </section>
+            )}
 
             {/* Galeria de Criações Recentes */}
             <GallerySection />

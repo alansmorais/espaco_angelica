@@ -40,7 +40,7 @@ const EXPECTED_SERVICES = [
   { id: 'manutencao-fibra-vidro', title: 'Manutenção Fibra de Vidro', price: 140, deposit40: 56, full100: 140, balance40: 84 },
   { id: 'blindagem-diamante', title: 'Blindagem Diamante & Banho Gel', price: 130, deposit40: 52, full100: 130, balance40: 78 },
   { id: 'esmaltacao-gel-premium', title: 'Esmaltação em Gel Premium', price: 95, deposit40: 38, full100: 95, balance40: 57 },
-  { id: 'nail-art-encapsulada', title: 'Nail Art Autoral & Encapsulada', price: 50, deposit40: 20, full100: 50, balance40: 30 },
+  { id: 'nail-art-encapsulada', title: 'Nail Art Autoral & Encapsulada', price: 30, deposit40: 12, full100: 30, balance40: 18 },
   { id: 'spa-das-maos-ouro', title: 'Spa das Mãos & Esfoliação', price: 85, deposit40: 34, full100: 85, balance40: 51 }
 ];
 
@@ -132,33 +132,40 @@ runTest('Validação de sinal_40 (40%) e pre_pagamento_100 (100% sem desconto) p
   }
 });
 
-// 3. Serviços adicionais: validação do total combinado no servidor
-runTest('Serviços adicionais: soma oficial, sinal de 40% e pré-pagamento de 100%', () => {
+// 3. Serviços adicionais: o total deve ser a soma de todos os serviços selecionados
+runTest('Serviços adicionais: soma de 2 ou mais extras, sinal de 40% sobre o total e pré-pagamento de 100%', () => {
+  const main = OFFICIAL_SERVICES_BY_ID['alongamento-fibra-slim'];
+  const additionalIds = ['spa-das-maos-ouro', 'nail-art-encapsulada'];
+  const additional = additionalIds.map(id => OFFICIAL_SERVICES_BY_ID[id]);
+  const total = main.price + additional.reduce((sum, service) => sum + service.price, 0);
+  const deposit40 = calculateDeposit40(total);
+  const title = [main.title, ...additional.map(service => service.title)].join(' + ');
   const combined = {
-    serviceId: 'alongamento-fibra-slim',
-    additionalServiceIds: ['spa-das-maos-ouro'],
-    serviceTitle: 'Alongamento em Fibra Slim + Spa das Mãos Ouro',
-    servicePrice: 'R$ 305,00',
-    depositAmount: 122,
+    serviceId: main.id,
+    additionalServiceIds: additionalIds,
+    serviceTitle: title,
+    servicePrice: `R$ ${formatBRL(total)}`,
+    depositAmount: deposit40,
     paymentMode: 'sinal_40'
   };
   const validCombined = validateBookingPaymentCoherence(combined);
   assertCondition(validCombined.valid === true, `Backend rejeitou total combinado válido: ${validCombined.error}`);
-  assertCondition(validCombined.verifiedServicePrice === 'R$ 305,00', 'Backend não retornou a soma dos preços oficiais');
-  assertCondition(validCombined.verifiedDepositAmount === 122, 'Sinal de 40% não foi calculado sobre o total combinado');
+  assertCondition(validCombined.verifiedServicePrice === `R$ ${formatBRL(total)}`, 'Backend não retornou a soma dos preços oficiais de todos os serviços');
+  assertCondition(validCombined.verifiedDepositAmount === deposit40, 'Sinal de 40% não foi calculado sobre o total combinado');
 
-  const wrongTotal = validateBookingPaymentCoherence({ ...combined, servicePrice: 'R$ 300,00', depositAmount: 120 });
+  const wrongTotal = validateBookingPaymentCoherence({ ...combined, servicePrice: `R$ ${formatBRL(total - 5)}` });
   assertCondition(wrongTotal.valid === false, 'Backend aceitou total adulterado de serviços combinados');
 
-  const wrongDeposit = validateBookingPaymentCoherence({ ...combined, depositAmount: 100 });
+  const wrongDeposit = validateBookingPaymentCoherence({ ...combined, depositAmount: deposit40 - 1 });
   assertCondition(wrongDeposit.valid === false, 'Backend aceitou sinal incorreto para serviços combinados');
 
   const fullPayment = validateBookingPaymentCoherence({
     ...combined,
-    depositAmount: 305,
+    depositAmount: total,
     paymentMode: 'pre_pagamento_100'
   });
   assertCondition(fullPayment.valid === true, `Backend rejeitou pré-pagamento integral válido: ${fullPayment.error}`);
+  assertCondition(fullPayment.verifiedDepositAmount === total, 'Pré-pagamento integral deve corresponder à soma de todos os serviços');
 });
 
 // 3. Confirmação de que NÃO existe mais desconto de 5% no pré-pagamento integral
@@ -1354,32 +1361,32 @@ runTest('WhatsApp Service Admin Authentication: requisições administrativas an
   assertCondition(authHeaders['Content-Type'] === 'application/json', 'Content-Type deve ser preservado');
 });
 
-// 31. Validação de preço-base "A partir de R$ 50,00" para Nail Art Encapsulada e notas adicionais
-runTest('Nail Art Base Pricing: procedimento com preço "A partir de R$ 50,00" valida corretamente base R$ 50 e notas', () => {
+// 31. Validação de preço-base "A partir de R$ 30,00" para Nail Art Encapsulada e notas adicionais
+runTest('Nail Art Base Pricing: procedimento com preço "A partir de R$ 30,00" valida corretamente base R$ 30 e notas', () => {
   const nailArtPayload = {
     serviceId: 'nail-art-encapsulada',
     serviceTitle: 'Nail Art Autoral & Encapsulada',
-    servicePrice: 'A partir de R$ 50,00',
-    depositAmount: 20, // 40% de 50
+    servicePrice: 'A partir de R$ 30,00',
+    depositAmount: 12, // 40% de 30
     paymentMode: 'sinal_40',
     notes: 'Inspiração: madrepérola e folha de ouro nas unhas anelares'
   };
 
   const validation = validateBookingPaymentCoherence(nailArtPayload);
-  assertCondition(validation.valid === true, 'Nail Art com base R$ 50,00 e sinal de R$ 20,00 deve ser validada com sucesso');
-  assertCondition(validation.verifiedDepositAmount === 20, 'Depósito verificado deve ser exatamente R$ 20,00');
-  assertCondition(validation.verifiedServicePrice === 'R$ 50,00', 'Preço canônico numérico formatado como R$ 50,00 deve ser gerado');
+  assertCondition(validation.valid === true, 'Nail Art com base R$ 30,00 e sinal de R$ 12,00 deve ser validada com sucesso');
+  assertCondition(validation.verifiedDepositAmount === 12, 'Depósito verificado deve ser exatamente R$ 12,00');
+  assertCondition(validation.verifiedServicePrice === 'R$ 30,00', 'Preço canônico numérico formatado como R$ 30,00 deve ser gerado');
 
   // Teste de 100% de pré-pagamento para Nail Art
   const nailArtFull = {
     serviceId: 'nail-art-encapsulada',
     serviceTitle: 'Nail Art Autoral & Encapsulada',
-    depositAmount: 50,
+    depositAmount: 30,
     paymentMode: 'pre_pagamento_100'
   };
   const validationFull = validateBookingPaymentCoherence(nailArtFull);
-  assertCondition(validationFull.valid === true, 'Pré-pagamento de 100% para Nail Art (R$ 50,00) deve ser aceito');
-  assertCondition(validationFull.verifiedDepositAmount === 50, 'Depósito verificado deve ser R$ 50,00');
+  assertCondition(validationFull.valid === true, 'Pré-pagamento de 100% para Nail Art (R$ 30,00) deve ser aceito');
+  assertCondition(validationFull.verifiedDepositAmount === 30, 'Depósito verificado deve ser R$ 30,00');
 });
 
 // 32. Validação estática e estrutural de Code.gs e codeGsTemplate.ts: isolamento total de testes
@@ -1875,8 +1882,8 @@ runTest('Bloqueio de Agenda: BookingWizard e Backend impedem reservas em datas b
     'BookingWizard deve ter o helper isDateBlocked'
   );
   assertCondition(
-    wizardContent.includes('available: !isDateBlocked'),
-    'BookingWizard deve marcar available: false para datas bloqueadas'
+    wizardContent.includes('isDateUnavailable') && wizardContent.includes('const disabled = past || unavailable'),
+    'BookingWizard deve desabilitar datas passadas, bloqueadas ou indisponíveis no calendário dinâmico'
   );
 
   // 3. Frontend: handleConfirmBooking impede submissão em data bloqueada
@@ -1940,8 +1947,9 @@ runTest('Bloqueio de Agenda: BookingWizard recebe blockedDates explicitamente do
   // Verifica que BookingWizard é invocado com a prop blockedDates no App.tsx
   assertCondition(
     appContent.includes('<BookingWizard') &&
-    appContent.includes("blockedDates={appointments.filter(a => a.status === 'bloqueado').map(a => a.date)}"),
-    'App.tsx deve passar explicitamente a prop blockedDates computada a partir de appointments com status "bloqueado"'
+    appContent.includes('blockedDates={publicBlockedDates}') &&
+    appContent.includes('appointments={publicAvailability}'),
+    'App.tsx deve passar ao BookingWizard a disponibilidade pública confirmada pelo backend'
   );
 });
 

@@ -26,6 +26,10 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
   const [clientPhone, setClientPhone] = useState('');
   const [clientEmail, setClientEmail] = useState('');
   const [selectedServiceId, setSelectedServiceId] = useState(services[0]?.id || SERVICES_CATALOG[0].id);
+  const [additionalServiceIds, setAdditionalServiceIds] = useState<string[]>([]);
+  const [customRequest, setCustomRequest] = useState('');
+  const [appointmentLocation, setAppointmentLocation] = useState<'salon' | 'home'>('salon');
+  const [homeAddress, setHomeAddress] = useState('');
   const [date, setDate] = useState('Quinta, 14 Nov');
   const [time, setTime] = useState('14:30');
   const [paymentMode, setPaymentMode] = useState<'sinal_40' | 'pre_pagamento_100'>('sinal_40');
@@ -59,8 +63,10 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
   const effectivePaymentMode = isInadimplente ? 'pre_pagamento_100' : paymentMode;
 
   const serv = services.find(s => s.id === selectedServiceId) || services[0] || SERVICES_CATALOG[0];
-  const standardDeposit = calculateDeposit40(serv.price);
-  const fullPrepayment = calculateFullPrepayment(serv.price);
+  const additionalServices = services.filter(service => additionalServiceIds.includes(service.id) && service.id !== serv.id);
+  const totalPrice = serv.price + additionalServices.reduce((sum, service) => sum + service.price, 0);
+  const standardDeposit = calculateDeposit40(totalPrice);
+  const fullPrepayment = calculateFullPrepayment(totalPrice);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,6 +87,10 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
 
     if (!date.trim() || !time.trim()) {
       setSubmitError('Por favor, informe a data e o horário do atendimento.');
+      return;
+    }
+    if (appointmentLocation === 'home' && homeAddress.trim().length < 8) {
+      setSubmitError('Informe o endereço completo para atendimento em domicílio.');
       return;
     }
 
@@ -110,8 +120,12 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
       clientPhone: trimmedPhone,
       clientEmail: clientEmail.trim() || undefined,
       serviceId: serv.id,
-      serviceTitle: serv.title,
-      servicePrice: serv.priceFormatted,
+      additionalServiceIds,
+      customRequest: customRequest.trim() || undefined,
+      appointmentLocation,
+      homeAddress: appointmentLocation === 'home' ? homeAddress.trim() : undefined,
+      serviceTitle: [serv.title, ...additionalServices.map(service => service.title)].join(' + '),
+      servicePrice: `R$ ${formatBRL(totalPrice)}`,
       serviceDuration: serv.duration,
       date: date.trim(),
       time: time.trim(),
@@ -269,6 +283,31 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
                 </option>
               ))}
             </select>
+          </div>
+
+          <div className="space-y-2 rounded-xl border border-[#E8D9B5] p-3">
+            <label className="block text-[#49382E] font-semibold mb-1">Serviços adicionais</label>
+            {services.filter(service => service.id !== serv.id).map(service => (
+              <label key={service.id} className="flex items-center gap-2">
+                <input type="checkbox" checked={additionalServiceIds.includes(service.id)}
+                  onChange={event => setAdditionalServiceIds(current => event.target.checked ? [...current, service.id] : current.filter(id => id !== service.id))} />
+                <span className="flex-1">{service.title}</span><span>{service.priceFormatted}</span>
+              </label>
+            ))}
+            <label className="block font-semibold pt-2">Pedido personalizado (preço sujeito à confirmação)
+              <textarea value={customRequest} onChange={event => setCustomRequest(event.target.value)} rows={2}
+                className="mt-1 w-full rounded-lg border border-[#E8D9B5] bg-[#FDFBF9] p-2" />
+            </label>
+            <label className="block font-semibold pt-2">Local do atendimento</label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2"><input type="radio" name="manualLocation" checked={appointmentLocation === 'salon'} onChange={() => setAppointmentLocation('salon')} /> Salão</label>
+              <label className="flex items-center gap-2"><input type="radio" name="manualLocation" checked={appointmentLocation === 'home'} onChange={() => setAppointmentLocation('home')} /> Domicílio</label>
+            </div>
+            {appointmentLocation === 'home' && <label className="block font-semibold">Endereço completo *
+              <textarea required value={homeAddress} onChange={event => setHomeAddress(event.target.value)} rows={2}
+                className="mt-1 w-full rounded-lg border border-[#E8D9B5] bg-[#FDFBF9] p-2" />
+            </label>}
+            <div className="font-bold text-sm">Total dos serviços: R$ {formatBRL(totalPrice)}</div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
