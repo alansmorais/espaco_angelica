@@ -132,33 +132,40 @@ runTest('Validação de sinal_40 (40%) e pre_pagamento_100 (100% sem desconto) p
   }
 });
 
-// 3. Serviços adicionais: validação do total combinado no servidor
-runTest('Serviços adicionais: soma oficial, sinal de 40% e pré-pagamento de 100%', () => {
+// 3. Serviços adicionais: o total deve ser a soma de todos os serviços selecionados
+runTest('Serviços adicionais: soma de 2 ou mais extras, sinal de 40% sobre o total e pré-pagamento de 100%', () => {
+  const main = OFFICIAL_SERVICES_BY_ID['alongamento-fibra-slim'];
+  const additionalIds = ['spa-das-maos-ouro', 'nail-art-encapsulada'];
+  const additional = additionalIds.map(id => OFFICIAL_SERVICES_BY_ID[id]);
+  const total = main.price + additional.reduce((sum, service) => sum + service.price, 0);
+  const deposit40 = calculateDeposit40(total);
+  const title = [main.title, ...additional.map(service => service.title)].join(' + ');
   const combined = {
-    serviceId: 'alongamento-fibra-slim',
-    additionalServiceIds: ['spa-das-maos-ouro'],
-    serviceTitle: 'Alongamento em Fibra Slim + Spa das Mãos & Esfoliação',
-    servicePrice: 'R$ 305,00',
-    depositAmount: 122,
+    serviceId: main.id,
+    additionalServiceIds: additionalIds,
+    serviceTitle: title,
+    servicePrice: `R$ ${formatBRL(total)}`,
+    depositAmount: deposit40,
     paymentMode: 'sinal_40'
   };
   const validCombined = validateBookingPaymentCoherence(combined);
   assertCondition(validCombined.valid === true, `Backend rejeitou total combinado válido: ${validCombined.error}`);
-  assertCondition(validCombined.verifiedServicePrice === 'R$ 305,00', 'Backend não retornou a soma dos preços oficiais');
-  assertCondition(validCombined.verifiedDepositAmount === 122, 'Sinal de 40% não foi calculado sobre o total combinado');
+  assertCondition(validCombined.verifiedServicePrice === `R$ ${formatBRL(total)}`, 'Backend não retornou a soma dos preços oficiais de todos os serviços');
+  assertCondition(validCombined.verifiedDepositAmount === deposit40, 'Sinal de 40% não foi calculado sobre o total combinado');
 
-  const wrongTotal = validateBookingPaymentCoherence({ ...combined, servicePrice: 'R$ 300,00', depositAmount: 120 });
+  const wrongTotal = validateBookingPaymentCoherence({ ...combined, servicePrice: `R$ ${formatBRL(total - 5)}` });
   assertCondition(wrongTotal.valid === false, 'Backend aceitou total adulterado de serviços combinados');
 
-  const wrongDeposit = validateBookingPaymentCoherence({ ...combined, depositAmount: 100 });
+  const wrongDeposit = validateBookingPaymentCoherence({ ...combined, depositAmount: deposit40 - 1 });
   assertCondition(wrongDeposit.valid === false, 'Backend aceitou sinal incorreto para serviços combinados');
 
   const fullPayment = validateBookingPaymentCoherence({
     ...combined,
-    depositAmount: 305,
+    depositAmount: total,
     paymentMode: 'pre_pagamento_100'
   });
   assertCondition(fullPayment.valid === true, `Backend rejeitou pré-pagamento integral válido: ${fullPayment.error}`);
+  assertCondition(fullPayment.verifiedDepositAmount === total, 'Pré-pagamento integral deve corresponder à soma de todos os serviços');
 });
 
 // 3. Confirmação de que NÃO existe mais desconto de 5% no pré-pagamento integral
