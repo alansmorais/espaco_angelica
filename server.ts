@@ -476,6 +476,21 @@ function isAuthorizedAdminRequest(req: Request): boolean {
   return false;
 }
 
+app.get('/api/public/availability', (_req: Request, res: Response) => {
+  // Public-safe availability only: never return client names, phone numbers, email, notes, or payment data.
+  const activeSlots = serverAppointments
+    .filter(a => !deletedAppointmentIds.has(a.id) && !['cancelado', 'teste_sistema'].includes(String(a.status)))
+    .map(a => ({
+      id: String(a.id || ''),
+      date: String(a.date || ''),
+      time: String(a.time || ''),
+      status: String(a.status || 'pendente_pix')
+    }));
+  const blockedDates = Array.from(new Set(activeSlots.filter(a => a.status === 'bloqueado').map(a => a.date)));
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json({ success: true, slots: activeSlots, blockedDates, updatedAt: new Date().toISOString() });
+});
+
 app.get('/api/appointments', async (req: Request, res: Response) => {
   if (!isAuthorizedAdminRequest(req)) {
     return res.status(401).json({
