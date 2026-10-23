@@ -206,7 +206,7 @@ export default function App() {
   const [services, setServices] = useState<Service[]>(() => {
     try {
       const saved = localStorage.getItem('angelica_services');
-      return saved ? JSON.parse(saved) : SERVICES_CATALOG;
+      return saved ? JSON.parse(saved) : [];
     } catch {
       return SERVICES_CATALOG;
     }
@@ -259,18 +259,18 @@ export default function App() {
   const [appointments, setAppointments] = useState<Appointment[]>(() => {
     try {
       const saved = localStorage.getItem('angelica_appointments');
-      return saved ? JSON.parse(saved) : INITIAL_TODAY_APPOINTMENTS;
+      return saved ? JSON.parse(saved) : [];
     } catch {
-      return INITIAL_TODAY_APPOINTMENTS;
+      return [];
     }
   });
 
   const [clients, setClients] = useState<ClientProfile[]>(() => {
     try {
       const saved = localStorage.getItem('angelica_clients');
-      return saved ? JSON.parse(saved) : INITIAL_CLIENTS;
+      return saved ? JSON.parse(saved) : [];
     } catch {
-      return INITIAL_CLIENTS;
+      return [];
     }
   });
 
@@ -936,18 +936,25 @@ export default function App() {
               selectedServiceId={selectedService.id}
             />
 
-            {/* Fluxo de Agendamento Dinâmico (Wizard com Recorrência, Horários e Pré-pagamento Pix) */}
-            <BookingWizard
-              selectedService={activeServices.find(s => s.id === selectedService?.id) || activeServices[0] || services[0]}
-              onBookingConfirmed={handleBookingConfirmed}
-              timeSlots={timeSlots}
-              blacklist={blacklist}
-              studioAddress={studioAddress}
-              services={activeServices}
-              onSelectService={handleSelectService}
-              appointments={appointments}
-              blockedDates={appointments.filter(a => a.status === 'bloqueado').map(a => a.date)}
-            />
+            {/* Public booking is unavailable until the real service catalogue loads; never show a mock service as bookable. */}
+            {activeServices.length > 0 ? (
+              <BookingWizard
+                selectedService={activeServices.find(s => s.id === selectedService?.id) || activeServices[0]}
+                onBookingConfirmed={handleBookingConfirmed}
+                timeSlots={timeSlots}
+                blacklist={blacklist}
+                studioAddress={studioAddress}
+                services={activeServices}
+                onSelectService={handleSelectService}
+                appointments={appointments}
+                blockedDates={appointments.filter(a => a.status === 'bloqueado').map(a => a.date)}
+              />
+            ) : (
+              <section id="wizard-agendamento" className="mx-auto my-12 max-w-3xl rounded-2xl border border-[#E8D9B5] bg-white p-8 text-center">
+                <h2 className="font-syne text-xl font-bold text-[#49382E]">Agenda temporariamente indisponível</h2>
+                <p className="mt-2 text-sm text-[#786C63]">Não foi possível carregar o catálogo oficial de serviços. Nenhum serviço de demonstração será exibido. Tente novamente em instantes ou entre em contato com o espaço.</p>
+              </section>
+            )}
 
             {/* Galeria de Criações Recentes */}
             <GallerySection />
