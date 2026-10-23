@@ -1173,7 +1173,11 @@ export default function App() {
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-syne text-xs font-bold text-[#49382E]">
-                        {remoteAppointmentsError ? 'Modo Offline (Contingência Local)' : 'Sincronizado na Nuvem'}
+                        {remoteAppointmentsError
+                          ? 'Modo Offline (Contingência Local)'
+                          : isLoadingRemoteAppointments
+                          ? 'Sincronizando na Nuvem'
+                          : 'Sincronizado na Nuvem'}
                       </span>
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                         remoteAppointmentsError
