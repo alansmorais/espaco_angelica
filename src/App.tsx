@@ -31,6 +31,7 @@ import {
   updateRemoteAppointment,
   fetchRemoteAppointments,
   fetchRemoteAppointmentsDetailed,
+  fetchPublicAvailability,
   submitBlockSchedule,
   fetchRemoteBlockedDates,
   fetchRemoteServices,
@@ -213,6 +214,10 @@ export default function App() {
   });
 
   const activeServices = services.filter(s => s.active !== false);
+  const [publicAvailability, setPublicAvailability] = useState<Appointment[]>([]);
+  const [publicBlockedDates, setPublicBlockedDates] = useState<string[]>([]);
+  const [publicAvailabilityLoaded, setPublicAvailabilityLoaded] = useState(false);
+  const [publicAvailabilityError, setPublicAvailabilityError] = useState<string | null>(null);
   const [selectedService, setSelectedService] = useState<Service>(
     activeServices[0] || services[0] || SERVICES_CATALOG[0]
   );
@@ -389,6 +394,27 @@ export default function App() {
       clearInterval(interval);
     };
   }, [appMode, adminSessionToken]);
+
+  // Public availability synchronization; expose only date/time/status and fail closed when unavailable.
+  useEffect(() => {
+    let isMounted = true;
+    const syncAvailability = async () => {
+      const result = await fetchPublicAvailability();
+      if (!isMounted) return;
+      if (result.success) {
+        setPublicAvailability(result.appointments);
+        setPublicBlockedDates(result.blockedDates);
+        setPublicAvailabilityLoaded(true);
+        setPublicAvailabilityError(null);
+      } else {
+        setPublicAvailabilityLoaded(false);
+        setPublicAvailabilityError(result.error || 'A disponibilidade oficial não está acessível.');
+      }
+    };
+    void syncAvailability();
+    const interval = setInterval(() => { void syncAvailability(); }, 30000);
+    return () => { isMounted = false; clearInterval(interval); };
+  }, []);
 
   // Public Blocked Dates Synchronization (Sem expor PII de clientes)
   useEffect(() => {
@@ -937,7 +963,7 @@ export default function App() {
             />
 
             {/* Public booking is unavailable until the real service catalogue loads; never show a mock service as bookable. */}
-            {activeServices.length > 0 ? (
+            {activeServices.length > 0 && publicAvailabilityLoaded ? (
               <BookingWizard
                 selectedService={activeServices.find(s => s.id === selectedService?.id) || activeServices[0]}
                 onBookingConfirmed={handleBookingConfirmed}
@@ -946,13 +972,13 @@ export default function App() {
                 studioAddress={studioAddress}
                 services={activeServices}
                 onSelectService={handleSelectService}
-                appointments={appointments}
-                blockedDates={appointments.filter(a => a.status === 'bloqueado').map(a => a.date)}
+                appointments={publicAvailability}
+                blockedDates={publicBlockedDates}
               />
             ) : (
               <section id="wizard-agendamento" className="mx-auto my-12 max-w-3xl rounded-2xl border border-[#E8D9B5] bg-white p-8 text-center">
                 <h2 className="font-syne text-xl font-bold text-[#49382E]">Agenda temporariamente indisponível</h2>
-                <p className="mt-2 text-sm text-[#786C63]">Não foi possível carregar o catálogo oficial de serviços. Nenhum serviço de demonstração será exibido. Tente novamente em instantes ou entre em contato com o espaço.</p>
+                <p className="mt-2 text-sm text-[#786C63]">{!publicAvailabilityLoaded ? (publicAvailabilityError || 'Carregando a disponibilidade oficial da agenda…') : 'Não foi possível carregar o catálogo oficial de serviços. Nenhum serviço de demonstração será exibido. Tente novamente em instantes ou entre em contato com o espaço.'}</p>
               </section>
             )}
 
