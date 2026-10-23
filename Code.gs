@@ -8,6 +8,57 @@
 
 var TARGET_SPREADSHEET_ID = "1dB23gq_EiQtCT-TQcdEK1yHV0lk5X0TkkIZKbnqTRs0";
 
+function uploadImageToDrive(base64Data, fileName, mimeType) {
+  try {
+    if (!base64Data || !fileName || !mimeType) {
+      throw new Error(
+        'Image data, file name and MIME type are required.'
+      );
+    }
+
+    const allowedTypes = [
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'image/gif'
+    ];
+
+    if (allowedTypes.indexOf(mimeType) === -1) {
+      throw new Error('Unsupported image file type.');
+    }
+
+    const decodedData = Utilities.base64Decode(base64Data);
+
+    if (decodedData.length > 10 * 1024 * 1024) {
+      throw new Error('Image must be 10 MB or smaller.');
+    }
+
+    const folder = DriveApp.getFolderById(FOLDER_ID);
+
+    const safeFileName = String(fileName)
+      .replace(/[\\/:*?"<>|]/g, '_');
+
+    const blob = Utilities.newBlob(
+      decodedData,
+      mimeType,
+      safeFileName
+    );
+
+    const file = folder.createFile(blob);
+
+    return 'https://drive.google.com/thumbnail?id=' +
+      file.getId() +
+      '&sz=w1000';
+
+  } catch (error) {
+    console.error('Image upload failed:', error);
+
+    throw new Error(
+      'Image upload failed: ' + error.message
+    );
+  }
+}
+
 function validateAuthorization(tokenProvided) {
   var expectedToken = PropertiesService.getScriptProperties().getProperty("APPS_SCRIPT_TOKEN");
 
@@ -90,8 +141,7 @@ function doPost(e) {
     // Agendamento público: usa validações de cliente, catálogo, data, horário,
     // concorrência e duplicidade abaixo. Ações administrativas continuam exigindo token.
     var isPublicBooking = data.action === "createBooking";
-    var isPublicCatalogueRead = data.action === "getServices";
-    if (!isPublicBooking && !isPublicCatalogueRead) {
+    if (!isPublicBooking) {
       var tokenProvided = data.token || data.authToken || data.key || (e.parameter && e.parameter.token);
       var auth = validateAuthorization(tokenProvided);
       if (!auth.valid) {
@@ -242,34 +292,6 @@ function doPost(e) {
           updatedAt: sRow[12] ? new Date(sRow[12]).toISOString() : new Date().toISOString()
         });
       }
-      // Lê a aba real Depilação como categoria adicional, sem criar dados.
-      var catalogueBook = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
-      var depSheet = catalogueBook.getSheetByName("Depilação") || catalogueBook.getSheetByName("Depilacao");
-      if (depSheet && depSheet.getLastRow() > 1) {
-        var depRows = depSheet.getDataRange().getValues();
-        for (var d = 1; d < depRows.length; d++) {
-          var dRow = depRows[d];
-          var dId = String(dRow[0] || '').trim();
-          if (!dId) continue;
-          var dSpecsVal = String(dRow[10] || '');
-          var dSpecs = dSpecsVal ? dSpecsVal.split(',').map(function(item) { return item.trim(); }).filter(Boolean) : [];
-          servicesList.push({
-            id: dId,
-            title: String(dRow[1] || ''),
-            category: 'depilacao',
-            price: Number(dRow[3] || 0),
-            priceFormatted: String(dRow[4] || ('R$ ' + Number(dRow[3] || 0).toFixed(2).replace('.', ','))),
-            duration: String(dRow[5] || '30min'),
-            badge: String(dRow[6] || ''),
-            description: String(dRow[7] || ''),
-            note: String(dRow[8] || ''),
-            imageUrl: String(dRow[9] || ''),
-            specs: dSpecs,
-            active: dRow[11] !== false && String(dRow[11]).toLowerCase() !== 'false',
-            updatedAt: dRow[12] ? new Date(dRow[12]).toISOString() : new Date().toISOString()
-          });
-        }
-      }
       return responseJSON({ status: "success", services: servicesList, total: servicesList.length });
     }
 
@@ -287,11 +309,9 @@ function doPost(e) {
       }
 
       try {
-        var saveServSheet = (String(data.category || "").toLowerCase() === "depilacao" || String(data.category || "").toLowerCase() === "depilação")
-          ? (SpreadsheetApp.openById(TARGET_SPREADSHEET_ID).getSheetByName("Depilação") || SpreadsheetApp.openById(TARGET_SPREADSHEET_ID).getSheetByName("Depilacao"))
-          : getServicesSheet();
+        var saveServSheet = getServicesSheet();
         if (!saveServSheet) {
-          return responseJSON({ status: "error", message: "Aba de catálogo correspondente à categoria não encontrada na planilha oficial." });
+          return responseJSON({ status: "error", message: "Aba 'Serviços' (ou 'Servicos') não encontrada na planilha oficial." });
         }
 
         var existingRows = saveServSheet.getDataRange().getValues();
@@ -355,25 +375,17 @@ function doPost(e) {
       }
 
       try {
-        var catalogueBookForDelete = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
-        var mainServiceSheet = getServicesSheet();
-        var depilationServiceSheet = catalogueBookForDelete.getSheetByName("Depilação") || catalogueBookForDelete.getSheetByName("Depilacao");
-        var serviceSheetsForDelete = [];
-        if (mainServiceSheet) serviceSheetsForDelete.push(mainServiceSheet);
-        if (depilationServiceSheet && depilationServiceSheet.getSheetId() !== (mainServiceSheet ? mainServiceSheet.getSheetId() : -1)) serviceSheetsForDelete.push(depilationServiceSheet);
-        if (serviceSheetsForDelete.length === 0) {
-          return responseJSON({ status: "error", message: "Nenhuma aba de catálogo ('Serviços' ou 'Depilação') foi encontrada na planilha oficial." });
+        var delServSheet = getServicesSheet();
+        if (!delServSheet) {
+          return responseJSON({ status: "error", message: "Aba 'Serviços' (ou 'Servicos') não encontrada na planilha oficial." });
         }
 
+        var allServRows = delServSheet.getDataRange().getValues();
         var deletedServCount = 0;
-        for (var sh = 0; sh < serviceSheetsForDelete.length; sh++) {
-          var delServSheet = serviceSheetsForDelete[sh];
-          var allServRows = delServSheet.getDataRange().getValues();
-          for (var ds = allServRows.length - 1; ds >= 1; ds--) {
-            if (String(allServRows[ds][0] || '').trim().toLowerCase() === sIdToDelete.toLowerCase()) {
-              delServSheet.deleteRow(ds + 1);
-              deletedServCount++;
-            }
+        for (var ds = allServRows.length - 1; ds >= 1; ds--) {
+          if (String(allServRows[ds][0] || '').trim().toLowerCase() === sIdToDelete.toLowerCase()) {
+            delServSheet.deleteRow(ds + 1);
+            deletedServCount++;
           }
         }
 
@@ -386,38 +398,6 @@ function doPost(e) {
         });
       } finally {
         delServLock.releaseLock();
-      }
-    }
-
-    if (data.action === "listDrivePhotos") {
-      try {
-        // Lista somente imagens da pasta oficial. Esta ação permanece protegida
-        // pelo mesmo token administrativo aplicado às restantes ações.
-        var photoFolderId = "1JGypjL9OqGL5i2OUrjiGMKxkWD11YuAw";
-        var photoFolder = DriveApp.getFolderById(photoFolderId);
-        var photoFiles = photoFolder.getFiles();
-        var photos = [];
-        while (photoFiles.hasNext()) {
-          var photoFile = photoFiles.next();
-          var photoMime = String(photoFile.getMimeType() || "");
-          if (photoMime.indexOf("image/") !== 0 || photoFile.isTrashed()) continue;
-          // This dedicated folder contains photos intended for the public service catalogue.
-          try { photoFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (sharingError) {}
-          var thumbnailUrl = "https://drive.google.com/thumbnail?id=" + photoFile.getId() + "&sz=w1000";
-          photos.push({
-            id: photoFile.getId(),
-            name: photoFile.getName(),
-            url: thumbnailUrl,
-            thumbnailUrl: thumbnailUrl,
-            updatedAt: photoFile.getLastUpdated().toISOString()
-          });
-        }
-        photos.sort(function(a, b) {
-          return String(b.updatedAt).localeCompare(String(a.updatedAt));
-        });
-        return responseJSON({ status: "success", photos: photos, total: photos.length });
-      } catch (photoListError) {
-        return responseJSON({ status: "error", message: "Não foi possível listar as fotos da pasta do Google Drive: " + photoListError.message });
       }
     }
 
@@ -446,7 +426,7 @@ function doPost(e) {
         file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
         var fileId = file.getId();
         // URL direta para incorporar a imagem em cartões, ícones e catálogo público.
-        var photoUrl = "https://drive.google.com/thumbnail?id=" + fileId + "&sz=w1000";
+        var photoUrl = "https://drive.google.com/uc?export=view&id=" + fileId;
 
         return responseJSON({
           status: "success",
