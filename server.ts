@@ -1594,6 +1594,25 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
 
     const isAdmin = isAuthorizedAdminRequest(req);
 
+    // Public requests must use a real future date in São Sebastião and the studio's Tuesday–Saturday schedule.
+    if (!isAdmin) {
+      const todayInSaoSebastiao = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit'
+      }).format(new Date());
+      const dateKey = String(date).slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || dateKey < todayInSaoSebastiao) {
+        return res.status(400).json({ success: false, error: 'Selecione uma data válida a partir de hoje.' });
+      }
+      const requestedDate = new Date(`${dateKey}T12:00:00-03:00`);
+      const weekday = requestedDate.getUTCDay();
+      if (weekday === 0 || weekday === 1) {
+        return res.status(400).json({ success: false, error: 'O salão atende de terça-feira a sábado. Selecione outro dia.' });
+      }
+      if (payload.appointmentLocation === 'home' && (typeof payload.homeAddress !== 'string' || payload.homeAddress.trim().length < 8)) {
+        return res.status(400).json({ success: false, error: 'O endereço completo é obrigatório para atendimento em domicílio.' });
+      }
+    }
+
     // Identificadores de teste (test-*, e2e-*) e modo de teste são permitidos EXCLUSIVAMENTE para administradores autenticados
     if (!isAdmin && typeof appointmentId === 'string' && (appointmentId.startsWith('test-') || appointmentId.startsWith('e2e-'))) {
       return res.status(400).json({
@@ -1621,6 +1640,21 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
       return res.status(400).json({
         success: false,
         error: `A data "${date}" está bloqueada para novos agendamentos.`
+      });
+    }
+
+    // Prevent two active appointments from taking the same date/time in the server's current appointment snapshot.
+    const conflictingAppointment = serverAppointments.find(a =>
+      a.id !== appointmentId &&
+      !deletedAppointmentIds.has(a.id) &&
+      areDatesEqual(a.date, String(date)) &&
+      String(a.time).trim() === String(time).trim() &&
+      !['cancelado', 'bloqueado', 'teste_sistema'].includes(String(a.status))
+    );
+    if (conflictingAppointment) {
+      return res.status(409).json({
+        success: false,
+        error: 'Este horário acabou de ser reservado. Atualize a agenda e escolha outro horário.'
       });
     }
 
