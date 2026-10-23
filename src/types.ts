@@ -36,6 +36,10 @@ export interface Appointment {
   nailCondition?: string;
   notes?: string;
   serviceId?: string;
+  additionalServiceIds?: string[];
+  customRequest?: string;
+  appointmentLocation?: 'salon' | 'home';
+  homeAddress?: string;
   serviceTitle: string;
   servicePrice: string;
   serviceDuration: string;
