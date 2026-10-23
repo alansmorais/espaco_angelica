@@ -1032,7 +1032,7 @@ export function validateBookingPaymentCoherence(payload: any): {
 
   const { serviceId, serviceTitle, servicePrice, depositAmount, paymentMode, status } = payload;
   const additionalServiceIds: string[] = Array.isArray(payload.additionalServiceIds)
-    ? [...new Set(payload.additionalServiceIds.filter((id: unknown): id is string => typeof id === 'string' && id.trim() !== ''))]
+    ? Array.from(new Set<string>(payload.additionalServiceIds.filter((id: unknown): id is string => typeof id === 'string' && id.trim() !== '')))
     : [];
 
   if (typeof depositAmount !== 'number' || !Number.isFinite(depositAmount) || depositAmount <= 0) {
