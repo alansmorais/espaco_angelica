@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import dotenv from 'dotenv';
+import { areDatesEqual } from './src/services/notificationTemplates';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -115,7 +116,8 @@ function resolveAppsScriptConfig() {
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // -----------------------------------------------------------------------------
 // CORS Configuration for Production Frontend (GitHub Pages) & Development
@@ -144,7 +146,7 @@ app.use((req: Request, res: Response, next) => {
 
   if (origin && isOriginAllowed(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Token');
     res.setHeader('Access-Control-Max-Age', '86400');
   }
@@ -586,6 +588,303 @@ app.delete('/api/appointments/:appointmentId', async (req: Request, res: Respons
   }
 });
 
+app.put('/api/appointments/:appointmentId', async (req: Request, res: Response) => {
+  if (!isAuthorizedAdminRequest(req)) {
+    return res.status(401).json({
+      success: false,
+      error: 'Acesso não autorizado. Credenciais administrativas ausentes ou inválidas.'
+    });
+  }
+
+  const appointmentId = String(req.params.appointmentId || '').trim();
+  if (!isValidAppointmentId(appointmentId)) {
+    return res.status(400).json({
+      success: false,
+      error: 'ID do agendamento inválido.'
+    });
+  }
+
+  const cfg = resolveAppsScriptConfig();
+  if (!cfg.configured || !cfg.webhookUrl) {
+    return res.status(503).json({
+      success: false,
+      error: cfg.safetyError || 'Integração com Google Apps Script não configurada.'
+    });
+  }
+
+  const updates = req.body || {};
+
+  try {
+    const scriptRes = await fetch(cfg.webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8'
+      },
+      body: JSON.stringify({
+        action: 'updateAppointment',
+        appointmentId,
+        token: cfg.token,
+        clientName: updates.clientName,
+        clientPhone: updates.clientPhone,
+        clientEmail: updates.clientEmail,
+        serviceTitle: updates.serviceTitle,
+        date: updates.date,
+        time: updates.time,
+        depositAmount: updates.depositAmount !== undefined ? Number(updates.depositAmount) : undefined,
+        status: updates.status,
+        notes: updates.notes
+      }),
+      redirect: 'follow',
+      signal: AbortSignal.timeout(15000)
+    });
+
+    const rawText = await scriptRes.text();
+    let scriptData: any;
+    try {
+      scriptData = JSON.parse(rawText);
+    } catch {
+      return res.status(502).json({
+        success: false,
+        error: 'Resposta inválida do Google Apps Script ao atualizar o agendamento.'
+      });
+    }
+
+    if (!scriptRes.ok || scriptData?.status !== 'success' || !scriptData.updated) {
+      return res.status(502).json({
+        success: false,
+        error: scriptData?.message || `Google Apps Script recusou a atualização (HTTP ${scriptRes.status}).`
+      });
+    }
+
+    // Atualiza cache em memória
+    deletedAppointmentIds.delete(appointmentId);
+    const cachedIndex = serverAppointments.findIndex(apt => apt.id === appointmentId);
+    let updatedRecord: ServerStoredAppointment;
+    if (cachedIndex >= 0) {
+      serverAppointments[cachedIndex] = {
+        ...serverAppointments[cachedIndex],
+        ...(updates.clientName !== undefined && { clientName: String(updates.clientName).trim() }),
+        ...(updates.clientPhone !== undefined && { clientPhone: String(updates.clientPhone).trim() }),
+        ...(updates.clientEmail !== undefined && { clientEmail: String(updates.clientEmail).trim() }),
+        ...(updates.serviceTitle !== undefined && { serviceTitle: String(updates.serviceTitle).trim() }),
+        ...(updates.date !== undefined && { date: String(updates.date).trim() }),
+        ...(updates.time !== undefined && { time: String(updates.time).trim() }),
+        ...(updates.depositAmount !== undefined && { depositAmount: Number(updates.depositAmount) }),
+        ...(updates.status !== undefined && { status: updates.status }),
+        ...(updates.notes !== undefined && { notes: String(updates.notes).trim() })
+      };
+      updatedRecord = serverAppointments[cachedIndex];
+    } else {
+      updatedRecord = {
+        id: appointmentId,
+        clientName: String(updates.clientName || 'Cliente').trim(),
+        clientPhone: String(updates.clientPhone || '').trim(),
+        clientEmail: String(updates.clientEmail || '').trim(),
+        serviceId: String(updates.serviceId || 'alongamento-fibra-slim'),
+        serviceTitle: String(updates.serviceTitle || 'Procedimento').trim(),
+        servicePrice: String(updates.servicePrice || 'R$ 0,00'),
+        date: String(updates.date || '').trim(),
+        time: String(updates.time || '').trim(),
+        status: updates.status || 'pendente_pix',
+        depositAmount: Number(updates.depositAmount || 0),
+        depositStatus: String(updates.depositStatus || 'pendente'),
+        paymentMode: (updates.paymentMode === 'pre_pagamento_100' ? 'pre_pagamento_100' : 'sinal_40'),
+        timestamp: new Date().toISOString(),
+        notes: String(updates.notes || '').trim()
+      };
+      serverAppointments.push(updatedRecord);
+    }
+
+    return res.json({
+      success: true,
+      persisted: true,
+      appointment: updatedRecord,
+      message: scriptData.message || 'Agendamento atualizado com sucesso.'
+    });
+  } catch (err: any) {
+    return res.status(502).json({
+      success: false,
+      error: `Falha ao comunicar com Google Apps Script: ${err.message || 'erro desconhecido'}.`
+    });
+  }
+});
+
+app.post('/api/appointments/block', async (req: Request, res: Response) => {
+  if (!isAuthorizedAdminRequest(req)) {
+    return res.status(401).json({
+      success: false,
+      error: 'Acesso não autorizado. Credenciais administrativas ausentes ou inválidas.'
+    });
+  }
+
+  const payload = req.body;
+  if (!payload || typeof payload !== 'object') {
+    return res.status(400).json({
+      success: false,
+      error: 'Carga de bloqueio inválida.'
+    });
+  }
+
+  const { date, reason, time, notes } = payload;
+  let appointmentId = payload.appointmentId;
+  if (!appointmentId || typeof appointmentId !== 'string') {
+    appointmentId = `apt-block-${Date.now()}`;
+  }
+
+  if (!isValidAppointmentId(appointmentId)) {
+    return res.status(400).json({
+      success: false,
+      error: 'ID do bloqueio inválido ou fora do formato esperado (deve iniciar com apt-).'
+    });
+  }
+
+  if (!date || typeof date !== 'string' || !date.trim()) {
+    return res.status(400).json({
+      success: false,
+      error: 'Data do bloqueio ausente.'
+    });
+  }
+
+  const blockReason = (reason && typeof reason === 'string' && reason.trim()) ? reason.trim() : 'Bloqueio de Agenda';
+  const blockTime = (time && typeof time === 'string' && time.trim()) ? time.trim() : 'Dia Inteiro';
+  const blockDate = date.trim();
+  const blockNotes = (notes && typeof notes === 'string' && notes.trim()) ? notes.trim() : blockReason;
+
+  const blockRecord: ServerStoredAppointment = {
+    id: appointmentId,
+    clientName: 'Protocolo Ateliê',
+    clientPhone: '(12) 97406-2241',
+    serviceId: 'bloqueio-agenda',
+    serviceTitle: `Bloqueio: ${blockReason}`,
+    servicePrice: 'R$ 0,00',
+    date: blockDate,
+    time: blockTime,
+    status: 'bloqueado',
+    depositAmount: 0,
+    depositStatus: 'liquidado',
+    paymentMode: 'sinal_40',
+    timestamp: new Date().toISOString(),
+    notes: blockNotes
+  };
+
+  const cfg = resolveAppsScriptConfig();
+  if (cfg.configured && cfg.webhookUrl) {
+    try {
+      const scriptRes = await fetch(cfg.webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8'
+        },
+        body: JSON.stringify({
+          action: 'blockSchedule',
+          appointmentId,
+          date: blockDate,
+          time: blockTime,
+          clientName: 'Protocolo Ateliê',
+          clientPhone: '(12) 97406-2241',
+          serviceTitle: `Bloqueio: ${blockReason}`,
+          status: 'bloqueado',
+          notes: blockNotes,
+          blockReason,
+          token: cfg.token
+        }),
+        redirect: 'follow',
+        signal: AbortSignal.timeout(15000)
+      });
+
+      const rawText = await scriptRes.text();
+      let scriptData: any = null;
+      try {
+        scriptData = JSON.parse(rawText);
+      } catch {}
+
+      if (!scriptRes.ok || (scriptData?.status !== 'success' && scriptData?.persisted !== true)) {
+        return res.status(502).json({
+          success: false,
+          persisted: false,
+          error: scriptData?.message || `Google Apps Script recusou a gravação do bloqueio (HTTP ${scriptRes.status}).`
+        });
+      }
+
+      recordServerAppointment(blockRecord);
+      return res.json({
+        success: true,
+        persisted: true,
+        duplicate: Boolean(scriptData.duplicate),
+        appointment: blockRecord,
+        message: scriptData.message || 'Bloqueio de data registrado com sucesso na planilha oficial.'
+      });
+    } catch (err: any) {
+      return res.status(502).json({
+        success: false,
+        persisted: false,
+        error: `Falha de rede ao conectar com Google Apps Script: ${err.message || 'erro desconhecido'}.`
+      });
+    }
+  }
+
+  // Se o Google Apps Script não estiver configurado, falha fechado para evitar falso sucesso
+  return res.status(503).json({
+    success: false,
+    persisted: false,
+    error: cfg.safetyError || 'Integração com Google Apps Script não configurada para gravação oficial de bloqueios.'
+  });
+});
+
+app.get('/api/appointments/blocked-dates', async (_req: Request, res: Response) => {
+  try {
+    const blockedDates = new Set<string>();
+    for (const apt of serverAppointments) {
+      if (!deletedAppointmentIds.has(apt.id) && apt.status === 'bloqueado' && apt.date) {
+        blockedDates.add(apt.date.trim());
+      }
+    }
+
+    const cfg = resolveAppsScriptConfig();
+    if (cfg.configured && cfg.webhookUrl) {
+      try {
+        const scriptRes = await fetch(cfg.webhookUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8'
+          },
+          body: JSON.stringify({
+            action: 'getAppointments',
+            token: cfg.token
+          }),
+          redirect: 'follow',
+          signal: AbortSignal.timeout(10000)
+        });
+        if (scriptRes.ok) {
+          const rawText = await scriptRes.text();
+          let resData: any = null;
+          try {
+            resData = JSON.parse(rawText);
+          } catch {}
+          if (resData?.status === 'success' && Array.isArray(resData?.appointments)) {
+            for (const apt of resData.appointments) {
+              if (apt && apt.id && !deletedAppointmentIds.has(String(apt.id)) && apt.status === 'bloqueado' && apt.date) {
+                blockedDates.add(String(apt.date).trim());
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+
+    return res.json({
+      success: true,
+      blockedDates: Array.from(blockedDates)
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: 'Erro ao listar datas bloqueadas.',
+      details: err.message
+    });
+  }
+});
+
 export interface CanonicalCatalogService {
   id: string;
   title: string;
@@ -647,6 +946,18 @@ export const OFFICIAL_CATALOG_PRICES: Record<string, number> = Object.values(
   return acc;
 }, {} as Record<string, number>);
 
+export const DYNAMIC_SERVICES_BY_ID: Record<string, CanonicalCatalogService> = {};
+export const DYNAMIC_SERVICES_BY_TITLE: Record<string, CanonicalCatalogService> = {};
+
+export function registerDynamicService(service: CanonicalCatalogService) {
+  if (service && service.id) {
+    DYNAMIC_SERVICES_BY_ID[service.id] = service;
+    if (service.title) {
+      DYNAMIC_SERVICES_BY_TITLE[service.title.toLowerCase().trim()] = service;
+    }
+  }
+}
+
 export function parseBRLString(raw?: string): number | null {
   if (!raw || typeof raw !== 'string') return null;
   const cleaned = raw.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.');
@@ -700,7 +1011,7 @@ export function validateBookingPaymentCoherence(payload: any): {
       };
     }
     const normalizedId = serviceId.trim();
-    canonicalService = OFFICIAL_SERVICES_BY_ID[normalizedId];
+    canonicalService = OFFICIAL_SERVICES_BY_ID[normalizedId] || DYNAMIC_SERVICES_BY_ID[normalizedId];
     if (!canonicalService) {
       return {
         valid: false,
@@ -719,7 +1030,7 @@ export function validateBookingPaymentCoherence(payload: any): {
     }
   } else if (typeof serviceTitle === 'string' && serviceTitle.trim() !== '') {
     const normalizedTitle = serviceTitle.trim().toLowerCase();
-    canonicalService = OFFICIAL_SERVICES_BY_TITLE[normalizedTitle];
+    canonicalService = OFFICIAL_SERVICES_BY_TITLE[normalizedTitle] || DYNAMIC_SERVICES_BY_TITLE[normalizedTitle];
     if (!canonicalService) {
       return {
         valid: false,
@@ -840,6 +1151,320 @@ export function parseAppsScriptResponse(jsonRes: any, appEnv: string = 'producti
   };
 }
 
+let dynamicServicesCache: any[] = [
+  {
+    id: "alongamento-fibra-slim",
+    title: "Alongamento em Fibra Slim",
+    category: "alongamento",
+    price: 220,
+    priceFormatted: "R$ 220,00",
+    duration: "2h 30min",
+    badge: "Mais Pedido",
+    description: "Extensão com aspecto natural, alta durabilidade e acabamento fino.",
+    note: "Inclui cutilagem combinada e hidratação",
+    imageUrl: "https://images.unsplash.com/photo-1604654894610-df63bc536371?auto=format&fit=crop&w=800&q=80",
+    specs: ["Fibra de alta pureza", "Acabamento anatômico", "Cutilagem combinada"],
+    active: true
+  },
+  {
+    id: "manutencao-fibra-vidro",
+    title: "Manutenção Fibra de Vidro",
+    category: "manutencao",
+    price: 140,
+    priceFormatted: "R$ 140,00",
+    duration: "1h 45min",
+    badge: "",
+    description: "Reposição de estrutura, nivelamento e reforço das tensões.",
+    note: "Recomendado a cada 21 a 28 dias",
+    imageUrl: "https://images.unsplash.com/photo-1632345031435-8727f6897d53?auto=format&fit=crop&w=800&q=80",
+    specs: ["Nivelamento milimétrico", "Selagem de bordas", "Troca de top coat"],
+    active: true
+  },
+  {
+    id: "blindagem-diamante",
+    title: "Blindagem Diamante & Banho Gel",
+    category: "blindagem",
+    price: 130,
+    priceFormatted: "R$ 130,00",
+    duration: "1h 30min",
+    badge: "Brilho Intenso",
+    description: "Camada protetora sobre as unhas naturais, conferindo brilho vitrificado e resistência.",
+    note: "Ideal para quem busca manter o comprimento natural sem quebras",
+    imageUrl: "https://images.unsplash.com/photo-1519014816548-bf5fe059798b?auto=format&fit=crop&w=800&q=80",
+    specs: ["Gel autonivelante de alta densidade", "Brilho espelhado", "Resistência a impactos"],
+    active: true
+  },
+  {
+    id: "esmaltacao-gel-premium",
+    title: "Esmaltação em Gel Premium",
+    category: "esmaltacao",
+    price: 95,
+    priceFormatted: "R$ 95,00",
+    duration: "1h 15min",
+    badge: "",
+    description: "Secagem imediata em cabine LED/UV com brilho impecável por até 20 dias.",
+    note: "Unhas prontas para sair sem borrar",
+    imageUrl: "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=800&q=80",
+    specs: ["Durabilidade 15 a 21 dias", "Secagem instantânea", "Não lasca"],
+    active: true
+  },
+  {
+    id: "nail-art-encapsulada",
+    title: "Nail Art Autoral & Encapsulada",
+    category: "nailart",
+    price: 50,
+    priceFormatted: "A partir de R$ 50,00",
+    duration: "45min",
+    badge: "Autoral",
+    description: "Design personalizado: encapsulados, francesinha reversa, marmorizados e aplicações.",
+    note: "Preço base por par ou aplicação conforme complexidade",
+    imageUrl: "https://images.unsplash.com/photo-1599940824399-b87987ceb72a?auto=format&fit=crop&w=800&q=80",
+    specs: ["Pigmentos importados", "Pedrarias de alta fixação", "Efeitos 3D e foil"],
+    active: true
+  },
+  {
+    id: "spa-das-maos-ouro",
+    title: "Spa das Mãos & Esfoliação",
+    category: "spa",
+    price: 85,
+    priceFormatted: "R$ 85,00",
+    duration: "50min",
+    badge: "Relaxamento",
+    description: "Esfoliação enzimática, hidratação profunda com máscara térmica e massagem relaxante.",
+    note: "Tratamento rejuvenescedor para mãos e cutículas",
+    imageUrl: "https://images.unsplash.com/photo-1560750588-73207b1ef5b8?auto=format&fit=crop&w=800&q=80",
+    specs: ["Esfoliação botânica", "Máscara com colágeno", "Massagem relaxante"],
+    active: true
+  }
+];
+
+function updateDynamicCatalogsFromServices(services: any[]) {
+  if (!Array.isArray(services)) return;
+  for (const s of services) {
+    if (s && s.id && s.price !== undefined) {
+      registerDynamicService({
+        id: s.id,
+        title: s.title || s.id,
+        price: Number(s.price),
+        priceFormatted: s.priceFormatted || `R$ ${Number(s.price).toFixed(2).replace('.', ',')}`
+      });
+    }
+  }
+}
+
+app.get('/api/services', async (_req: Request, res: Response) => {
+  const cfg = resolveAppsScriptConfig();
+  if (cfg.configured && cfg.webhookUrl) {
+    try {
+      const scriptRes = await fetch(cfg.webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'getServices', token: cfg.token }),
+        redirect: 'follow',
+        signal: AbortSignal.timeout(10000)
+      });
+      if (scriptRes.ok) {
+        const text = await scriptRes.text();
+        const data = JSON.parse(text);
+        if (data.status === 'success' && Array.isArray(data.services) && data.services.length > 0) {
+          dynamicServicesCache = data.services;
+          updateDynamicCatalogsFromServices(data.services);
+        }
+      }
+    } catch {}
+  }
+  return res.json({ success: true, services: dynamicServicesCache });
+});
+
+app.post('/api/services', async (req: Request, res: Response) => {
+  if (!isAuthorizedAdminRequest(req)) {
+    return res.status(401).json({ success: false, error: 'Acesso não autorizado.' });
+  }
+  const s = req.body;
+  if (!s || !s.title || !s.price) {
+    return res.status(400).json({ success: false, error: 'Dados do serviço inválidos (título e preço obrigatórios).' });
+  }
+  const newService = {
+    id: s.id || `serv-${Date.now()}`,
+    title: String(s.title).trim(),
+    category: String(s.category || 'alongamento').trim(),
+    price: Number(s.price),
+    priceFormatted: s.priceFormatted || `R$ ${Number(s.price).toFixed(2).replace('.', ',')}`,
+    duration: String(s.duration || '1h 30min').trim(),
+    badge: String(s.badge || '').trim(),
+    description: String(s.description || '').trim(),
+    note: String(s.note || '').trim(),
+    imageUrl: String(s.imageUrl || '').trim(),
+    specs: Array.isArray(s.specs) ? s.specs : [],
+    active: s.active !== false
+  };
+
+  const cfg = resolveAppsScriptConfig();
+  if (cfg.configured && cfg.webhookUrl) {
+    try {
+      const scriptRes = await fetch(cfg.webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'saveService', token: cfg.token, ...newService }),
+        redirect: 'follow',
+        signal: AbortSignal.timeout(15000)
+      });
+      const data = JSON.parse(await scriptRes.text());
+      if (!scriptRes.ok || data.status !== 'success') {
+        return res.status(502).json({ success: false, error: data?.message || 'Falha ao salvar serviço no Google Sheets.' });
+      }
+    } catch (err: any) {
+      return res.status(502).json({ success: false, error: `Falha de rede ao persistir serviço: ${err.message}` });
+    }
+  }
+
+  const idx = dynamicServicesCache.findIndex(item => item.id === newService.id);
+  if (idx >= 0) dynamicServicesCache[idx] = newService;
+  else dynamicServicesCache.unshift(newService);
+  updateDynamicCatalogsFromServices([newService]);
+
+  return res.json({ success: true, saved: true, service: newService });
+});
+
+app.put('/api/services/:id', async (req: Request, res: Response) => {
+  if (!isAuthorizedAdminRequest(req)) {
+    return res.status(401).json({ success: false, error: 'Acesso não autorizado.' });
+  }
+  const id = String(req.params.id || '').trim();
+  const s = req.body;
+  if (!id || !s) {
+    return res.status(400).json({ success: false, error: 'ID do serviço e dados para atualização são obrigatórios.' });
+  }
+
+  const updatedService = {
+    ...s,
+    id,
+    price: Number(s.price || 0),
+    priceFormatted: s.priceFormatted || `R$ ${Number(s.price || 0).toFixed(2).replace('.', ',')}`,
+    active: s.active !== false
+  };
+
+  const cfg = resolveAppsScriptConfig();
+  if (cfg.configured && cfg.webhookUrl) {
+    try {
+      const scriptRes = await fetch(cfg.webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'saveService', token: cfg.token, ...updatedService }),
+        redirect: 'follow',
+        signal: AbortSignal.timeout(15000)
+      });
+      const data = JSON.parse(await scriptRes.text());
+      if (!scriptRes.ok || data.status !== 'success') {
+        return res.status(502).json({ success: false, error: data?.message || 'Falha ao atualizar serviço no Google Sheets.' });
+      }
+    } catch (err: any) {
+      return res.status(502).json({ success: false, error: `Falha de rede ao atualizar serviço: ${err.message}` });
+    }
+  }
+
+  const idx = dynamicServicesCache.findIndex(item => item.id === id);
+  if (idx >= 0) dynamicServicesCache[idx] = updatedService;
+  else dynamicServicesCache.push(updatedService);
+  updateDynamicCatalogsFromServices([updatedService]);
+
+  return res.json({ success: true, saved: true, service: updatedService });
+});
+
+app.delete('/api/services/:id', async (req: Request, res: Response) => {
+  if (!isAuthorizedAdminRequest(req)) {
+    return res.status(401).json({ success: false, error: 'Acesso não autorizado.' });
+  }
+  const id = String(req.params.id || '').trim();
+  if (!id) {
+    return res.status(400).json({ success: false, error: 'ID do serviço obrigatório para exclusão.' });
+  }
+
+  const cfg = resolveAppsScriptConfig();
+  if (cfg.configured && cfg.webhookUrl) {
+    try {
+      const scriptRes = await fetch(cfg.webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'deleteService', token: cfg.token, id }),
+        redirect: 'follow',
+        signal: AbortSignal.timeout(15000)
+      });
+      const data = JSON.parse(await scriptRes.text());
+      if (!scriptRes.ok || data.status !== 'success') {
+        return res.status(502).json({ success: false, error: data?.message || 'Falha ao excluir serviço no Google Sheets.' });
+      }
+    } catch (err: any) {
+      return res.status(502).json({ success: false, error: `Falha de rede ao excluir serviço: ${err.message}` });
+    }
+  }
+
+  dynamicServicesCache = dynamicServicesCache.filter(item => item.id !== id);
+  return res.json({ success: true, deleted: true, serviceId: id });
+});
+
+app.post('/api/upload-photo', async (req: Request, res: Response) => {
+  if (!isAuthorizedAdminRequest(req)) {
+    return res.status(401).json({ success: false, error: 'Acesso não autorizado.' });
+  }
+
+  const { imageBase64, fileName, mimeType } = req.body || {};
+  if (!imageBase64 || typeof imageBase64 !== 'string') {
+    return res.status(400).json({ success: false, error: 'Dados da imagem (base64) ausentes ou inválidos.' });
+  }
+
+  const validMimes = ['image/jpeg', 'image/png', 'image/webp'];
+  const detectedMime = mimeType && validMimes.includes(mimeType) ? mimeType : 'image/jpeg';
+  const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z+]+;base64,/, '');
+
+  if (cleanBase64.length > 7.5 * 1024 * 1024) {
+    return res.status(400).json({ success: false, error: 'A imagem excede o tamanho máximo permitido de 5MB.' });
+  }
+
+  const cfg = resolveAppsScriptConfig();
+  if (cfg.configured && cfg.webhookUrl) {
+    try {
+      const scriptRes = await fetch(cfg.webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'uploadPhoto',
+          token: cfg.token,
+          imageBase64: cleanBase64,
+          fileName: fileName || `foto-${Date.now()}.jpg`,
+          mimeType: detectedMime
+        }),
+        redirect: 'follow',
+        signal: AbortSignal.timeout(20000)
+      });
+      const data = JSON.parse(await scriptRes.text());
+      if (scriptRes.ok && data.status === 'success' && data.url) {
+        return res.json({ success: true, url: data.url, storage: 'google_drive' });
+      }
+    } catch {}
+  }
+
+  try {
+    const ext = detectedMime === 'image/png' ? 'png' : detectedMime === 'image/webp' ? 'webp' : 'jpg';
+    const uniqueName = `servico-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
+    const uploadDirs = [
+      path.resolve(__dirname, 'dist', 'uploads'),
+      path.resolve(__dirname, 'uploads')
+    ];
+    const buffer = Buffer.from(cleanBase64, 'base64');
+    for (const dir of uploadDirs) {
+      if (!fs.existsSync(dir)) {
+        try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+      }
+      fs.writeFileSync(path.join(dir, uniqueName), buffer);
+    }
+    const publicUrl = `/uploads/${uniqueName}`;
+    return res.json({ success: true, url: publicUrl, storage: 'local_storage' });
+  } catch (saveErr: any) {
+    return res.status(500).json({ success: false, error: `Falha ao salvar imagem no servidor: ${saveErr.message}` });
+  }
+});
+
 app.post('/api/notifications/new-booking', async (req: Request, res: Response) => {
   try {
     const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
@@ -916,6 +1541,20 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
       return res.status(400).json({
         success: false,
         error: paymentCheck.error
+      });
+    }
+
+    // 2.1 Verificação de data bloqueada
+    const isDateBlocked = serverAppointments.some(
+      a => !deletedAppointmentIds.has(a.id) &&
+        a.status === 'bloqueado' &&
+        areDatesEqual(a.date, String(date))
+    );
+
+    if (isDateBlocked) {
+      return res.status(400).json({
+        success: false,
+        error: `A data "${date}" está bloqueada para novos agendamentos.`
       });
     }
 
@@ -1460,6 +2099,18 @@ app.post('/api/whatsapp/send-confirmation', async (req: Request, res: Response) 
 
 async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
+
+  const uploadsDir = path.resolve(__dirname, 'uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    try { fs.mkdirSync(uploadsDir, { recursive: true }); } catch {}
+  }
+  app.use('/uploads', express.static(uploadsDir));
+
+  const distUploadsDir = path.resolve(__dirname, 'dist', 'uploads');
+  if (!fs.existsSync(distUploadsDir)) {
+    try { fs.mkdirSync(distUploadsDir, { recursive: true }); } catch {}
+  }
+  app.use('/uploads', express.static(distUploadsDir));
 
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');

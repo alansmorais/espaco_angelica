@@ -1,27 +1,82 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+
+export interface BlockScheduleData {
+  reason: string;
+  date: string;
+  timeSpan: string;
+  notes?: string;
+}
 
 interface BlockScheduleModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirmBlock: (reason: string, timeSpan: string) => void;
+  onConfirmBlock: (data: BlockScheduleData) => Promise<{ success: boolean; error?: string }> | void;
+  initialDate?: string;
 }
 
 export const BlockScheduleModal: React.FC<BlockScheduleModalProps> = ({
   isOpen,
   onClose,
-  onConfirmBlock
+  onConfirmBlock,
+  initialDate
 }) => {
-  const [reason, setReason] = useState('Esterilização Autoclave');
-  const [startTime, setStartTime] = useState('13:30');
-  const [endTime, setEndTime] = useState('14:30');
-  const [notes, setNotes] = useState('Higienização terminal dos instrumentais cirúrgicos');
+  const [reason, setReason] = useState('Folga / Descanso');
+  const [date, setDate] = useState('Quarta, 13 Nov');
+  const [isAllDay, setIsAllDay] = useState(true);
+  const [startTime, setStartTime] = useState('09:00');
+  const [endTime, setEndTime] = useState('19:30');
+  const [notes, setNotes] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialDate) {
+      setDate(initialDate);
+    }
+  }, [initialDate, isOpen]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setSubmitError(null);
+      setIsSubmitting(false);
+      if (reason === 'Folga / Descanso') {
+        setIsAllDay(true);
+      }
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onConfirmBlock(reason, `${startTime} às ${endTime}`);
-    onClose();
+    if (!date.trim()) {
+      setSubmitError('Por favor, informe a data para bloqueio.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    const timeSpan = isAllDay ? 'Dia Inteiro' : `${startTime} às ${endTime}`;
+
+    try {
+      const result = await onConfirmBlock({
+        reason,
+        date: date.trim(),
+        timeSpan,
+        notes: notes.trim() || undefined
+      });
+
+      if (!result || result.success) {
+        onClose();
+      } else {
+        setSubmitError(result.error || 'Falha ao salvar bloqueio no servidor.');
+      }
+    } catch (err: any) {
+      setSubmitError(err?.message || 'Erro de comunicação ao salvar bloqueio.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -45,15 +100,25 @@ export const BlockScheduleModal: React.FC<BlockScheduleModalProps> = ({
           Bloqueios impedem novas reservas na área pública de agendamento online e marcam seu calendário visualmente.
         </p>
 
+        {submitError && (
+          <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs font-semibold flex items-center gap-2">
+            <span className="material-symbols-outlined text-red-600 text-[18px]">error</span>
+            <span>{submitError}</span>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="flex flex-col gap-4 font-jakarta text-xs">
           <div className="flex flex-col gap-1.5">
             <label className="text-[10px] uppercase text-[#786C63] font-bold">Motivo do Bloqueio</label>
             <div className="grid grid-cols-3 gap-2">
-              {['Esterilização Autoclave', 'Almoço Privativo', 'Folga / Descanso'].map(opt => (
+              {['Folga / Descanso', 'Esterilização Autoclave', 'Almoço Privativo'].map(opt => (
                 <button
                   key={opt}
                   type="button"
-                  onClick={() => setReason(opt)}
+                  onClick={() => {
+                    setReason(opt);
+                    if (opt === 'Folga / Descanso') setIsAllDay(true);
+                  }}
                   className={`py-2 px-2.5 rounded-xl font-bold text-[11px] transition-all cursor-pointer text-center border ${
                     reason === opt
                       ? 'bg-[#FBF2D5] text-[#3C2F00] border-[#D4AF37]'
@@ -66,17 +131,37 @@ export const BlockScheduleModal: React.FC<BlockScheduleModalProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 items-end">
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] uppercase text-[#786C63] font-bold">Data</label>
+              <label className="text-[10px] uppercase text-[#786C63] font-bold">Data *</label>
               <input
                 type="text"
-                defaultValue="Quarta, 13 Nov"
-                className="bg-[#FDFBF9] text-[#49382E] px-3 py-2.5 rounded-xl border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
+                value={date}
+                onChange={e => setDate(e.target.value)}
+                required
+                placeholder="Ex: Quarta, 13 Nov"
+                className="bg-[#FDFBF9] text-[#49382E] px-3 py-2.5 rounded-xl border border-[#E8D9B5] outline-none focus:border-[#D4AF37] font-semibold"
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] uppercase text-[#786C63] font-bold">Horário</label>
+              <label className="text-[10px] uppercase text-[#786C63] font-bold">Tipo de Bloqueio</label>
+              <button
+                type="button"
+                onClick={() => setIsAllDay(prev => !prev)}
+                className={`py-2.5 px-3 rounded-xl border text-center font-bold text-xs transition-all cursor-pointer ${
+                  isAllDay
+                    ? 'bg-[#FBF2D5] text-[#3C2F00] border-[#D4AF37]'
+                    : 'bg-[#FDFBF9] text-[#786C63] border-[#E8D9B5]'
+                }`}
+              >
+                {isAllDay ? '✓ Dia Inteiro' : 'Horário Específico'}
+              </button>
+            </div>
+          </div>
+
+          {!isAllDay && (
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] uppercase text-[#786C63] font-bold">Horário de Início e Fim</label>
               <div className="flex items-center gap-2">
                 <input
                   type="text"
@@ -93,7 +178,7 @@ export const BlockScheduleModal: React.FC<BlockScheduleModalProps> = ({
                 />
               </div>
             </div>
-          </div>
+          )}
 
           <div className="flex flex-col gap-1">
             <label className="text-[10px] uppercase text-[#786C63] font-bold">Observações Internas</label>
@@ -101,6 +186,7 @@ export const BlockScheduleModal: React.FC<BlockScheduleModalProps> = ({
               type="text"
               value={notes}
               onChange={e => setNotes(e.target.value)}
+              placeholder="Opcional: motivo ou detalhes do bloqueio"
               className="bg-[#FDFBF9] text-[#49382E] px-3 py-2.5 rounded-xl border border-[#E8D9B5] focus:border-[#D4AF37] outline-none"
             />
           </div>
@@ -108,16 +194,25 @@ export const BlockScheduleModal: React.FC<BlockScheduleModalProps> = ({
           <div className="flex items-center justify-end gap-3 pt-2 border-t border-[#E8D9B5]">
             <button
               type="button"
+              disabled={isSubmitting}
               onClick={onClose}
-              className="px-4 py-2 rounded-full bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-semibold transition-colors"
+              className="px-4 py-2 rounded-full bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-semibold transition-colors disabled:opacity-50"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="px-5 py-2 rounded-full bg-[#D4AF37] text-[#3C2F00] font-bold hover:bg-[#E5C158] shadow-md cursor-pointer transition-all"
+              disabled={isSubmitting}
+              className="px-5 py-2 rounded-full bg-[#D4AF37] text-[#3C2F00] font-bold hover:bg-[#E5C158] shadow-md cursor-pointer transition-all disabled:opacity-50 flex items-center gap-1.5"
             >
-              Confirmar Bloqueio
+              {isSubmitting ? (
+                <>
+                  <span className="material-symbols-outlined text-[16px] animate-spin">sync</span>
+                  <span>Salvando Bloqueio...</span>
+                </>
+              ) : (
+                <span>Confirmar Bloqueio</span>
+              )}
             </button>
           </div>
         </form>

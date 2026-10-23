@@ -6,7 +6,8 @@ import {
   calculateDeposit40,
   calculateFullPrepayment,
   calculateRemainingBalance,
-  formatBRL
+  formatBRL,
+  areDatesEqual
 } from '../services/notificationTemplates';
 import { triggerNewPreBookingEmailNotification } from '../services/emailNotificationService';
 
@@ -18,6 +19,8 @@ interface BookingWizardProps {
   studioAddress?: StudioAddressConfig;
   services?: Service[];
   onSelectService?: (service: Service) => void;
+  appointments?: Appointment[];
+  blockedDates?: string[];
 }
 
 export const BookingWizard: React.FC<BookingWizardProps> = ({
@@ -27,7 +30,9 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   blacklist = INITIAL_BLACKLIST,
   studioAddress = STUDIO_ADDRESS,
   services = [],
-  onSelectService
+  onSelectService,
+  appointments = [],
+  blockedDates = []
 }) => {
   const [selectedDate, setSelectedDate] = useState<string>('Quinta, 14 Nov');
   const [selectedTime, setSelectedTime] = useState<string>('11:30');
@@ -65,12 +70,22 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   const isInadimplente = Boolean(matchedBlacklist);
   const effectivePaymentMode = isInadimplente ? 'pre_pagamento_100' : paymentMode;
 
+  const isDateBlocked = (dateStr: string): boolean => {
+    if (blockedDates.length > 0 && blockedDates.some(bd => areDatesEqual(bd, dateStr))) {
+      return true;
+    }
+    if (appointments.length > 0) {
+      return appointments.some(a => a.status === 'bloqueado' && areDatesEqual(a.date, dateStr));
+    }
+    return false;
+  };
+
   const availableDates = [
-    { day: 'Ter', num: '12', full: 'Terça, 12 Nov', available: true },
-    { day: 'Qua', num: '13', full: 'Quarta, 13 Nov', available: true },
-    { day: 'Qui', num: '14', full: 'Quinta, 14 Nov', available: true },
-    { day: 'Sex', num: '15', full: 'Sexta, 15 Nov', available: true },
-    { day: 'Sáb', num: '16', full: 'Sábado, 16 Nov', available: true },
+    { day: 'Ter', num: '12', full: 'Terça, 12 Nov', available: !isDateBlocked('Terça, 12 Nov') },
+    { day: 'Qua', num: '13', full: 'Quarta, 13 Nov', available: !isDateBlocked('Quarta, 13 Nov') },
+    { day: 'Qui', num: '14', full: 'Quinta, 14 Nov', available: !isDateBlocked('Quinta, 14 Nov') },
+    { day: 'Sex', num: '15', full: 'Sexta, 15 Nov', available: !isDateBlocked('Sexta, 15 Nov') },
+    { day: 'Sáb', num: '16', full: 'Sábado, 16 Nov', available: !isDateBlocked('Sábado, 16 Nov') },
     { day: 'Dom', num: '17', full: 'Domingo, 17 Nov', available: false },
     { day: 'Seg', num: '18', full: 'Segunda, 18 Nov', available: false }
   ];
@@ -154,6 +169,13 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
 
   const handleConfirmBooking = async () => {
     if (isSubmittingBooking) return;
+
+    if (isDateBlocked(selectedDate)) {
+      setSubmissionError(
+        'A data selecionada está temporariamente bloqueada para novos agendamentos pela administração. Por favor, escolha outra data.'
+      );
+      return;
+    }
 
     if (!clientName.trim()) {
       alert('Por favor informe seu nome completo para o agendamento.');
@@ -404,38 +426,52 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                     Horários Disponíveis para {selectedDate}:
                   </span>
                   <span className="font-jakarta text-[10px] text-[#D4AF37] font-semibold">
-                    {timeSlots.filter(s => s.status === 'disponivel' && s.active).length} horários abertos
+                    {isDateBlocked(selectedDate)
+                      ? '0 horários abertos (Data Bloqueada)'
+                      : `${timeSlots.filter(s => s.status === 'disponivel' && s.active).length} horários abertos`}
                   </span>
                 </div>
 
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-2.5">
-                  {timeSlots.filter(s => s.active).map(slot => {
-                    const isBlocked = slot.status === 'bloqueado' || slot.status === 'autoclave' || slot.status === 'almoco';
-                    const isSelected = selectedTime === slot.time && !isBlocked;
+                {isDateBlocked(selectedDate) ? (
+                  <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-center space-y-1">
+                    <div className="flex items-center justify-center gap-1.5 text-red-700 font-syne text-xs sm:text-sm font-bold">
+                      <span className="material-symbols-outlined text-[18px]">event_busy</span>
+                      <span>Esta data está temporariamente bloqueada para atendimentos</span>
+                    </div>
+                    <p className="font-jakarta text-[11px] text-red-600">
+                      Por favor, selecione outra data disponível no calendário acima para prosseguir com seu agendamento.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-2.5">
+                    {timeSlots.filter(s => s.active).map(slot => {
+                      const isBlocked = slot.status === 'bloqueado' || slot.status === 'autoclave' || slot.status === 'almoco';
+                      const isSelected = selectedTime === slot.time && !isBlocked;
 
-                    return (
-                      <button
-                        key={slot.id}
-                        type="button"
-                        disabled={isBlocked}
-                        onClick={() => setSelectedTime(slot.time)}
-                        className={`p-2 sm:p-2.5 rounded-xl border text-center transition-all min-h-[48px] flex flex-col items-center justify-center active:scale-95 ${
-                          isBlocked
-                            ? 'bg-[#F7EFEA] border-rose-200 text-[#786C63]/50 cursor-not-allowed'
-                            : isSelected
-                            ? 'bg-[#D4AF37] text-[#3C2F00] border-[#D4AF37] font-bold shadow-xs cursor-pointer'
-                            : 'bg-[#FDFBF9] border-[#E8D9B5] text-[#49382E] hover:border-[#D4AF37]/50 cursor-pointer'
-                        }`}
-                        title={slot.note || (isBlocked ? 'Horário Bloqueado' : 'Horário Disponível')}
-                      >
-                        <span className="font-syne text-sm font-bold block">{slot.time}</span>
-                        <span className="text-[10px] block font-jakarta truncate max-w-full px-1">
-                          {isBlocked ? (slot.note?.slice(0, 10) || 'Bloqueado') : 'Disponível'}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                      return (
+                        <button
+                          key={slot.id}
+                          type="button"
+                          disabled={isBlocked}
+                          onClick={() => setSelectedTime(slot.time)}
+                          className={`p-2 sm:p-2.5 rounded-xl border text-center transition-all min-h-[48px] flex flex-col items-center justify-center active:scale-95 ${
+                            isBlocked
+                              ? 'bg-[#F7EFEA] border-rose-200 text-[#786C63]/50 cursor-not-allowed'
+                              : isSelected
+                              ? 'bg-[#D4AF37] text-[#3C2F00] border-[#D4AF37] font-bold shadow-xs cursor-pointer'
+                              : 'bg-[#FDFBF9] border-[#E8D9B5] text-[#49382E] hover:border-[#D4AF37]/50 cursor-pointer'
+                          }`}
+                          title={slot.note || (isBlocked ? 'Horário Bloqueado' : 'Horário Disponível')}
+                        >
+                          <span className="font-syne text-sm font-bold block">{slot.time}</span>
+                          <span className="text-[10px] block font-jakarta truncate max-w-full px-1">
+                            {isBlocked ? (slot.note?.slice(0, 10) || 'Bloqueado') : 'Disponível'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
 

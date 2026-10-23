@@ -1,21 +1,74 @@
 import React, { useState } from 'react';
 import { SERVICES_CATALOG, SERVICE_PHOTO_PRESETS } from '../../data/mockData';
 import { Service, ServiceCategory, Appointment } from '../../types';
+import { uploadServicePhoto } from '../../services/emailNotificationService';
 
 interface FinancialTabProps {
   services?: Service[];
-  onUpdateService?: (updated: Service) => void;
-  onAddService?: (newService: Service) => void;
-  onDeleteService?: (id: string) => void;
+  onUpdateService?: (updated: Service) => Promise<void> | void;
+  onAddService?: (newService: Service) => Promise<void> | void;
+  onDeleteService?: (id: string) => Promise<void> | void;
   appointments?: Appointment[];
+  adminSessionToken?: string;
 }
+
+const compressImageFile = (file: File, maxWidth = 1200, maxHeight = 1200, quality = 0.85): Promise<File> => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        if (width > maxWidth || height > maxHeight) {
+          if (width > height) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          } else {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                const compressedFile = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), {
+                  type: 'image/jpeg',
+                  lastModified: Date.now()
+                });
+                resolve(compressedFile);
+              } else {
+                resolve(file);
+              }
+            },
+            'image/jpeg',
+            quality
+          );
+        } else {
+          resolve(file);
+        }
+      };
+      img.onerror = () => resolve(file);
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => resolve(file);
+    reader.readAsDataURL(file);
+  });
+};
 
 export const FinancialTab: React.FC<FinancialTabProps> = ({
   services: propServices,
   onUpdateService,
   onAddService,
   onDeleteService,
-  appointments = []
+  appointments = [],
+  adminSessionToken
 }) => {
   const [internalServices, setInternalServices] = useState<Service[]>(SERVICES_CATALOG);
   const services = propServices || internalServices;
@@ -49,6 +102,11 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
   const [formSpecs, setFormSpecs] = useState<string>('');
   const [formActive, setFormActive] = useState<boolean>(true);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Async action states
+  const [isSavingService, setIsSavingService] = useState<boolean>(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState<boolean>(false);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   // Deletion modal state
   const [serviceToDelete, setServiceToDelete] = useState<Service | null>(null);
@@ -112,41 +170,75 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
     setIsEditModalOpen(true);
   };
 
-  const handleToggleActive = (service: Service) => {
+  const handleToggleActive = async (service: Service) => {
     const newActive = service.active === false ? true : false;
     const updated: Service = {
       ...service,
       active: newActive
     };
 
-    if (onUpdateService) {
-      onUpdateService(updated);
-    } else {
-      setInternalServices(prev => prev.map(s => s.id === updated.id ? updated : s));
-    }
+    try {
+      if (onUpdateService) {
+        await onUpdateService(updated);
+      } else {
+        setInternalServices(prev => prev.map(s => s.id === updated.id ? updated : s));
+      }
 
-    showNotification(
-      newActive
-        ? `Procedimento "${service.title}" ativado e visível no autoagendamento.`
-        : `Procedimento "${service.title}" desativado (ocultado do agendamento de clientes).`,
-      newActive ? 'success' : 'info'
-    );
+      showNotification(
+        newActive
+          ? `Procedimento "${service.title}" ativado e visível no autoagendamento.`
+          : `Procedimento "${service.title}" desativado (ocultado do agendamento de clientes).`,
+        newActive ? 'success' : 'info'
+      );
+    } catch (err: any) {
+      showNotification(err.message || 'Falha ao atualizar status do procedimento no servidor.', 'error');
+    }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
+    if (!file) return;
+
+    // Validate size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setFormError('A imagem deve ter no máximo 5MB.');
+      return;
+    }
+
+    try {
+      setIsUploadingPhoto(true);
+      setFormError(null);
+
+      // Client-side canvas compression to avoid memory / storage quota overflow
+      const compressed = await compressImageFile(file);
+
+      // Immediate local preview
       const reader = new FileReader();
       reader.onload = event => {
         if (event.target?.result) {
           setFormImageUrl(event.target.result as string);
         }
       };
-      reader.readAsDataURL(file);
+      reader.readAsDataURL(compressed);
+
+      // Upload to server/Drive for permanent URL
+      const uploadRes = await uploadServicePhoto(compressed, adminSessionToken);
+      if (uploadRes.success && uploadRes.url) {
+        setFormImageUrl(uploadRes.url);
+        showNotification('Foto enviada e vinculada com sucesso ao catálogo.', 'success');
+      } else if (uploadRes.error) {
+        setFormError(`Aviso no upload: ${uploadRes.error}. Pré-visualização local mantida.`);
+      }
+    } catch (err: any) {
+      setFormError(`Erro ao processar imagem: ${err.message || 'Falha no processamento'}`);
+    } finally {
+      setIsUploadingPhoto(false);
+      // Reset input value so same file can be re-selected if desired
+      e.target.value = '';
     }
   };
 
-  const handleSaveService = (e: React.FormEvent) => {
+  const handleSaveService = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
 
@@ -177,53 +269,61 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
     const priceFormatted = `R$ ${priceNum.toFixed(2).replace('.', ',')}`;
     const specsArray = formSpecs.split(',').map(s => s.trim()).filter(Boolean);
 
-    if (editingService) {
-      const updated: Service = {
-        ...editingService,
-        title: formTitle.trim(),
-        category: formCategory,
-        price: priceNum,
-        priceFormatted,
-        duration: durationFormatted,
-        badge: formBadge.trim() || undefined,
-        description: formDescription.trim(),
-        note: formNote.trim(),
-        imageUrl: formImageUrl.trim() || SERVICE_PHOTO_PRESETS[0]?.url || '',
-        specs: specsArray,
-        active: formActive
-      };
+    try {
+      setIsSavingService(true);
 
-      if (onUpdateService) {
-        onUpdateService(updated);
-      } else {
-        setInternalServices(prev => prev.map(s => (s.id === updated.id ? updated : s)));
-      }
-      showNotification(`Procedimento "${updated.title}" atualizado com sucesso!`);
-    } else {
-      const newService: Service = {
-        id: `serv-${Date.now()}`,
-        title: formTitle.trim(),
-        category: formCategory,
-        price: priceNum,
-        priceFormatted,
-        duration: durationFormatted,
-        badge: formBadge.trim() || undefined,
-        description: formDescription.trim(),
-        note: formNote.trim(),
-        imageUrl: formImageUrl.trim() || SERVICE_PHOTO_PRESETS[0]?.url || '',
-        specs: specsArray,
-        active: formActive
-      };
+      if (editingService) {
+        const updated: Service = {
+          ...editingService,
+          title: formTitle.trim(),
+          category: formCategory,
+          price: priceNum,
+          priceFormatted,
+          duration: durationFormatted,
+          badge: formBadge.trim() || undefined,
+          description: formDescription.trim(),
+          note: formNote.trim(),
+          imageUrl: formImageUrl.trim() || SERVICE_PHOTO_PRESETS[0]?.url || '',
+          specs: specsArray,
+          active: formActive
+        };
 
-      if (onAddService) {
-        onAddService(newService);
+        if (onUpdateService) {
+          await onUpdateService(updated);
+        } else {
+          setInternalServices(prev => prev.map(s => (s.id === updated.id ? updated : s)));
+        }
+        showNotification(`Procedimento "${updated.title}" atualizado com sucesso!`);
       } else {
-        setInternalServices(prev => [newService, ...prev]);
+        const newService: Service = {
+          id: `serv-${Date.now()}`,
+          title: formTitle.trim(),
+          category: formCategory,
+          price: priceNum,
+          priceFormatted,
+          duration: durationFormatted,
+          badge: formBadge.trim() || undefined,
+          description: formDescription.trim(),
+          note: formNote.trim(),
+          imageUrl: formImageUrl.trim() || SERVICE_PHOTO_PRESETS[0]?.url || '',
+          specs: specsArray,
+          active: formActive
+        };
+
+        if (onAddService) {
+          await onAddService(newService);
+        } else {
+          setInternalServices(prev => [newService, ...prev]);
+        }
+        showNotification(`Novo serviço "${newService.title}" cadastrado com sucesso!`);
       }
-      showNotification(`Novo serviço "${newService.title}" cadastrado com sucesso!`);
+
+      setIsEditModalOpen(false);
+    } catch (err: any) {
+      setFormError(err.message || 'Falha ao salvar o procedimento no servidor.');
+    } finally {
+      setIsSavingService(false);
     }
-
-    setIsEditModalOpen(false);
   };
 
   // Safe Deletion Handler
@@ -239,36 +339,50 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
     setServiceToDelete(service);
   };
 
-  const confirmSafeDeactivate = () => {
+  const confirmSafeDeactivate = async () => {
     if (!serviceToDelete) return;
     const updated: Service = {
       ...serviceToDelete,
       active: false
     };
 
-    if (onUpdateService) {
-      onUpdateService(updated);
-    } else {
-      setInternalServices(prev => prev.map(s => s.id === updated.id ? updated : s));
-    }
+    try {
+      setIsDeleting(true);
+      if (onUpdateService) {
+        await onUpdateService(updated);
+      } else {
+        setInternalServices(prev => prev.map(s => s.id === updated.id ? updated : s));
+      }
 
-    showNotification(
-      `Procedimento "${serviceToDelete.title}" desativado. Registros históricos e faturamento foram preservados.`,
-      'info'
-    );
-    setServiceToDelete(null);
+      showNotification(
+        `Procedimento "${serviceToDelete.title}" desativado. Registros históricos e faturamento foram preservados.`,
+        'info'
+      );
+      setServiceToDelete(null);
+    } catch (err: any) {
+      showNotification(err.message || 'Falha ao desativar procedimento.', 'error');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
-  const confirmPermanentDelete = () => {
+  const confirmPermanentDelete = async () => {
     if (!serviceToDelete) return;
-    if (onDeleteService) {
-      onDeleteService(serviceToDelete.id);
-    } else {
-      setInternalServices(prev => prev.filter(s => s.id !== serviceToDelete.id));
-    }
+    try {
+      setIsDeleting(true);
+      if (onDeleteService) {
+        await onDeleteService(serviceToDelete.id);
+      } else {
+        setInternalServices(prev => prev.filter(s => s.id !== serviceToDelete.id));
+      }
 
-    showNotification(`Procedimento "${serviceToDelete.title}" excluído do catálogo.`);
-    setServiceToDelete(null);
+      showNotification(`Procedimento "${serviceToDelete.title}" excluído do catálogo.`);
+      setServiceToDelete(null);
+    } catch (err: any) {
+      showNotification(err.message || 'Falha ao excluir procedimento no servidor.', 'error');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const filtered = services.filter(s => {
@@ -623,8 +737,13 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
               <div className="p-4 rounded-xl bg-[#FDFBF9] border border-[#E8D9B5] space-y-3">
                 <span className="block text-[#49382E] font-semibold">Fotografia do Procedimento</span>
                 <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-xl overflow-hidden bg-[#F7EFEA] shrink-0 border border-[#E8D9B5]">
+                  <div className="w-16 h-16 rounded-xl overflow-hidden bg-[#F7EFEA] shrink-0 border border-[#E8D9B5] relative">
                     <img src={formImageUrl || SERVICE_PHOTO_PRESETS[0]?.url} alt="Preview" className="w-full h-full object-cover" />
+                    {isUploadingPhoto && (
+                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                        <span className="material-symbols-outlined text-white text-[20px] animate-spin">progress_activity</span>
+                      </div>
+                    )}
                   </div>
                   <div className="flex-1 space-y-2">
                     <input
@@ -635,11 +754,28 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
                       className="w-full px-3 py-1.5 rounded-lg bg-[#FFFFFF] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37]"
                     />
                     <div className="flex items-center gap-2">
-                      <label className="px-3 py-1.5 rounded-lg bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] cursor-pointer font-semibold inline-flex items-center gap-1.5 border border-[#E8D9B5] transition-colors">
-                        <span className="material-symbols-outlined text-[15px] text-[#D4AF37]">upload</span>
-                        <span>Carregar do dispositivo</span>
-                        <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+                      <label className={`px-3 py-1.5 rounded-lg bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-semibold inline-flex items-center gap-1.5 border border-[#E8D9B5] transition-colors ${isUploadingPhoto ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}>
+                        <span className={`material-symbols-outlined text-[15px] text-[#D4AF37] ${isUploadingPhoto ? 'animate-spin' : ''}`}>
+                          {isUploadingPhoto ? 'progress_activity' : 'upload'}
+                        </span>
+                        <span>{isUploadingPhoto ? 'Enviando foto...' : 'Carregar do dispositivo'}</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleFileUpload}
+                          disabled={isUploadingPhoto}
+                          className="hidden"
+                        />
                       </label>
+                      {formImageUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setFormImageUrl('')}
+                          className="px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 text-[11px] font-semibold border border-red-200 transition-colors cursor-pointer"
+                        >
+                          Remover foto
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -816,15 +952,26 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsEditModalOpen(false)}
-                  className="px-5 py-2.5 rounded-full bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-jakarta text-xs font-semibold cursor-pointer transition-colors"
+                  disabled={isSavingService}
+                  className="px-5 py-2.5 rounded-full bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-jakarta text-xs font-semibold cursor-pointer transition-colors disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 rounded-full bg-[#D4AF37] text-[#3C2F00] font-jakarta text-xs font-bold hover:bg-[#E5C158] transition-all shadow-md cursor-pointer"
+                  disabled={isSavingService || isUploadingPhoto}
+                  className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-[#D4AF37] text-[#3C2F00] font-jakarta text-xs font-bold hover:bg-[#E5C158] transition-all shadow-md cursor-pointer disabled:opacity-60"
                 >
-                  {editingService ? 'Salvar Alterações' : 'Cadastrar Procedimento'}
+                  {isSavingService && (
+                    <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span>
+                  )}
+                  <span>
+                    {isSavingService
+                      ? 'Salvando...'
+                      : editingService
+                      ? 'Salvar Alterações'
+                      : 'Cadastrar Procedimento'}
+                  </span>
                 </button>
               </div>
             </form>
@@ -862,16 +1009,21 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
                   <button
                     type="button"
                     onClick={() => setServiceToDelete(null)}
-                    className="w-full sm:w-auto px-4 py-2 rounded-full bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-semibold cursor-pointer transition-colors"
+                    disabled={isDeleting}
+                    className="w-full sm:w-auto px-4 py-2 rounded-full bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-semibold cursor-pointer transition-colors disabled:opacity-50"
                   >
                     Cancelar
                   </button>
                   <button
                     type="button"
                     onClick={confirmSafeDeactivate}
-                    className="w-full sm:w-auto px-5 py-2 rounded-full bg-[#D4AF37] text-[#3C2F00] font-bold hover:bg-[#E5C158] transition-all cursor-pointer shadow-md"
+                    disabled={isDeleting}
+                    className="flex items-center justify-center gap-1.5 w-full sm:w-auto px-5 py-2 rounded-full bg-[#D4AF37] text-[#3C2F00] font-bold hover:bg-[#E5C158] transition-all cursor-pointer shadow-md disabled:opacity-60"
                   >
-                    Desativar Procedimento (Recomendado)
+                    {isDeleting && (
+                      <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span>
+                    )}
+                    <span>{isDeleting ? 'Processando...' : 'Desativar Procedimento (Recomendado)'}</span>
                   </button>
                 </div>
               </div>
@@ -894,16 +1046,21 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
                   <button
                     type="button"
                     onClick={() => setServiceToDelete(null)}
-                    className="px-4 py-2 rounded-full bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-semibold cursor-pointer transition-colors"
+                    disabled={isDeleting}
+                    className="px-4 py-2 rounded-full bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-semibold cursor-pointer transition-colors disabled:opacity-50"
                   >
                     Cancelar
                   </button>
                   <button
                     type="button"
                     onClick={confirmPermanentDelete}
-                    className="px-5 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white font-bold transition-all cursor-pointer shadow-md"
+                    disabled={isDeleting}
+                    className="flex items-center gap-1.5 px-5 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white font-bold transition-all cursor-pointer shadow-md disabled:opacity-60"
                   >
-                    Excluir Permanentemente
+                    {isDeleting && (
+                      <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span>
+                    )}
+                    <span>{isDeleting ? 'Excluindo...' : 'Excluir Permanentemente'}</span>
                   </button>
                 </div>
               </div>

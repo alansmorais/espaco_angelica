@@ -1,4 +1,4 @@
-import { Appointment } from '../types';
+import { Appointment, Service } from '../types';
 import {
   AUTHORIZED_SENDER_EMAIL,
   TARGET_NOTIFICATION_EMAIL,
@@ -636,4 +636,343 @@ export async function deleteRemoteAppointment(
 export async function fetchRemoteAppointments(authToken?: string): Promise<Appointment[]> {
   const result = await fetchRemoteAppointmentsDetailed(authToken);
   return result.success ? result.appointments : [];
+}
+
+export interface BlockScheduleResult {
+  success: boolean;
+  persisted: boolean;
+  appointmentId?: string;
+  message?: string;
+  error?: string;
+}
+
+/**
+ * Persiste o bloqueio de uma data no armazenamento oficial (Google Sheets / backend).
+ * Requer token de autenticação administrativa.
+ */
+export async function submitBlockSchedule(
+  blockApt: Appointment,
+  authToken?: string
+): Promise<BlockScheduleResult> {
+  try {
+    const backendBase = getBackendApiUrl();
+    const targetUrl = backendBase
+      ? `${backendBase}/api/appointments/block`
+      : '/api/appointments/block';
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+
+    const token =
+      (authToken || '').trim() ||
+      (typeof window !== 'undefined' ? sessionStorage.getItem('angelica_admin_session') || '' : '');
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+      headers['X-Admin-Token'] = token;
+    }
+
+    const response = await fetch(targetUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        appointmentId: blockApt.id,
+        date: blockApt.date,
+        time: blockApt.time,
+        reason: blockApt.blockReason || blockApt.serviceTitle,
+        notes: blockApt.notes,
+        clientName: blockApt.clientName || 'Protocolo Ateliê'
+      })
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data.success && data.persisted === true) {
+        return {
+          success: true,
+          persisted: true,
+          appointmentId: blockApt.id,
+          message: data.message || 'Bloqueio de data registrado e persistido com sucesso.'
+        };
+      }
+      return {
+        success: false,
+        persisted: false,
+        appointmentId: blockApt.id,
+        error: data.error || data.message || 'O servidor não confirmou a gravação do bloqueio.'
+      };
+    }
+
+    let errorMsg = `Erro HTTP ${response.status} ao registrar bloqueio.`;
+    try {
+      const errJson = await response.json();
+      if (errJson?.error) errorMsg = errJson.error;
+    } catch {}
+
+    return {
+      success: false,
+      persisted: false,
+      appointmentId: blockApt.id,
+      error: errorMsg
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      persisted: false,
+      appointmentId: blockApt.id,
+      error: `Falha de rede ao conectar com o servidor: ${err.message || 'Servidor indisponível'}`
+    };
+  }
+}
+
+/**
+ * Consulta as datas bloqueadas diretamente do backend público (sem expor PII de clientes).
+ */
+export async function fetchRemoteBlockedDates(): Promise<string[]> {
+  try {
+    const backendBase = getBackendApiUrl();
+    const targetUrl = backendBase
+      ? `${backendBase}/api/appointments/blocked-dates`
+      : '/api/appointments/blocked-dates';
+    const res = await fetch(targetUrl);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && Array.isArray(data.blockedDates)) {
+        return data.blockedDates as string[];
+      }
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+export interface UpdateAppointmentResult {
+  success: boolean;
+  persisted?: boolean;
+  appointment?: Appointment;
+  error?: string;
+  statusCode?: number;
+}
+
+export async function updateRemoteAppointment(
+  appointment: Partial<Appointment> & { id: string },
+  authToken?: string
+): Promise<UpdateAppointmentResult> {
+  try {
+    const backendBase = getBackendApiUrl();
+    const targetUrl = backendBase
+      ? `${backendBase}/api/appointments/${encodeURIComponent(appointment.id)}`
+      : `/api/appointments/${encodeURIComponent(appointment.id)}`;
+    const token = (authToken || '').trim();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    const response = await fetch(targetUrl, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(appointment)
+    });
+
+    let data: any;
+    try {
+      data = await response.json();
+    } catch {
+      return {
+        success: false,
+        persisted: false,
+        error: 'Resposta inválida do servidor ao atualizar o agendamento.',
+        statusCode: response.status
+      };
+    }
+
+    if (response.ok && data?.success && data?.persisted) {
+      return {
+        success: true,
+        persisted: true,
+        appointment: data.appointment,
+        statusCode: response.status
+      };
+    }
+
+    return {
+      success: false,
+      persisted: false,
+      error: data?.error || `Erro HTTP ${response.status} ao atualizar agendamento.`,
+      statusCode: response.status
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      persisted: false,
+      error: `Falha de rede ao atualizar agendamento: ${err.message || 'servidor indisponível'}.`
+    };
+  }
+}
+
+export async function fetchRemoteServices(): Promise<Service[]> {
+  try {
+    const backendBase = getBackendApiUrl();
+    const targetUrl = backendBase ? `${backendBase}/api/services` : '/api/services';
+    const response = await fetch(targetUrl, {
+      headers: { Accept: 'application/json' }
+    });
+    if (response.ok) {
+      const data = await response.json();
+      if (data?.success && Array.isArray(data.services) && data.services.length > 0) {
+        return data.services as Service[];
+      }
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveRemoteService(
+  service: Service,
+  authToken?: string
+): Promise<{ success: boolean; saved?: boolean; error?: string; service?: Service }> {
+  try {
+    const backendBase = getBackendApiUrl();
+    const targetUrl = backendBase ? `${backendBase}/api/services` : '/api/services';
+    const token = (authToken || '').trim();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    const response = await fetch(targetUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(service)
+    });
+
+    let data: any;
+    try {
+      data = await response.json();
+    } catch {
+      return { success: false, error: 'Resposta inválida do servidor ao salvar procedimento.' };
+    }
+
+    if (response.ok && data?.success) {
+      return { success: true, saved: true, service: data.service || service };
+    }
+
+    return { success: false, error: data?.error || `Erro HTTP ${response.status} ao salvar procedimento.` };
+  } catch (err: any) {
+    return { success: false, error: `Falha de conexão: ${err.message || 'servidor indisponível'}.` };
+  }
+}
+
+export async function deleteRemoteService(
+  serviceId: string,
+  authToken?: string
+): Promise<{ success: boolean; deleted?: boolean; error?: string }> {
+  try {
+    const backendBase = getBackendApiUrl();
+    const targetUrl = backendBase
+      ? `${backendBase}/api/services/${encodeURIComponent(serviceId)}`
+      : `/api/services/${encodeURIComponent(serviceId)}`;
+    const token = (authToken || '').trim();
+    const headers: Record<string, string> = {
+      Accept: 'application/json'
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    const response = await fetch(targetUrl, {
+      method: 'DELETE',
+      headers
+    });
+
+    let data: any;
+    try {
+      data = await response.json();
+    } catch {
+      return { success: false, error: 'Resposta inválida do servidor ao excluir procedimento.' };
+    }
+
+    if (response.ok && data?.success) {
+      return { success: true, deleted: true };
+    }
+
+    return { success: false, error: data?.error || `Erro HTTP ${response.status} ao excluir procedimento.` };
+  } catch (err: any) {
+    return { success: false, error: `Falha de rede: ${err.message || 'servidor indisponível'}.` };
+  }
+}
+
+export async function uploadServicePhoto(
+  file: File,
+  authToken?: string
+): Promise<{ success: boolean; url?: string; error?: string }> {
+  try {
+    const validMimes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!validMimes.includes(file.type)) {
+      return {
+        success: false,
+        error: 'Formato não suportado. Por favor utilize JPEG, PNG ou WebP.'
+      };
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      return {
+        success: false,
+        error: 'A imagem deve ter no máximo 5MB.'
+      };
+    }
+
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    const backendBase = getBackendApiUrl();
+    const targetUrl = backendBase ? `${backendBase}/api/upload-photo` : '/api/upload-photo';
+    const token = (authToken || '').trim();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    const response = await fetch(targetUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        imageBase64: base64,
+        fileName: file.name,
+        mimeType: file.type
+      })
+    });
+
+    let data: any;
+    try {
+      data = await response.json();
+    } catch {
+      return { success: false, error: 'Resposta inválida do servidor ao enviar foto.' };
+    }
+
+    if (response.ok && data?.success && data?.url) {
+      return { success: true, url: data.url };
+    }
+
+    return { success: false, error: data?.error || `Erro HTTP ${response.status} ao processar foto.` };
+  } catch (err: any) {
+    return { success: false, error: `Falha no upload: ${err.message || 'servidor indisponível'}.` };
+  }
 }

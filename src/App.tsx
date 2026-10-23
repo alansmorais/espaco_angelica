@@ -28,8 +28,14 @@ import { playDiscreteAdminNotificationSound, registerUserInteraction } from './s
 import { calculateDeposit40, formatBRL } from './services/notificationTemplates';
 import {
   deleteRemoteAppointment,
+  updateRemoteAppointment,
   fetchRemoteAppointments,
-  fetchRemoteAppointmentsDetailed
+  fetchRemoteAppointmentsDetailed,
+  submitBlockSchedule,
+  fetchRemoteBlockedDates,
+  fetchRemoteServices,
+  saveRemoteService,
+  deleteRemoteService
 } from './services/emailNotificationService';
 
 // Public Components
@@ -55,7 +61,7 @@ import { SettingsTab } from './components/Admin/SettingsTab';
 
 // Modals
 import { ManualBookingModal } from './components/Modals/ManualBookingModal';
-import { BlockScheduleModal } from './components/Modals/BlockScheduleModal';
+import { BlockScheduleModal, BlockScheduleData } from './components/Modals/BlockScheduleModal';
 import { ExtraEncaixeModal } from './components/Modals/ExtraEncaixeModal';
 import { NewClientModal } from './components/Modals/NewClientModal';
 
@@ -349,6 +355,57 @@ export default function App() {
     };
   }, [appMode, adminSessionToken]);
 
+  // Public Blocked Dates Synchronization (Sem expor PII de clientes)
+  useEffect(() => {
+    let isMounted = true;
+    const syncPublicBlockedDates = async () => {
+      try {
+        const blocked = await fetchRemoteBlockedDates();
+        if (!isMounted || !Array.isArray(blocked) || blocked.length === 0) return;
+        setAppointments(prev => {
+          const newBlocks: Appointment[] = blocked.map(bDate => ({
+            id: `apt-block-remote-${bDate.replace(/[^a-zA-Z0-9]/g, '')}`,
+            clientName: 'Dia Bloqueado',
+            clientPhone: '',
+            date: bDate,
+            time: 'Dia Inteiro',
+            serviceTitle: 'Bloqueio de Agenda',
+            servicePrice: 'R$ 0,00',
+            serviceDuration: 'Dia Inteiro',
+            status: 'bloqueado' as const,
+            paymentMode: 'sinal_40' as const,
+            depositAmount: 0,
+            depositStatus: 'liquidado' as const
+          }));
+          const existingIds = new Set(prev.map(a => a.id));
+          const existingDates = new Set(prev.filter(a => a.status === 'bloqueado').map(a => a.date));
+          const toAdd = newBlocks.filter(b => !existingIds.has(b.id) && !existingDates.has(b.date));
+          return toAdd.length > 0 ? [...toAdd, ...prev] : prev;
+        });
+      } catch {}
+    };
+
+    syncPublicBlockedDates();
+    const interval = setInterval(syncPublicBlockedDates, 60000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Sincronização inicial de serviços remotos
+  useEffect(() => {
+    let isMounted = true;
+    const syncServices = async () => {
+      try {
+        const remoteServices = await fetchRemoteServices();
+        if (!isMounted || !Array.isArray(remoteServices) || remoteServices.length === 0) return;
+        setServices(remoteServices);
+      } catch {}
+    };
+    syncServices();
+  }, []);
+
   // WhatsApp Business API Config State
   const [whatsappConfig, setWhatsappConfig] = useState<WhatsAppConfig>(() => {
     try {
@@ -449,22 +506,37 @@ export default function App() {
   const [faqModalOpen, setFaqModalOpen] = useState<boolean>(false);
   const [manualBookingModalOpen, setManualBookingModalOpen] = useState<boolean>(false);
   const [blockModalOpen, setBlockModalOpen] = useState<boolean>(false);
+  const [blockModalInitialDate, setBlockModalInitialDate] = useState<string | undefined>(undefined);
   const [encaixeModalOpen, setEncaixeModalOpen] = useState<boolean>(false);
   const [newClientModalOpen, setNewClientModalOpen] = useState<boolean>(false);
 
   // Handlers for Services Management
-  const handleUpdateService = (updated: Service) => {
-    setServices(prev => prev.map(s => (s.id === updated.id ? updated : s)));
-    if (selectedService.id === updated.id) {
-      setSelectedService(updated);
+  const handleUpdateService = async (updated: Service) => {
+    const res = await saveRemoteService(updated, adminSessionToken);
+    if (!res.success) {
+      throw new Error(res.error || 'Falha ao atualizar procedimento no servidor.');
+    }
+    const finalService = res.service || updated;
+    setServices(prev => prev.map(s => (s.id === finalService.id ? finalService : s)));
+    if (selectedService.id === finalService.id) {
+      setSelectedService(finalService);
     }
   };
 
-  const handleAddService = (newService: Service) => {
-    setServices(prev => [newService, ...prev]);
+  const handleAddService = async (newService: Service) => {
+    const res = await saveRemoteService(newService, adminSessionToken);
+    if (!res.success) {
+      throw new Error(res.error || 'Falha ao salvar novo procedimento no servidor.');
+    }
+    const finalService = res.service || newService;
+    setServices(prev => [finalService, ...prev.filter(s => s.id !== finalService.id)]);
   };
 
-  const handleDeleteService = (id: string) => {
+  const handleDeleteService = async (id: string) => {
+    const res = await deleteRemoteService(id, adminSessionToken);
+    if (!res.success) {
+      throw new Error(res.error || 'Falha ao excluir procedimento no servidor.');
+    }
     setServices(prev => {
       const remaining = prev.filter(s => s.id !== id);
       if (selectedService.id === id && remaining.length > 0) {
@@ -540,10 +612,29 @@ export default function App() {
   };
 
   const handleUpdateAppointment = async (updated: Appointment) => {
+    // Persist to backend / Google Sheets official storage
+    const result = await updateRemoteAppointment(updated, adminSessionToken);
+    if (!result.success || !result.persisted) {
+      throw new Error(result.error || 'Falha ao atualizar o agendamento no servidor.');
+    }
+
     const prevApt = appointments.find(a => a.id === updated.id);
     const isNowConfirmed = updated.status === 'confirmado' && (!prevApt || prevApt.status !== 'confirmado');
+    const finalized = result.appointment ? { ...updated, ...result.appointment } : updated;
 
-    setAppointments(prev => prev.map(a => (a.id === updated.id ? updated : a)));
+    setAppointments(prev => prev.map(a => (a.id === updated.id ? finalized : a)));
+
+    // Sincroniza armazenamento local
+    for (const storageKey of ['angelica_appointments', 'angelica_appointments_local_archive']) {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        if (raw) {
+          const list: Appointment[] = JSON.parse(raw);
+          const updatedList = list.map(a => (a.id === updated.id ? finalized : a));
+          localStorage.setItem(storageKey, JSON.stringify(updatedList));
+        }
+      } catch {}
+    }
 
     // If appointment became confirmed and auto-send is enabled
     if (isNowConfirmed && whatsappConfig.autoSendOnConfirm && updated.whatsappStatus !== 'enviado') {
@@ -684,35 +775,53 @@ export default function App() {
     setClients(prev => [newClient, ...prev]);
   };
 
-  const handleBlockConfirm = (reason: string, timeSpan: string) => {
+  const handleBlockConfirm = async (data: BlockScheduleData): Promise<{ success: boolean; error?: string }> => {
+    const isAllDay = data.timeSpan === 'Dia Inteiro';
     const blockApt: Appointment = {
-      id: `block-${Date.now()}`,
-      clientName: 'Protocolo Ateliê',
+      id: `apt-block-${Date.now()}`,
+      clientName: isAllDay ? 'Dia Bloqueado (Folga)' : 'Horário Bloqueado',
       clientPhone: '',
-      serviceTitle: reason,
+      serviceTitle: isAllDay ? 'Bloqueio de Agenda (Dia Inteiro)' : `Bloqueio: ${data.reason}`,
       servicePrice: 'R$ 0,00',
-      serviceDuration: timeSpan,
-      date: 'Quarta, 13 Nov',
-      time: timeSpan.split(' ')[0] || '13:30',
+      serviceDuration: data.timeSpan,
+      date: data.date,
+      time: isAllDay ? 'Dia Inteiro' : (data.timeSpan.split(' ')[0] || '09:00'),
       status: 'bloqueado',
+      paymentMode: 'sinal_40',
       depositAmount: 0,
       depositStatus: 'liquidado',
-      isAutoclave: true,
-      blockReason: reason
+      notes: data.notes || (isAllDay ? 'Dia inteiro bloqueado pela administração' : `Bloqueado: ${data.reason}`),
+      blockReason: data.reason
     };
-    setAppointments(prev => [...prev, blockApt]);
 
-    // Mark corresponding slot as blocked
-    const timeMatch = timeSpan.split(' ')[0];
-    if (timeMatch) {
+    // Submete para a API oficial do backend / Google Sheets com o token administrativo
+    const result = await submitBlockSchedule(blockApt, adminSessionToken);
+    if (!result.success || !result.persisted) {
+      return {
+        success: false,
+        error: result.error || 'O servidor não confirmou a gravação do bloqueio no armazenamento oficial.'
+      };
+    }
+
+    // 1. Atualiza lista local imediatamente
+    setAppointments(prev => [blockApt, ...prev.filter(a => a.id !== blockApt.id)]);
+
+    // 2. Se for horário específico, marca na grade
+    const timeMatch = data.timeSpan.split(' ')[0];
+    if (timeMatch && !isAllDay) {
       setTimeSlots(prev =>
         prev.map(s =>
           s.time.startsWith(timeMatch)
-            ? { ...s, status: 'bloqueado', note: reason }
+            ? { ...s, status: 'bloqueado', note: data.reason }
             : s
         )
       );
     }
+
+    // 3. Re-sincroniza com a planilha oficial do Google Sheets (fonte da verdade)
+    await refreshRemoteAppointments();
+
+    return { success: true };
   };
 
   const handleExtraEncaixeConfirm = (name: string, procedure: string, dateTime: string, feeApplied: boolean) => {
@@ -801,6 +910,8 @@ export default function App() {
               studioAddress={studioAddress}
               services={activeServices}
               onSelectService={handleSelectService}
+              appointments={appointments}
+              blockedDates={appointments.filter(a => a.status === 'bloqueado').map(a => a.date)}
             />
 
             {/* Galeria de Criações Recentes */}
@@ -1069,13 +1180,17 @@ export default function App() {
 
               {adminTab === 'agenda-bloqueios' && (
                 <CalendarTab
-                  onOpenBlockModal={() => setBlockModalOpen(true)}
+                  onOpenBlockModal={(date) => {
+                    setBlockModalInitialDate(date);
+                    setBlockModalOpen(true);
+                  }}
                   onOpenExtraEncaixeModal={() => setEncaixeModalOpen(true)}
                   onSelectClientForDossier={_name => {
                     setAdminTab('gestao-clientes');
                   }}
                   appointments={appointments}
                   timeSlots={timeSlots}
+                  services={services}
                   onUpdateAppointment={handleUpdateAppointment}
                   onDeleteAppointment={handleDeleteAppointment}
                 />
@@ -1107,6 +1222,7 @@ export default function App() {
                   onAddService={handleAddService}
                   onDeleteService={handleDeleteService}
                   appointments={appointments}
+                  adminSessionToken={adminSessionToken}
                 />
               )}
 
@@ -1161,6 +1277,7 @@ export default function App() {
         isOpen={blockModalOpen}
         onClose={() => setBlockModalOpen(false)}
         onConfirmBlock={handleBlockConfirm}
+        initialDate={blockModalInitialDate}
       />
 
       <ExtraEncaixeModal

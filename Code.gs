@@ -48,6 +48,47 @@ function getOfficialSheet() {
   }
 }
 
+function getServicesSheet() {
+  try {
+    var ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
+    if (!ss) return null;
+    var sheet = ss.getSheetByName("Servicos");
+    if (!sheet) {
+      sheet = ss.insertSheet("Servicos");
+      var headerRow = [
+        "ID",
+        "Título",
+        "Categoria",
+        "Preço",
+        "Preço Formatado",
+        "Duração",
+        "Badge",
+        "Descrição",
+        "Observação",
+        "Imagem URL",
+        "Especificações",
+        "Ativo",
+        "Atualizado Em"
+      ];
+      sheet.appendRow(headerRow);
+      var defaults = [
+        ["alongamento-fibra-slim", "Alongamento em Fibra Slim", "alongamento", 220, "R$ 220,00", "2h 30min", "Mais Pedido", "Extensão com aspecto natural, alta durabilidade e acabamento fino.", "Inclui cutilagem combinada e hidratação", "https://images.unsplash.com/photo-1604654894610-df63bc536371?auto=format&fit=crop&w=800&q=80", "Fibra de alta pureza, Acabamento anatômico, Cutilagem combinada", true, new Date()],
+        ["manutencao-fibra-vidro", "Manutenção Fibra de Vidro", "manutencao", 140, "R$ 140,00", "1h 45min", "", "Reposição de estrutura, nivelamento e reforço das tensões.", "Recomendado a cada 21 a 28 dias", "https://images.unsplash.com/photo-1632345031435-8727f6897d53?auto=format&fit=crop&w=800&q=80", "Nivelamento milimétrico, Selagem de bordas, Troca de top coat", true, new Date()],
+        ["blindagem-diamante", "Blindagem Diamante & Banho Gel", "blindagem", 130, "R$ 130,00", "1h 30min", "Brilho Intenso", "Camada protetora sobre as unhas naturais, conferindo brilho vitrificado e resistência.", "Ideal para quem busca manter o comprimento natural sem quebras", "https://images.unsplash.com/photo-1519014816548-bf5fe059798b?auto=format&fit=crop&w=800&q=80", "Gel autonivelante de alta densidade, Brilho espelhado, Resistência a impactos", true, new Date()],
+        ["esmaltacao-gel-premium", "Esmaltação em Gel Premium", "esmaltacao", 95, "R$ 95,00", "1h 15min", "", "Secagem imediata em cabine LED/UV com brilho impecável por até 20 dias.", "Unhas prontas para sair sem borrar", "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=800&q=80", "Durabilidade 15 a 21 dias, Secagem instantânea, Não lasca", true, new Date()],
+        ["nail-art-encapsulada", "Nail Art Autoral & Encapsulada", "nailart", 50, "A partir de R$ 50,00", "45min", "Autoral", "Design personalizado: encapsulados, francesinha reversa, marmorizados e aplicações.", "Preço base por par ou aplicação conforme complexidade", "https://images.unsplash.com/photo-1599940824399-b87987ceb72a?auto=format&fit=crop&w=800&q=80", "Pigmentos importados, Pedrarias de alta fixação, Efeitos 3D e foil", true, new Date()],
+        ["spa-das-maos-ouro", "Spa das Mãos & Esfoliação", "spa", 85, "R$ 85,00", "50min", "Relaxamento", "Esfoliação enzimática, hidratação profunda com máscara térmica e massagem relaxante.", "Tratamento rejuvenescedor para mãos e cutículas", "https://images.unsplash.com/photo-1560750588-73207b1ef5b8?auto=format&fit=crop&w=800&q=80", "Esfoliação botânica, Máscara com colágeno, Massagem relaxante", true, new Date()]
+      ];
+      for (var d = 0; d < defaults.length; d++) {
+        sheet.appendRow(defaults[d]);
+      }
+    }
+    return sheet;
+  } catch (e) {
+    return null;
+  }
+}
+
 function escapeHtml(str) {
   if (str === null || str === undefined) return "";
   return String(str)
@@ -127,6 +168,308 @@ function doPost(e) {
         });
       } finally {
         deleteLock.releaseLock();
+      }
+    }
+
+    if (data.action === "updateAppointment") {
+      var rawUpdateId = data.appointmentId ? String(data.appointmentId).trim() : "";
+      if (!rawUpdateId || !/^(apt|test|e2e)-[a-zA-Z0-9_-]{1,64}$/.test(rawUpdateId)) {
+        return responseJSON({ status: "error", message: "ID do agendamento inválido ou ausente para atualização." });
+      }
+
+      var updateLock = LockService.getScriptLock();
+      try {
+        updateLock.waitLock(15000);
+      } catch (lockErr) {
+        return responseJSON({ status: "error", message: "Tempo limite esgotado ao aguardar bloqueio para atualização." });
+      }
+
+      try {
+        var updateSheet = getOfficialSheet();
+        if (!updateSheet) {
+          return responseJSON({ status: "error", message: "Aba 'Agendamentos' não encontrada na planilha oficial." });
+        }
+
+        var updateRows = updateSheet.getDataRange().getValues();
+        var foundRowIndex = -1;
+        for (var u = 1; u < updateRows.length; u++) {
+          var rowId = updateRows[u][9] ? String(updateRows[u][9]).trim() : "";
+          if (rowId && rowId.toLowerCase() === rawUpdateId.toLowerCase()) {
+            foundRowIndex = u + 1;
+            break;
+          }
+        }
+
+        if (foundRowIndex === -1) {
+          return responseJSON({
+            status: "error",
+            notFound: true,
+            appointmentId: rawUpdateId,
+            message: "Agendamento " + rawUpdateId + " não encontrado na planilha oficial."
+          });
+        }
+
+        if (data.clientName !== undefined) updateSheet.getRange(foundRowIndex, 2).setValue(String(data.clientName).trim());
+        if (data.clientPhone !== undefined) updateSheet.getRange(foundRowIndex, 3).setValue(String(data.clientPhone).trim());
+        if (data.clientEmail !== undefined) updateSheet.getRange(foundRowIndex, 4).setValue(String(data.clientEmail).trim());
+        if (data.serviceTitle !== undefined) updateSheet.getRange(foundRowIndex, 5).setValue(String(data.serviceTitle).trim());
+        if (data.date !== undefined) updateSheet.getRange(foundRowIndex, 6).setValue(String(data.date).trim());
+        if (data.time !== undefined) updateSheet.getRange(foundRowIndex, 7).setValue(String(data.time).trim());
+        if (data.depositAmount !== undefined) updateSheet.getRange(foundRowIndex, 8).setValue(Number(data.depositAmount));
+        if (data.status !== undefined) updateSheet.getRange(foundRowIndex, 9).setValue(String(data.status).trim());
+        if (data.notes !== undefined) updateSheet.getRange(foundRowIndex, 11).setValue(String(data.notes).trim());
+
+        return responseJSON({
+          status: "success",
+          updated: true,
+          persisted: true,
+          appointmentId: rawUpdateId,
+          message: "Agendamento atualizado com sucesso na planilha oficial."
+        });
+      } finally {
+        updateLock.releaseLock();
+      }
+    }
+
+    if (data.action === "getServices") {
+      var servSheet = getServicesSheet();
+      if (!servSheet) {
+        return responseJSON({ status: "error", message: "Aba 'Servicos' não encontrada na planilha oficial." });
+      }
+      var sRows = servSheet.getDataRange().getValues();
+      var servicesList = [];
+      for (var s = 1; s < sRows.length; s++) {
+        var sRow = sRows[s];
+        var sId = String(sRow[0] || '').trim();
+        if (!sId) continue;
+        var specsVal = String(sRow[10] || '');
+        var specsArr = specsVal ? specsVal.split(',').map(function(item) { return item.trim(); }).filter(Boolean) : [];
+        servicesList.push({
+          id: sId,
+          title: String(sRow[1] || ''),
+          category: String(sRow[2] || 'alongamento'),
+          price: Number(sRow[3] || 0),
+          priceFormatted: String(sRow[4] || ('R$ ' + Number(sRow[3] || 0).toFixed(2).replace('.', ','))),
+          duration: String(sRow[5] || '1h 30min'),
+          badge: String(sRow[6] || ''),
+          description: String(sRow[7] || ''),
+          note: String(sRow[8] || ''),
+          imageUrl: String(sRow[9] || ''),
+          specs: specsArr,
+          active: sRow[11] !== false && String(sRow[11]).toLowerCase() !== 'false',
+          updatedAt: sRow[12] ? new Date(sRow[12]).toISOString() : new Date().toISOString()
+        });
+      }
+      return responseJSON({ status: "success", services: servicesList, total: servicesList.length });
+    }
+
+    if (data.action === "saveService") {
+      var sIdToSave = data.id ? String(data.id).trim() : "";
+      if (!sIdToSave) {
+        return responseJSON({ status: "error", message: "ID do serviço obrigatório." });
+      }
+
+      var servLock = LockService.getScriptLock();
+      try {
+        servLock.waitLock(15000);
+      } catch (lockErr) {
+        return responseJSON({ status: "error", message: "Tempo limite ao aguardar bloqueio para salvar serviço." });
+      }
+
+      try {
+        var saveServSheet = getServicesSheet();
+        if (!saveServSheet) {
+          return responseJSON({ status: "error", message: "Aba 'Servicos' não encontrada na planilha oficial." });
+        }
+
+        var existingRows = saveServSheet.getDataRange().getValues();
+        var foundServRow = -1;
+        for (var sr = 1; sr < existingRows.length; sr++) {
+          if (String(existingRows[sr][0] || '').trim().toLowerCase() === sIdToSave.toLowerCase()) {
+            foundServRow = sr + 1;
+            break;
+          }
+        }
+
+        var specsStr = Array.isArray(data.specs) ? data.specs.join(', ') : String(data.specs || '');
+        var priceNum = Number(data.price || 0);
+        var priceFmt = data.priceFormatted || ('R$ ' + priceNum.toFixed(2).replace('.', ','));
+        var isActive = data.active !== false && String(data.active).toLowerCase() !== 'false';
+
+        var rowData = [
+          sIdToSave,
+          String(data.title || '').trim(),
+          String(data.category || 'alongamento').trim(),
+          priceNum,
+          priceFmt,
+          String(data.duration || '1h 30min').trim(),
+          String(data.badge || '').trim(),
+          String(data.description || '').trim(),
+          String(data.note || '').trim(),
+          String(data.imageUrl || '').trim(),
+          specsStr,
+          isActive,
+          new Date()
+        ];
+
+        if (foundServRow > 0) {
+          saveServSheet.getRange(foundServRow, 1, 1, 13).setValues([rowData]);
+        } else {
+          saveServSheet.appendRow(rowData);
+        }
+
+        return responseJSON({
+          status: "success",
+          saved: true,
+          serviceId: sIdToSave,
+          message: "Serviço salvo com sucesso na planilha oficial."
+        });
+      } finally {
+        servLock.releaseLock();
+      }
+    }
+
+    if (data.action === "deleteService") {
+      var sIdToDelete = data.id ? String(data.id).trim() : "";
+      if (!sIdToDelete) {
+        return responseJSON({ status: "error", message: "ID do serviço obrigatório para exclusão." });
+      }
+
+      var delServLock = LockService.getScriptLock();
+      try {
+        delServLock.waitLock(15000);
+      } catch (lockErr) {
+        return responseJSON({ status: "error", message: "Tempo limite ao aguardar bloqueio para exclusão de serviço." });
+      }
+
+      try {
+        var delServSheet = getServicesSheet();
+        if (!delServSheet) {
+          return responseJSON({ status: "error", message: "Aba 'Servicos' não encontrada na planilha oficial." });
+        }
+
+        var allServRows = delServSheet.getDataRange().getValues();
+        var deletedServCount = 0;
+        for (var ds = allServRows.length - 1; ds >= 1; ds--) {
+          if (String(allServRows[ds][0] || '').trim().toLowerCase() === sIdToDelete.toLowerCase()) {
+            delServSheet.deleteRow(ds + 1);
+            deletedServCount++;
+          }
+        }
+
+        return responseJSON({
+          status: "success",
+          deleted: deletedServCount > 0,
+          notFound: deletedServCount === 0,
+          serviceId: sIdToDelete,
+          message: deletedServCount > 0 ? "Serviço excluído da planilha oficial." : "Serviço não encontrado na planilha."
+        });
+      } finally {
+        delServLock.releaseLock();
+      }
+    }
+
+    if (data.action === "uploadPhoto") {
+      if (!data.imageBase64) {
+        return responseJSON({ status: "error", message: "Conteúdo da imagem (base64) ausente." });
+      }
+
+      var photoLock = LockService.getScriptLock();
+      try {
+        photoLock.waitLock(15000);
+      } catch (lockErr) {
+        return responseJSON({ status: "error", message: "Tempo limite ao aguardar bloqueio para upload de foto." });
+      }
+
+      try {
+        var folderName = "Espaco_Angie_Fotos";
+        var folders = DriveApp.getFoldersByName(folderName);
+        var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+        var contentType = data.mimeType || "image/jpeg";
+        var decoded = Utilities.base64Decode(data.imageBase64);
+        var fileName = data.fileName || ("foto-" + new Date().getTime() + ".jpg");
+        var blob = Utilities.newBlob(decoded, contentType, fileName);
+        var file = folder.createFile(blob);
+        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        var fileId = file.getId();
+        var photoUrl = "https://lh3.googleusercontent.com/d/" + fileId;
+
+        return responseJSON({
+          status: "success",
+          url: photoUrl,
+          fileId: fileId,
+          message: "Foto armazenada com sucesso no Google Drive."
+        });
+      } finally {
+        photoLock.releaseLock();
+      }
+    }
+
+    if (data.action === "blockSchedule" || data.status === "bloqueado") {
+      var rawBlockId = data.appointmentId ? String(data.appointmentId).trim() : "";
+      if (!rawBlockId || !/^(apt|test|e2e)-[a-zA-Z0-9_-]{1,64}$/.test(rawBlockId)) {
+        return responseJSON({ status: "error", message: "ID de bloqueio inválido ou fora do padrão (permitido: apt-*, test-* ou e2e-*)." });
+      }
+
+      var blockDate = data.date ? String(data.date).trim() : "";
+      if (!blockDate) {
+        return responseJSON({ status: "error", message: "Data do bloqueio ausente." });
+      }
+
+      var blockLock = LockService.getScriptLock();
+      try {
+        blockLock.waitLock(15000);
+      } catch (lockErr) {
+        return responseJSON({ status: "error", message: "Tempo limite esgotado ao aguardar bloqueio para gravar bloqueio de data." });
+      }
+
+      try {
+        var blockSheet = getOfficialSheet();
+        if (!blockSheet) {
+          return responseJSON({ status: "error", message: "Aba 'Agendamentos' não encontrada na planilha oficial." });
+        }
+
+        var blockRows = blockSheet.getDataRange().getValues();
+        for (var b = 1; b < blockRows.length; b++) {
+          var rowBlockId = blockRows[b][9] ? String(blockRows[b][9]).trim() : "";
+          if (rowBlockId && rowBlockId.toLowerCase() === rawBlockId.toLowerCase()) {
+            return responseJSON({
+              status: "success",
+              duplicate: true,
+              persisted: true,
+              emailSent: false,
+              emailSuppressed: true,
+              message: "Bloqueio " + rawBlockId + " já consta na planilha oficial.",
+              appointmentId: rawBlockId
+            });
+          }
+        }
+
+        blockSheet.appendRow([
+          new Date(),
+          data.clientName ? String(data.clientName).trim() : 'Protocolo Ateliê',
+          data.clientPhone ? String(data.clientPhone).trim() : '(12) 97406-2241',
+          data.clientEmail ? String(data.clientEmail).trim() : '',
+          data.serviceTitle ? String(data.serviceTitle).trim() : 'Bloqueio de Agenda',
+          blockDate,
+          data.time ? String(data.time).trim() : 'Dia Inteiro',
+          0,
+          'bloqueado',
+          rawBlockId,
+          data.notes ? String(data.notes).trim() : (data.blockReason || 'Bloqueio administrativo')
+        ]);
+
+        return responseJSON({
+          status: "success",
+          persisted: true,
+          duplicate: false,
+          emailSent: false,
+          emailSuppressed: true,
+          message: "Bloqueio registrado com sucesso na planilha oficial.",
+          appointmentId: rawBlockId
+        });
+      } finally {
+        blockLock.releaseLock();
       }
     }
 
@@ -511,6 +854,39 @@ function doGet(e) {
     if (!auth.valid) {
       return responseJSON({ status: "error", message: auth.error });
     }
+
+    if (e.parameter.action === "getServices") {
+      var servSheet = getServicesSheet();
+      if (!servSheet) {
+        return responseJSON({ status: "error", message: "Aba 'Servicos' não encontrada na planilha oficial." });
+      }
+      var sRows = servSheet.getDataRange().getValues();
+      var servicesList = [];
+      for (var s = 1; s < sRows.length; s++) {
+        var sRow = sRows[s];
+        var sId = String(sRow[0] || '').trim();
+        if (!sId) continue;
+        var specsVal = String(sRow[10] || '');
+        var specsArr = specsVal ? specsVal.split(',').map(function(item) { return item.trim(); }).filter(Boolean) : [];
+        servicesList.push({
+          id: sId,
+          title: String(sRow[1] || ''),
+          category: String(sRow[2] || 'alongamento'),
+          price: Number(sRow[3] || 0),
+          priceFormatted: String(sRow[4] || ('R$ ' + Number(sRow[3] || 0).toFixed(2).replace('.', ','))),
+          duration: String(sRow[5] || '1h 30min'),
+          badge: String(sRow[6] || ''),
+          description: String(sRow[7] || ''),
+          note: String(sRow[8] || ''),
+          imageUrl: String(sRow[9] || ''),
+          specs: specsArr,
+          active: sRow[11] !== false && String(sRow[11]).toLowerCase() !== 'false',
+          updatedAt: sRow[12] ? new Date(sRow[12]).toISOString() : new Date().toISOString()
+        });
+      }
+      return responseJSON({ status: "success", services: servicesList, total: servicesList.length });
+    }
+
     return fetchAppointmentsFromSheet();
   } catch (err) {
     return responseJSON({ status: "error", message: err.toString() });

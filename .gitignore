@@ -8,3 +8,6 @@ coverage/
 .env.staging
 !.env.example
 !.env.staging.example
+backup_*/
+uploads/
+

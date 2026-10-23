@@ -22,8 +22,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-# Copy server script and built assets from builder stage
+# Copy server script, source modules and built assets from builder stage
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/src ./src
 COPY --from=builder /app/server.ts ./server.ts
 COPY --from=builder /app/index.html ./index.html
 

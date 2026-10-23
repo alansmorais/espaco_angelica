@@ -7,7 +7,9 @@ import {
   calculateFullPrepayment,
   calculateRemainingBalance,
   formatBRL,
-  buildOfficialPreBookingWhatsAppMessage
+  buildOfficialPreBookingWhatsAppMessage,
+  normalizeDateKey,
+  areDatesEqual
 } from '../src/services/notificationTemplates';
 import { buildPreBookingEmailPayload } from '../src/services/emailNotificationService';
 import { Appointment, BlacklistEntry } from '../src/types';
@@ -1742,4 +1744,298 @@ runTest('Fluxo de Novo Agendamento Manual: status coerente e sincronização com
   );
 });
 
+// 42. Bloqueio de Agenda: Validação estrita do ID e rejeição do padrão legado block-*
+runTest('Bloqueio de Agenda: Validação estrita do ID e rejeição do padrão legado block-*', () => {
+  // O prefixo correto aceito pelo servidor e pelo Google Apps Script é apt-block-*
+  assertCondition(
+    isValidAppointmentId('apt-block-1731500000000') === true,
+    'apt-block-* deve ser considerado um ID válido pelo regex'
+  );
+  assertCondition(
+    isValidAppointmentId('apt-block-20241113') === true,
+    'apt-block-20241113 deve ser válido'
+  );
+
+  // O padrão legado block-* (sem prefixo apt-) gerava falhas silenciosas na validação do backend
+  assertCondition(
+    isValidAppointmentId('block-1731500000000') === false,
+    'O ID legado block-* DEVE ser rejeitado por não iniciar com apt-, test- ou e2e-'
+  );
+  assertCondition(
+    isValidAppointmentId('') === false,
+    'ID vazio deve ser rejeitado'
+  );
+});
+
+// 43. Bloqueio de Agenda: Contrato Code.gs e codeGsTemplate.ts para gravação de folgas e bloqueios
+runTest('Bloqueio de Agenda: Contrato Code.gs e codeGsTemplate.ts para gravação de folgas e bloqueios', () => {
+  const codeGsContent = fs.readFileSync(path.resolve(__dirname, '../Code.gs'), 'utf8');
+  const templatePath = path.resolve(__dirname, '../src/data/codeGsTemplate.ts');
+  const templateFileRaw = fs.readFileSync(templatePath, 'utf8');
+  const quoteStart = templateFileRaw.indexOf('"');
+  const quoteEnd = templateFileRaw.lastIndexOf('"');
+  const unescapedTemplate = JSON.parse(templateFileRaw.substring(quoteStart, quoteEnd + 1));
+
+  // 1. Ambos os arquivos devem conter suporte para a ação blockSchedule
+  assertCondition(
+    codeGsContent.includes('action === "blockSchedule"'),
+    'Code.gs deve suportar explicitamente action === "blockSchedule"'
+  );
+  assertCondition(
+    unescapedTemplate.includes('action === "blockSchedule"'),
+    'codeGsTemplate.ts deve suportar explicitamente action === "blockSchedule"'
+  );
+
+  // 2. Gravação de bloqueio deve usar status 'bloqueado' e valor 0
+  assertCondition(
+    codeGsContent.includes("'bloqueado'"),
+    'Code.gs deve registrar status bloqueado'
+  );
+
+  // 3. Bloqueios de agenda NUNCA enviam e-mails para a cliente nem notificações de venda
+  assertCondition(
+    codeGsContent.includes('emailSuppressed: true'),
+    'Code.gs deve retornar emailSuppressed: true nos bloqueios'
+  );
+});
+
+// 44. Bloqueio de Agenda: Endpoint /api/appointments/block exige autenticação e persiste status bloqueado
+runTest('Bloqueio de Agenda: Endpoint /api/appointments/block exige autenticação e persiste status bloqueado', () => {
+  const serverContent = fs.readFileSync(path.resolve(__dirname, '../server.ts'), 'utf8');
+
+  // 1. Rota dedicada existe no backend
+  const blockRoutePos = serverContent.indexOf("app.post('/api/appointments/block'");
+  assertCondition(blockRoutePos !== -1, 'server.ts deve conter a rota POST /api/appointments/block');
+
+  // 2. Autenticação obrigatória logo no início da rota
+  const authPos = serverContent.indexOf('isAuthorizedAdminRequest(req)', blockRoutePos);
+  assertCondition(
+    authPos !== -1 && authPos < blockRoutePos + 250,
+    '/api/appointments/block deve exigir autenticação administrativa logo no início'
+  );
+
+  // 3. Validação de data e ID
+  const idCheckPos = serverContent.indexOf('isValidAppointmentId(appointmentId)', blockRoutePos);
+  assertCondition(
+    idCheckPos !== -1 && idCheckPos < blockRoutePos + 750,
+    '/api/appointments/block deve validar o formato do appointmentId'
+  );
+
+  // 4. Registro com status bloqueado
+  assertCondition(
+    serverContent.includes("status: 'bloqueado'"),
+    'server.ts deve armazenar registros de bloqueio com status: "bloqueado"'
+  );
+});
+
+// 45. Bloqueio de Agenda: BookingWizard e Backend impedem reservas em datas bloqueadas
+runTest('Bloqueio de Agenda: BookingWizard e Backend impedem reservas em datas bloqueadas', () => {
+  const serverContent = fs.readFileSync(path.resolve(__dirname, '../server.ts'), 'utf8');
+  const wizardContent = fs.readFileSync(path.resolve(__dirname, '../src/components/BookingWizard.tsx'), 'utf8');
+
+  // 1. Backend: /api/notifications/new-booking verifica se a data está bloqueada
+  assertCondition(
+    serverContent.includes("status === 'bloqueado'") &&
+    serverContent.includes('está bloqueada para novos agendamentos'),
+    'server.ts deve verificar se a data está bloqueada e rejeitar com erro 400'
+  );
+
+  // 2. Frontend: BookingWizard recebe appointments e tem helper isDateBlocked
+  assertCondition(
+    wizardContent.includes('isDateBlocked'),
+    'BookingWizard deve ter o helper isDateBlocked'
+  );
+  assertCondition(
+    wizardContent.includes('available: !isDateBlocked'),
+    'BookingWizard deve marcar available: false para datas bloqueadas'
+  );
+
+  // 3. Frontend: handleConfirmBooking impede submissão em data bloqueada
+  assertCondition(
+    wizardContent.includes('if (isDateBlocked(selectedDate))'),
+    'handleConfirmBooking no BookingWizard deve rejeitar submissão se selectedDate estiver bloqueada'
+  );
+});
+
+// 46. Bloqueio de Agenda: Exclusão/Desbloqueio remove da lista oficial e reabilita agendamentos
+runTest('Bloqueio de Agenda: Exclusão/Desbloqueio remove da lista oficial e reabilita agendamentos', () => {
+  const calendarContent = fs.readFileSync(path.resolve(__dirname, '../src/components/Admin/CalendarTab.tsx'), 'utf8');
+  const appContent = fs.readFileSync(path.resolve(__dirname, '../src/App.tsx'), 'utf8');
+
+  // 1. CalendarTab oferece ação de desbloquear
+  assertCondition(
+    calendarContent.includes('Desbloquear Data'),
+    'CalendarTab deve exibir botão para Desbloquear Data'
+  );
+  assertCondition(
+    calendarContent.includes('handleDeleteAppointment(currentDayBlock)'),
+    'CalendarTab deve chamar handleDeleteAppointment para remover o bloqueio'
+  );
+
+  // 2. App.tsx chama deleteRemoteAppointment na exclusão
+  assertCondition(
+    appContent.includes('deleteRemoteAppointment(appointment.id'),
+    'App.tsx deve chamar deleteRemoteAppointment para remover da fonte oficial'
+  );
+});
+
+// 47. Bloqueio de Agenda: Representação canônica de data e prevenção de falsos positivos por substrings
+runTest('Bloqueio de Agenda: Representação canônica de data e prevenção de falsos positivos por substrings', () => {
+  // 1. Igualdade exata no formato de interface
+  assertCondition(areDatesEqual('Quarta, 13 Nov', 'Quarta, 13 Nov') === true, 'Datas idênticas devem ser iguais');
+  assertCondition(areDatesEqual(' Quarta, 13 Nov ', 'quarta, 13 nov') === true, 'Normalização de case e espaços');
+
+  // 2. Equivalência entre formatos distintos (textual, ISO, barra)
+  assertCondition(areDatesEqual('Quarta, 13 Nov', '13/11/2024') === true, 'Textual e DD/MM/YYYY devem ser equivalentes');
+  assertCondition(areDatesEqual('Quarta, 13 Nov', '2024-11-13') === true, 'Textual e YYYY-MM-DD devem ser equivalentes');
+  assertCondition(areDatesEqual('13 Nov', 'Quarta, 13 Nov') === true, 'Dia+mês sem dia da semana deve ser equivalente');
+
+  // 3. Rejeição estrita de dias diferentes (previne bloqueio indevido por mesmo dia da semana)
+  assertCondition(areDatesEqual('Quarta, 13 Nov', 'Quarta, 20 Nov') === false, 'Quarta 13 e Quarta 20 NÃO podem ser iguais');
+  assertCondition(areDatesEqual('Quinta, 14 Nov', 'Quinta, 21 Nov') === false, 'Quinta 14 e Quinta 21 NÃO podem ser iguais');
+
+  // 4. Rejeição estrita de armadilhas clássicas de substring (4 Nov em 14 Nov, 1 Nov em 21 Nov)
+  assertCondition(areDatesEqual('14 Nov', '4 Nov') === false, '14 Nov e 4 Nov NÃO podem ser iguais');
+  assertCondition(areDatesEqual('Quinta, 14 Nov', '4 Nov') === false, 'Quinta 14 Nov e 4 Nov NÃO podem ser iguais');
+  assertCondition(areDatesEqual('21 Nov', '1 Nov') === false, '21 Nov e 1 Nov NÃO podem ser iguais');
+
+  // 5. Entradas inválidas ou vazias
+  assertCondition(areDatesEqual('', '14 Nov') === false, 'Data vazia deve retornar false');
+  assertCondition(areDatesEqual(undefined, '14 Nov') === false, 'Data undefined deve retornar false');
+});
+
+// 48. Bloqueio de Agenda: BookingWizard recebe blockedDates explicitamente do componente pai (App.tsx)
+runTest('Bloqueio de Agenda: BookingWizard recebe blockedDates explicitamente do componente pai (App.tsx)', () => {
+  const appContent = fs.readFileSync(path.resolve(__dirname, '../src/App.tsx'), 'utf8');
+
+  // Verifica que BookingWizard é invocado com a prop blockedDates no App.tsx
+  assertCondition(
+    appContent.includes('<BookingWizard') &&
+    appContent.includes("blockedDates={appointments.filter(a => a.status === 'bloqueado').map(a => a.date)}"),
+    'App.tsx deve passar explicitamente a prop blockedDates computada a partir de appointments com status "bloqueado"'
+  );
+});
+
+// 49. Bloqueio de Agenda: Contingência sem falsos sucessos e fail-closed na ausência de Apps Script
+runTest('Bloqueio de Agenda: Contingência sem falsos sucessos e fail-closed na ausência de Apps Script', () => {
+  const serverContent = fs.readFileSync(path.resolve(__dirname, '../server.ts'), 'utf8');
+
+  // 1. DELETE /api/appointments/:appointmentId mantém comportamento original e retorna 503 se Apps Script não estiver configurado
+  const deleteRoutePos = serverContent.indexOf("app.delete('/api/appointments/:appointmentId'");
+  assertCondition(deleteRoutePos !== -1, 'server.ts deve conter a rota DELETE');
+  const deleteConfigCheck = serverContent.indexOf('if (!cfg.configured || !cfg.webhookUrl)', deleteRoutePos);
+  assertCondition(deleteConfigCheck !== -1, 'Rota DELETE deve verificar cfg.configured e cfg.webhookUrl');
+  const delete503Check = serverContent.indexOf('return res.status(503).json', deleteConfigCheck);
+  assertCondition(
+    delete503Check !== -1 && delete503Check < deleteConfigCheck + 200,
+    'Rota DELETE deve retornar HTTP 503 quando Apps Script não estiver configurado (sem falsos sucessos)'
+  );
+
+  // 2. POST /api/appointments/block falha fechado com 503 se Apps Script não estiver configurado
+  const blockRoutePos = serverContent.indexOf("app.post('/api/appointments/block'");
+  assertCondition(blockRoutePos !== -1, 'server.ts deve conter a rota POST /api/appointments/block');
+  const block503Check = serverContent.indexOf('return res.status(503).json', blockRoutePos);
+  assertCondition(
+    block503Check !== -1,
+    'Rota de bloqueio deve retornar 503 caso Apps Script não esteja configurado, prevenindo persistência fictícia'
+  );
+});
+
+// 50. Edição de Agendamentos: Rota PUT /api/appointments/:appointmentId e persistência oficial
+runTest('Edição de Agendamentos: Rota PUT /api/appointments/:appointmentId e persistência oficial', () => {
+  const serverContent = fs.readFileSync(path.resolve(__dirname, '../server.ts'), 'utf8');
+  const codeGsContent = fs.readFileSync(path.resolve(__dirname, '../Code.gs'), 'utf8');
+
+  // 1. Rota PUT registrada no server.ts
+  const putPos = serverContent.indexOf("app.put('/api/appointments/:appointmentId'");
+  assertCondition(putPos !== -1, 'server.ts deve registrar a rota PUT /api/appointments/:appointmentId');
+
+  // 2. Exige autenticação administrativa
+  const authCheckPos = serverContent.indexOf('isAuthorizedAdminRequest(req)', putPos);
+  assertCondition(authCheckPos !== -1 && authCheckPos < putPos + 400, 'Rota PUT deve verificar autorização de admin');
+
+  // 3. Verifica configuração do Apps Script e falha com 503 se não configurado
+  const cfgCheckPos = serverContent.indexOf('if (!cfg.configured || !cfg.webhookUrl)', putPos);
+  assertCondition(cfgCheckPos !== -1, 'Rota PUT deve checar se Apps Script está configurado');
+
+  // 4. Encaminha para Apps Script action 'updateAppointment'
+  const actionCheckPos = serverContent.indexOf("action: 'updateAppointment'", putPos);
+  assertCondition(actionCheckPos !== -1, 'Rota PUT deve encaminhar action "updateAppointment" para o Apps Script');
+
+  // 5. Code.gs implementa action updateAppointment
+  assertCondition(
+    codeGsContent.includes('action === "updateAppointment"') || codeGsContent.includes("action === 'updateAppointment'"),
+    'Code.gs deve suportar a ação updateAppointment'
+  );
+  assertCondition(
+    codeGsContent.includes('updateSheet.getRange(foundRowIndex, 2).setValue'),
+    'Code.gs deve atualizar os campos do agendamento nas colunas correspondentes'
+  );
+});
+
+// 51. Gestão de Serviços: Endpoints de CRUD (/api/services) e integridade do catálogo
+runTest('Gestão de Serviços: Endpoints de CRUD (/api/services) e integridade do catálogo', () => {
+  const serverContent = fs.readFileSync(path.resolve(__dirname, '../server.ts'), 'utf8');
+  const codeGsContent = fs.readFileSync(path.resolve(__dirname, '../Code.gs'), 'utf8');
+
+  // 1. Endpoints registrados no server.ts
+  assertCondition(serverContent.includes("app.get('/api/services'"), 'server.ts deve conter GET /api/services');
+  assertCondition(serverContent.includes("app.post('/api/services'"), 'server.ts deve conter POST /api/services');
+  assertCondition(serverContent.includes("app.put('/api/services/:id'"), 'server.ts deve conter PUT /api/services/:id');
+  assertCondition(serverContent.includes("app.delete('/api/services/:id'"), 'server.ts deve conter DELETE /api/services/:id');
+
+  // 2. Proteção de autenticação administrativa em rotas de mutação
+  const postPos = serverContent.indexOf("app.post('/api/services'");
+  assertCondition(serverContent.indexOf('isAuthorizedAdminRequest(req)', postPos) !== -1, 'POST /api/services deve exigir admin');
+
+  const putServPos = serverContent.indexOf("app.put('/api/services/:id'");
+  assertCondition(serverContent.indexOf('isAuthorizedAdminRequest(req)', putServPos) !== -1, 'PUT /api/services/:id deve exigir admin');
+
+  const delServPos = serverContent.indexOf("app.delete('/api/services/:id'");
+  assertCondition(serverContent.indexOf('isAuthorizedAdminRequest(req)', delServPos) !== -1, 'DELETE /api/services/:id deve exigir admin');
+
+  // 3. Code.gs suporta getServices, saveService e deleteService
+  assertCondition(codeGsContent.includes('action === "getServices"'), 'Code.gs deve suportar action getServices');
+  assertCondition(codeGsContent.includes('action === "saveService"'), 'Code.gs deve suportar action saveService');
+  assertCondition(codeGsContent.includes('action === "deleteService"'), 'Code.gs deve suportar action deleteService');
+  assertCondition(codeGsContent.includes('function getServicesSheet()'), 'Code.gs deve implementar getServicesSheet()');
+});
+
+// 52. Upload e Validação de Fotos: Endpoint /api/upload-photo, validações de formato e limites de tamanho
+runTest('Upload e Validação de Fotos: Endpoint /api/upload-photo, validações de formato e limites de tamanho', () => {
+  const serverContent = fs.readFileSync(path.resolve(__dirname, '../server.ts'), 'utf8');
+  const codeGsContent = fs.readFileSync(path.resolve(__dirname, '../Code.gs'), 'utf8');
+
+  // 1. Rota registrada no server.ts
+  assertCondition(serverContent.includes("app.post('/api/upload-photo'"), 'server.ts deve conter POST /api/upload-photo');
+
+  // 2. Validação de MIME types seguros
+  const uploadPos = serverContent.indexOf("app.post('/api/upload-photo'");
+  assertCondition(
+    serverContent.includes("'image/jpeg', 'image/png', 'image/webp'"),
+    'server.ts deve aceitar apenas image/jpeg, image/png e image/webp'
+  );
+
+  // 3. Limite estrito de tamanho de arquivo (max 5MB)
+  assertCondition(
+    serverContent.includes('5 * 1024 * 1024'),
+    'server.ts deve validar o limite de 5MB para upload de fotos'
+  );
+
+  // 4. Code.gs suporta action uploadPhoto
+  assertCondition(
+    codeGsContent.includes('action === "uploadPhoto"'),
+    'Code.gs deve suportar action uploadPhoto no Apps Script'
+  );
+
+  // 5. Paridade estrita entre Code.gs e codeGsTemplate.ts
+  const templatePath = path.resolve(__dirname, '../src/data/codeGsTemplate.ts');
+  const templateFileRaw = fs.readFileSync(templatePath, 'utf8');
+  assertCondition(
+    templateFileRaw.includes('uploadPhoto'),
+    'codeGsTemplate.ts deve conter a implementação de uploadPhoto'
+  );
+});
+
 console.log(`\nTodos os ${passedTests} grupos de testes automatizados passaram com sucesso.`);
+

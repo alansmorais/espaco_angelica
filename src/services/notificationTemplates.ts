@@ -89,3 +89,77 @@ export function buildOfficialWhatsAppUrl(data: PreBookingTemplateData, phone: st
   const message = buildOfficialPreBookingWhatsAppMessage(data);
   return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
 }
+
+const PORTUGUESE_MONTHS: Record<string, string> = {
+  jan: '01', janeiro: '01',
+  fev: '02', fevereiro: '02',
+  mar: '03', marco: '03', março: '03',
+  abr: '04', abril: '04',
+  mai: '05', maio: '05',
+  jun: '06', junho: '06',
+  jul: '07', julho: '07',
+  ago: '08', agosto: '08',
+  set: '09', setembro: '09',
+  out: '10', outubro: '10',
+  nov: '11', novembro: '11',
+  dez: '12', dezembro: '12'
+};
+
+/**
+ * Normaliza qualquer formato de data (ex: 'Quarta, 13 Nov', '2024-11-13', '13/11/2024', '13 Nov')
+ * em uma chave canônica 'MM-DD' sem risco de falsos positivos em comparações parciais.
+ */
+export function normalizeDateKey(rawDate?: string): string {
+  if (!rawDate || typeof rawDate !== 'string') return '';
+  const clean = rawDate
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  if (!clean) return '';
+
+  // 1. Formato ISO YYYY-MM-DD
+  const isoMatch = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoMatch) {
+    const [, , m, d] = isoMatch;
+    return `${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+
+  // 2. Formato DD/MM/YYYY ou DD/MM
+  const slashMatch = clean.match(/^(\d{1,2})\/(\d{1,2})(?:\/\d{2,4})?/);
+  if (slashMatch) {
+    const [, d, m] = slashMatch;
+    return `${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+
+  // 3. Formato textual brasileiro: 'Quarta, 13 Nov', '13 de Novembro', '13 Nov'
+  const dayMatch = clean.match(/\b([0-3]?\d)\b/);
+  const monthMatch = clean.match(/\b(jan(?:eiro)?|fev(?:ereiro)?|mar(?:co)?|abr(?:il)?|mai(?:o)?|jun(?:ho)?|jul(?:ho)?|ago(?:sto)?|set(?:embro)?|out(?:ubro)?|nov(?:embro)?|dez(?:embro)?)\b/);
+
+  if (dayMatch && monthMatch) {
+    const day = dayMatch[1].padStart(2, '0');
+    const monthKey = monthMatch[1];
+    const month = PORTUGUESE_MONTHS[monthKey] || monthKey;
+    return `${month}-${day}`;
+  }
+
+  // Fallback seguro: string limpa sem pontuações nem espaços múltiplos
+  return clean.replace(/[,\.\-\/]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Compara se duas representações de data se referem exatamente ao mesmo dia calendário,
+ * sem falsos positivos causados por substrings ou dias da semana parciais.
+ */
+export function areDatesEqual(dateA?: string, dateB?: string): boolean {
+  if (!dateA || !dateB) return false;
+  const aTrim = dateA.trim().toLowerCase();
+  const bTrim = dateB.trim().toLowerCase();
+  if (aTrim === bTrim) return true;
+
+  const keyA = normalizeDateKey(aTrim);
+  const keyB = normalizeDateKey(bTrim);
+  return Boolean(keyA && keyB && keyA === keyB);
+}
+
