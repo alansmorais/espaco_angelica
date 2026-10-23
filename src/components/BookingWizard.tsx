@@ -39,6 +39,10 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   const [selectedDate, setSelectedDate] = useState<string>(() => toDateKey(new Date()));
   const [visibleMonth, setVisibleMonth] = useState<Date>(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [selectedTime, setSelectedTime] = useState<string>('11:30');
+  const [additionalServiceIds, setAdditionalServiceIds] = useState<string[]>([]);
+  const [customRequest, setCustomRequest] = useState<string>('');
+  const [appointmentLocation, setAppointmentLocation] = useState<'salon' | 'home'>('salon');
+  const [homeAddress, setHomeAddress] = useState<string>('');
   const [clientName, setClientName] = useState<string>('');
   const [clientPhone, setClientPhone] = useState<string>('');
   const [clientEmail, setClientEmail] = useState<string>('');
@@ -100,7 +104,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   };
 
   // Price calculations (40% deposit or 100% full prepayment of selected procedure's official price)
-  const servicePrice = selectedService.price;
+  const additionalServices = services.filter(service => additionalServiceIds.includes(service.id) && service.id !== selectedService.id);
+  const servicePrice = selectedService.price + additionalServices.reduce((sum, service) => sum + service.price, 0);
   const fullPrepayment = calculateFullPrepayment(servicePrice);
   const standardDeposit = calculateDeposit40(servicePrice);
   const standardBalance = calculateRemainingBalance(servicePrice, standardDeposit);
@@ -194,6 +199,10 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
       alert('Por favor informe seu telefone WhatsApp para contato.');
       return;
     }
+    if (appointmentLocation === 'home' && homeAddress.trim().length < 8) {
+      setSubmissionError('Informe o endereço completo para atendimento em domicílio.');
+      return;
+    }
 
     setIsSubmittingBooking(true);
     setSubmissionError(null);
@@ -232,8 +241,12 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
       nailCondition,
       notes: clientNotes || undefined,
       serviceId: selectedService.id,
-      serviceTitle: selectedService.title,
-      servicePrice: selectedService.priceFormatted,
+      additionalServiceIds,
+      customRequest: customRequest.trim() || undefined,
+      appointmentLocation,
+      homeAddress: appointmentLocation === 'home' ? homeAddress.trim() : undefined,
+      serviceTitle: [selectedService.title, ...additionalServices.map(service => service.title)].join(' + '),
+      servicePrice: `R$ ${formatBRL(servicePrice)}`,
       serviceDuration: selectedService.duration,
       date: selectedDate,
       time: selectedTime,
@@ -869,6 +882,39 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                       ))}
                     </select>
                   </div>
+                )}
+              </div>
+
+              <div className="py-4 border-b border-[#E8D9B5] space-y-3">
+                <h4 className="font-syne font-semibold text-sm text-[#49382E]">Adicionar serviços</h4>
+                <div className="space-y-2">
+                  {services.filter(service => service.id !== selectedService.id).map(service => (
+                    <label key={service.id} className="flex items-center gap-2 text-xs text-[#49382E]">
+                      <input type="checkbox" checked={additionalServiceIds.includes(service.id)}
+                        onChange={event => setAdditionalServiceIds(current => event.target.checked ? [...current, service.id] : current.filter(id => id !== service.id))}
+                        className="accent-[#D4AF37]" />
+                      <span className="flex-1">{service.title}</span>
+                      <span className="font-semibold">+ {service.priceFormatted}</span>
+                    </label>
+                  ))}
+                </div>
+                <label className="block text-xs font-semibold text-[#49382E]">Pedido personalizado (opcional)
+                  <textarea value={customRequest} onChange={event => setCustomRequest(event.target.value)}
+                    placeholder="Ex.: decoração especial de unhas (preço sujeito à confirmação)"
+                    rows={2} className="mt-1 w-full rounded-lg border border-[#E8D9B5] bg-[#FDFBF9] p-2 text-xs" />
+                </label>
+                <p className="text-[10px] text-[#786C63]">Pedidos personalizados sem preço cadastrado precisam de confirmação e não alteram o total automaticamente.</p>
+                <h4 className="font-syne font-semibold text-sm text-[#49382E] pt-1">Local do atendimento</h4>
+                <div className="flex flex-wrap gap-4 text-xs">
+                  <label className="flex items-center gap-2"><input type="radio" name="appointmentLocation" checked={appointmentLocation === 'salon'} onChange={() => setAppointmentLocation('salon')} /> No salão</label>
+                  <label className="flex items-center gap-2"><input type="radio" name="appointmentLocation" checked={appointmentLocation === 'home'} onChange={() => setAppointmentLocation('home')} /> Em domicílio</label>
+                </div>
+                {appointmentLocation === 'home' && (
+                  <label className="block text-xs font-semibold text-[#49382E]">Endereço completo *
+                    <textarea required value={homeAddress} onChange={event => setHomeAddress(event.target.value)}
+                      placeholder="Rua, número, bairro, cidade e referência" rows={2}
+                      className="mt-1 w-full rounded-lg border border-[#E8D9B5] bg-[#FDFBF9] p-2 text-xs" />
+                  </label>
                 )}
               </div>
 
