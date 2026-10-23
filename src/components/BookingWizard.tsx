@@ -87,6 +87,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
     return false;
   };
 
+  const dateLabel = (date: Date) => date.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
   const monthLabel = visibleMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
   const monthOffset = (visibleMonth.getFullYear() - today.getFullYear()) * 12 + visibleMonth.getMonth() - today.getMonth();
   const monthStartOffset = (visibleMonth.getDay() + 6) % 7;
