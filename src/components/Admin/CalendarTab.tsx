@@ -29,7 +29,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
   const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
   const [selectedSlotKey, setSelectedSlotKey] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'dia' | 'semana' | 'mes'>('mes');
-  const [selectedDayLabel, setSelectedDayLabel] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [selectedDayLabel, setSelectedDayLabel] = useState<string>(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); });
   const [actionNotice, setActionNotice] = useState<string | null>(null);
 
   const showNotice = (msg: string) => {
@@ -126,6 +126,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
   const monthStart = (visibleMonth.getDay() + 6) % 7;
   const daysInMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 0).getDate();
   const monthCells = [...Array(monthStart).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)] as (number | null)[];
+  const todayKey = formatDate(new Date());
   const dayAppointments = appointments.filter(a => a.status !== 'cancelado' && areDatesEqual(a.date, selectedDayLabel));
 
   return (
@@ -243,9 +244,10 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                 {['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].map(d => <strong key={d} className="py-2">{d}</strong>)}
                 {monthCells.map((day, i) => {
                   const date = day ? formatDate(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), day)) : '';
+                  const isPastDay = Boolean(date && date < todayKey);
                   const items = day ? appointments.filter(a => a.status !== 'cancelado' && areDatesEqual(a.date, date)) : [];
                   const blocked = items.some(a => a.status === 'bloqueado');
-                  return <button key={i} type="button" disabled={!day} onClick={() => { if (day) { setSelectedDayLabel(date); setSelectedSlotKey(null); } }} className={`min-h-14 rounded-lg border flex flex-col items-center justify-center gap-1 ${!day ? 'border-transparent' : date === selectedDayLabel ? 'bg-[#FBF2D5] border-[#D4AF37]' : 'border-[#E8D9B5] hover:bg-[#F7EFEA]'}`}>
+                  return <button key={i} type="button" disabled={!day || isPastDay} onClick={() => { if (day && !isPastDay) { setSelectedDayLabel(date); setSelectedSlotKey(null); } }} className={`min-h-14 rounded-lg border flex flex-col items-center justify-center gap-1 ${!day ? 'border-transparent' : isPastDay ? 'bg-gray-100 text-gray-400 border-gray-200 opacity-60 cursor-not-allowed' : date === todayKey ? 'bg-emerald-50 border-emerald-400 font-bold' : date === selectedDayLabel ? 'bg-[#FBF2D5] border-[#D4AF37]' : 'border-[#E8D9B5] hover:bg-[#F7EFEA]'}`}>
                     {day || ''}{items.length > 0 && <span className={`text-[10px] rounded-full px-1.5 ${blocked ? 'bg-red-100 text-red-800' : 'bg-[#D4AF37] text-[#3C2F00]'}`}>{items.length}{blocked ? ' 🔒' : ''}</span>}
                   </button>;
                 })}
