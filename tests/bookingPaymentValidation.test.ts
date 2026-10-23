@@ -1354,32 +1354,32 @@ runTest('WhatsApp Service Admin Authentication: requisições administrativas an
   assertCondition(authHeaders['Content-Type'] === 'application/json', 'Content-Type deve ser preservado');
 });
 
-// 31. Validação de preço-base "A partir de R$ 50,00" para Nail Art Encapsulada e notas adicionais
-runTest('Nail Art Base Pricing: procedimento com preço "A partir de R$ 50,00" valida corretamente base R$ 50 e notas', () => {
+// 31. Validação de preço-base "A partir de R$ 30,00" para Nail Art Encapsulada e notas adicionais
+runTest('Nail Art Base Pricing: procedimento com preço "A partir de R$ 30,00" valida corretamente base R$ 30 e notas', () => {
   const nailArtPayload = {
     serviceId: 'nail-art-encapsulada',
     serviceTitle: 'Nail Art Autoral & Encapsulada',
-    servicePrice: 'A partir de R$ 50,00',
-    depositAmount: 20, // 40% de 50
+    servicePrice: 'A partir de R$ 30,00',
+    depositAmount: 12, // 40% de 30
     paymentMode: 'sinal_40',
     notes: 'Inspiração: madrepérola e folha de ouro nas unhas anelares'
   };
 
   const validation = validateBookingPaymentCoherence(nailArtPayload);
-  assertCondition(validation.valid === true, 'Nail Art com base R$ 50,00 e sinal de R$ 20,00 deve ser validada com sucesso');
-  assertCondition(validation.verifiedDepositAmount === 20, 'Depósito verificado deve ser exatamente R$ 20,00');
-  assertCondition(validation.verifiedServicePrice === 'R$ 50,00', 'Preço canônico numérico formatado como R$ 50,00 deve ser gerado');
+  assertCondition(validation.valid === true, 'Nail Art com base R$ 30,00 e sinal de R$ 12,00 deve ser validada com sucesso');
+  assertCondition(validation.verifiedDepositAmount === 12, 'Depósito verificado deve ser exatamente R$ 12,00');
+  assertCondition(validation.verifiedServicePrice === 'R$ 30,00', 'Preço canônico numérico formatado como R$ 30,00 deve ser gerado');
 
   // Teste de 100% de pré-pagamento para Nail Art
   const nailArtFull = {
     serviceId: 'nail-art-encapsulada',
     serviceTitle: 'Nail Art Autoral & Encapsulada',
-    depositAmount: 50,
+    depositAmount: 30,
     paymentMode: 'pre_pagamento_100'
   };
   const validationFull = validateBookingPaymentCoherence(nailArtFull);
-  assertCondition(validationFull.valid === true, 'Pré-pagamento de 100% para Nail Art (R$ 50,00) deve ser aceito');
-  assertCondition(validationFull.verifiedDepositAmount === 50, 'Depósito verificado deve ser R$ 50,00');
+  assertCondition(validationFull.valid === true, 'Pré-pagamento de 100% para Nail Art (R$ 30,00) deve ser aceito');
+  assertCondition(validationFull.verifiedDepositAmount === 30, 'Depósito verificado deve ser R$ 30,00');
 });
 
 // 32. Validação estática e estrutural de Code.gs e codeGsTemplate.ts: isolamento total de testes
