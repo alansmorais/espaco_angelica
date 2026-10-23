@@ -355,17 +355,25 @@ function doPost(e) {
       }
 
       try {
-        var delServSheet = getServicesSheet();
-        if (!delServSheet) {
-          return responseJSON({ status: "error", message: "Aba 'Serviços' (ou 'Servicos') não encontrada na planilha oficial." });
+        var catalogueBookForDelete = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
+        var mainServiceSheet = getServicesSheet();
+        var depilationServiceSheet = catalogueBookForDelete.getSheetByName("Depilação") || catalogueBookForDelete.getSheetByName("Depilacao");
+        var serviceSheetsForDelete = [];
+        if (mainServiceSheet) serviceSheetsForDelete.push(mainServiceSheet);
+        if (depilationServiceSheet && depilationServiceSheet.getSheetId() !== (mainServiceSheet ? mainServiceSheet.getSheetId() : -1)) serviceSheetsForDelete.push(depilationServiceSheet);
+        if (serviceSheetsForDelete.length === 0) {
+          return responseJSON({ status: "error", message: "Nenhuma aba de catálogo ('Serviços' ou 'Depilação') foi encontrada na planilha oficial." });
         }
 
-        var allServRows = delServSheet.getDataRange().getValues();
         var deletedServCount = 0;
-        for (var ds = allServRows.length - 1; ds >= 1; ds--) {
-          if (String(allServRows[ds][0] || '').trim().toLowerCase() === sIdToDelete.toLowerCase()) {
-            delServSheet.deleteRow(ds + 1);
-            deletedServCount++;
+        for (var sh = 0; sh < serviceSheetsForDelete.length; sh++) {
+          var delServSheet = serviceSheetsForDelete[sh];
+          var allServRows = delServSheet.getDataRange().getValues();
+          for (var ds = allServRows.length - 1; ds >= 1; ds--) {
+            if (String(allServRows[ds][0] || '').trim().toLowerCase() === sIdToDelete.toLowerCase()) {
+              delServSheet.deleteRow(ds + 1);
+              deletedServCount++;
+            }
           }
         }
 
@@ -393,11 +401,14 @@ function doPost(e) {
           var photoFile = photoFiles.next();
           var photoMime = String(photoFile.getMimeType() || "");
           if (photoMime.indexOf("image/") !== 0 || photoFile.isTrashed()) continue;
+          // This dedicated folder contains photos intended for the public service catalogue.
+          try { photoFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (sharingError) {}
+          var thumbnailUrl = "https://drive.google.com/thumbnail?id=" + photoFile.getId() + "&sz=w1000";
           photos.push({
             id: photoFile.getId(),
             name: photoFile.getName(),
-            url: "https://drive.google.com/uc?export=view&id=" + photoFile.getId(),
-            thumbnailUrl: "https://drive.google.com/thumbnail?id=" + photoFile.getId() + "&sz=w400",
+            url: thumbnailUrl,
+            thumbnailUrl: thumbnailUrl,
             updatedAt: photoFile.getLastUpdated().toISOString()
           });
         }
@@ -435,7 +446,7 @@ function doPost(e) {
         file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
         var fileId = file.getId();
         // URL direta para incorporar a imagem em cartões, ícones e catálogo público.
-        var photoUrl = "https://drive.google.com/uc?export=view&id=" + fileId;
+        var photoUrl = "https://drive.google.com/thumbnail?id=" + fileId + "&sz=w1000";
 
         return responseJSON({
           status: "success",
