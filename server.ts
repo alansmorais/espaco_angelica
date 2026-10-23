@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { randomUUID } from 'node:crypto';
 import dotenv from 'dotenv';
 import { areDatesEqual } from './src/services/notificationTemplates';
 
@@ -397,12 +398,44 @@ export function recordServerAppointment(apt: ServerStoredAppointment): void {
   }
 }
 
+type AdminSession = { expiresAt: number };
+const adminSessions = new Map<string, AdminSession>();
+const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+
+app.post('/api/admin/session', (req: Request, res: Response) => {
+  const supplied = String(req.body?.password || '').trim();
+  const configuredToken = (process.env.ADMIN_TOKEN || '').trim();
+  const configuredPassword = (process.env.ADMIN_PASSWORD || '').trim();
+  if (!supplied || (!configuredToken && !configuredPassword) ||
+      !((configuredToken && supplied === configuredToken) || (configuredPassword && supplied === configuredPassword))) {
+    return res.status(401).json({ success: false, error: 'Credencial administrativa inválida.' });
+  }
+  const token = randomUUID();
+  adminSessions.set(token, { expiresAt: Date.now() + ADMIN_SESSION_TTL_MS });
+  return res.json({ success: true, token, expiresInSeconds: ADMIN_SESSION_TTL_MS / 1000 });
+});
+
+app.delete('/api/admin/session', (req: Request, res: Response) => {
+  const auth = req.headers.authorization || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  if (token) adminSessions.delete(token);
+  return res.json({ success: true });
+});
+
 function isAuthorizedAdminRequest(req: Request): boolean {
   const authHeader = req.headers.authorization;
   const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
   const headerToken = (req.headers['x-admin-token'] as string || '').trim();
   const provided = bearerToken || headerToken;
 
+  // Prefer short-lived, server-issued sessions; never persist submitted passwords in the browser.
+  if (provided) {
+    const session = adminSessions.get(provided);
+    if (session) {
+      if (session.expiresAt > Date.now()) return true;
+      adminSessions.delete(provided);
+    }
+  }
   // Segurança estrita: NUNCA aceita credenciais administrativas via query string (req.query)
   if (!provided) return false;
 
