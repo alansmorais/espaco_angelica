@@ -392,104 +392,73 @@ export async function testNotificationWebhook(
  */
 export async function triggerNewPreBookingEmailNotification(
   apt: Appointment,
-  authToken?: string
+  _authToken?: string
 ): Promise<EmailDispatchResult> {
   const payload = buildPreBookingEmailPayload(apt);
+  const url = getNotificationWebhookUrl();
 
-  // Evita duplicidade se a mesma reserva já foi confirmada anteriormente no servidor
-  if (isAppointmentAlreadyNotified(apt.id)) {
-    return {
-      success: true,
-      persisted: true,
-      appointmentId: apt.id,
-      mode: 'already_notified',
-      message: `A notificação para a reserva ${apt.id} já havia sido registrada anteriormente.`,
-      payload
-    };
-  }
-
-  // Envio através do Backend Seguro (Cloud Run / Node server)
-  // O backend seguro injeta APPS_SCRIPT_TOKEN mantendo os segredos 100% no servidor, sem expor no frontend.
-  try {
-    const backendBase = getBackendApiUrl();
-    const targetUrl = backendBase
-      ? `${backendBase}/api/notifications/new-booking`
-      : '/api/notifications/new-booking';
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
-    };
-
-    const token =
-      (authToken || '').trim() ||
-      (typeof window !== 'undefined' ? sessionStorage.getItem('angelica_admin_session') || '' : '');
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-      headers['X-Admin-Token'] = token;
-    }
-
-    const response = await fetch(targetUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload)
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      const isPersisted = Boolean(data.persisted === true || (data.success && data.persisted !== false));
-      if (data.success && isPersisted) {
-        // Marca como notificada apenas após persistência confirmada pelo servidor
-        markAppointmentAsNotified(apt.id);
-        return {
-          success: true,
-          persisted: true,
-          duplicate: Boolean(data.duplicate),
-          delivered: Boolean(data.delivered),
-          emailSent: Boolean(data.emailSent),
-          emailSuppressed: Boolean(data.emailSuppressed),
-          emailError: data.emailError,
-          appointmentId: apt.id,
-          mode: 'server_dispatched',
-          message: data.message || 'Reserva persistida com sucesso na planilha oficial do ateliê.',
-          payload
-        };
-      }
-
-      return {
-        success: false,
-        persisted: false,
-        duplicate: Boolean(data.duplicate),
-        appointmentId: apt.id,
-        mode: 'webhook_rejected',
-        message: data.error || data.message || 'O servidor não confirmou a gravação da reserva na planilha.',
-        payload
-      };
-    } else {
-      let errorMessage = `Servidor retornou erro HTTP ${response.status}.`;
-      try {
-        const errorData = await response.json();
-        if (errorData?.error) {
-          errorMessage = errorData.error;
-        }
-      } catch {}
-
-      return {
-        success: false,
-        persisted: false,
-        appointmentId: apt.id,
-        mode: 'webhook_rejected',
-        message: errorMessage,
-        payload
-      };
-    }
-  } catch (err: any) {
-    console.error('[Notification Network Error] Falha ao conectar ao backend seguro:', err);
+  if (!url) {
     return {
       success: false,
       persisted: false,
       appointmentId: apt.id,
       mode: 'webhook_rejected',
-      message: 'Não foi possível conectar ao servidor do ateliê para confirmar sua reserva. Verifique sua conexão e tente novamente.',
+      message: 'A URL oficial do Google Apps Script não está configurada.',
+      payload
+    };
+  }
+
+  // O agendamento público fala diretamente com o Apps Script; não usa Cloud Run,
+  // Node server nem rota /api para persistir a reserva.
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ ...payload, action: 'createBooking' })
+    });
+
+    const responseText = await response.text();
+    let data: any;
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      throw new Error('O Google Apps Script devolveu uma resposta que não é JSON. A gravação não pôde ser confirmada.');
+    }
+
+    if (!response.ok || data?.status !== 'success' || data?.persisted !== true) {
+      return {
+        success: false,
+        persisted: false,
+        duplicate: Boolean(data?.duplicate),
+        appointmentId: apt.id,
+        mode: 'webhook_rejected',
+        message: data?.message || `Google Apps Script não confirmou a gravação (HTTP ${response.status}).`,
+        payload
+      };
+    }
+
+    markAppointmentAsNotified(apt.id);
+    return {
+      success: true,
+      persisted: true,
+      duplicate: Boolean(data.duplicate),
+      delivered: Boolean(data.emailSent),
+      emailSent: Boolean(data.emailSent),
+      emailError: data.emailError || undefined,
+      emailSuppressed: Boolean(data.emailSuppressed),
+      appointmentId: apt.id,
+      mode: 'webhook_delivered',
+      message: data.message || 'Pré-agendamento gravado na planilha oficial.',
+      payload
+    };
+  } catch (err: any) {
+    console.error('[Apps Script Booking Error]', err);
+    return {
+      success: false,
+      persisted: false,
+      appointmentId: apt.id,
+      mode: 'webhook_rejected',
+      message: err?.message || 'Não foi possível confirmar a comunicação com o Google Apps Script. Tente novamente com o mesmo agendamento.',
       payload
     };
   }
