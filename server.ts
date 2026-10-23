@@ -1163,39 +1163,16 @@ export function validateBookingPaymentCoherence(payload: any): {
     }
   }
 
-  const expected40 = Math.round(referencePrice * 0.4 * 100) / 100;
-  const expected100 = Math.round(referencePrice * 100) / 100;
-  const matches40 = Math.abs(depositAmount - expected40) < 0.01;
-  const matches100 = Math.abs(depositAmount - expected100) < 0.01;
-
-  if (paymentMode === 'sinal_40' && !matches40) {
-    return {
-      valid: false,
-      error: `Valor do sinal (R$ ${formatCurrencyServerBRL(depositAmount)}) diverge de 40% do total oficial (esperado: R$ ${formatCurrencyServerBRL(expected40)}).`
-    };
-  }
-  if (paymentMode === 'pre_pagamento_100' && !matches100) {
-    return {
-      valid: false,
-      error: `Valor do pré-pagamento 100% diverge do total oficial sem descontos (esperado: R$ ${formatCurrencyServerBRL(expected100)}).`
-    };
-  }
-  if (!matches40 && !matches100) {
-    return {
-      valid: false,
-      error: `Valor enviado não corresponde a 40% (R$ ${formatCurrencyServerBRL(expected40)}) nem a 100% (R$ ${formatCurrencyServerBRL(expected100)}) do total.`
-    };
-  }
-
+  // The deposit amount is informational for booking; do not reject a booking
+  // because it differs from the percentage calculated from the catalogue.
   const resolvedMode: 'sinal_40' | 'pre_pagamento_100' =
-    paymentMode || (matches100 ? 'pre_pagamento_100' : 'sinal_40');
-  const resolvedDeposit = resolvedMode === 'pre_pagamento_100' ? expected100 : expected40;
+    paymentMode || 'sinal_40';
 
   return {
     valid: true,
     verifiedServiceId: canonicalService.id,
     verifiedServiceTitle: expectedTitle,
-    verifiedDepositAmount: resolvedDeposit,
+    verifiedDepositAmount: depositAmount,
     verifiedServicePrice: `R$ ${formatCurrencyServerBRL(referencePrice)}`,
     verifiedPaymentMode: resolvedMode
   };
