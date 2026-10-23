@@ -645,14 +645,35 @@ function doPost(e) {
       var balanceFormatted = balanceNum.toFixed(2).replace(".", ",");
       var paymentLabel = resolvedMode === "pre_pagamento_100" ? "Pré-pagamento Pix (100%)" : "Sinal Pix (40%)";
 
-      // 8. Validação de data e horário
+      // 8. Validação de data, horário e local no servidor (fuso oficial do estúdio)
       var bookingDate = data.date ? String(data.date).trim() : "";
       var bookingTime = data.time ? String(data.time).trim() : "";
       if (!bookingDate || !bookingTime) {
-        return responseJSON({
-          status: "error",
-          message: "Data ou horário do agendamento ausentes."
-        });
+        return responseJSON({ status: "error", message: "Data ou horário do agendamento ausentes." });
+      }
+
+      var requestedDateKey = normalizeBookingDate(bookingDate);
+      var requestedTimeKey = normalizeBookingTime(bookingTime);
+      if (!isValidBookingDateKey(requestedDateKey)) {
+        return responseJSON({ status: "error", message: "Data inválida. Use uma data real no formato AAAA-MM-DD." });
+      }
+      if (!isBookingDateInFutureOrToday(requestedDateKey)) {
+        return responseJSON({ status: "error", message: "Não é possível agendar em uma data passada. Selecione hoje ou uma data futura." });
+      }
+      if (!isValidBookingTime(requestedTimeKey)) {
+        return responseJSON({ status: "error", message: "Horário inválido. Use o formato HH:mm." });
+      }
+      var requestedWeekday = new Date(requestedDateKey + "T12:00:00-03:00").getUTCDay();
+      if (requestedWeekday === 0 || requestedWeekday === 1) {
+        return responseJSON({ status: "error", message: "O estúdio atende de terça-feira a sábado. Selecione outro dia." });
+      }
+      var location = data.appointmentLocation === undefined ? "salon" : String(data.appointmentLocation).trim();
+      if (location !== "salon" && location !== "home") {
+        return responseJSON({ status: "error", message: "Local de atendimento inválido." });
+      }
+      var homeAddress = data.homeAddress === undefined || data.homeAddress === null ? "" : String(data.homeAddress).trim();
+      if (location === "home" && homeAddress.length < 8) {
+        return responseJSON({ status: "error", message: "Informe o endereço completo para atendimento em domicílio." });
       }
 
       var sheet = getOfficialSheet();
@@ -662,8 +683,6 @@ function doPost(e) {
 
       // 9. Proteção anti-duplicidade atômica na planilha (Coluna J: ID Agendamento)
       var existing = sheet.getDataRange().getValues();
-      var requestedDateKey = normalizeBookingDate(bookingDate);
-      var requestedTimeKey = normalizeBookingTime(bookingTime);
       for (var i = 1; i < existing.length; i++) {
         var existingId = existing[i][9] ? String(existing[i][9]).trim() : "";
         if (existingId && existingId.toLowerCase() === rawId.toLowerCase()) {
@@ -691,13 +710,20 @@ function doPost(e) {
         var existingStatus = String(existing[i][8] || 'pendente_pix').toLowerCase();
         var existingDateKey = normalizeBookingDate(existing[i][5]);
         var existingTimeKey = normalizeBookingTime(existing[i][6]);
-        if (requestedDateKey && requestedTimeKey &&
-            requestedDateKey === existingDateKey && requestedTimeKey === existingTimeKey &&
-            ['cancelado', 'bloqueado', 'teste_sistema'].indexOf(existingStatus) === -1) {
+        var sameRequestedSlot = requestedDateKey === existingDateKey && requestedTimeKey === existingTimeKey;
+        var allDayBlocked = existingStatus === 'bloqueado' &&
+          requestedDateKey === existingDateKey &&
+          ['dia inteiro', 'dia todo', 'all day'].indexOf(String(existing[i][6] || '').trim().toLowerCase()) !== -1;
+        var slotBlocked = existingStatus === 'bloqueado' && sameRequestedSlot;
+        var activeBookingConflict = sameRequestedSlot &&
+          ['cancelado', 'teste_sistema', 'bloqueado'].indexOf(existingStatus) === -1;
+        if (allDayBlocked || slotBlocked || activeBookingConflict) {
           return responseJSON({
             status: "error",
             conflict: true,
-            message: "Este horário acabou de ser reservado. Escolha outro horário."
+            message: allDayBlocked
+              ? "Esta data está bloqueada para atendimentos. Escolha outro dia."
+              : "Este horário acabou de ser reservado ou bloqueado. Escolha outro horário."
           });
         }
       }
@@ -715,8 +741,8 @@ function doPost(e) {
         data.status || 'pendente_pix',
         rawId,
         data.notes ? String(data.notes).trim() : '',
-        data.appointmentLocation ? String(data.appointmentLocation) : 'salon',
-        data.appointmentLocation === 'home' ? String(data.homeAddress || '').trim() : '',
+        location,
+        location === 'home' ? homeAddress : '',
         JSON.stringify(Array.isArray(data.additionalServiceIds) ? data.additionalServiceIds : []),
         data.customRequest ? String(data.customRequest).trim() : '',
         data.serviceId ? String(data.serviceId).trim() : ''
@@ -864,15 +890,34 @@ function doPost(e) {
 }
 
 function normalizeBookingDate(value) {
-  var tz = Session.getScriptTimeZone() || "America/Sao_Paulo";
   if (value instanceof Date && !isNaN(value.getTime())) {
-    return Utilities.formatDate(value, tz, "yyyy-MM-dd");
+    return Utilities.formatDate(value, "America/Sao_Paulo", "yyyy-MM-dd");
   }
   var text = String(value || "").trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.substring(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
   var dmy = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   if (dmy) return dmy[3] + "-" + dmy[2] + "-" + dmy[1];
   return text;
+}
+
+function isValidBookingDateKey(dateKey) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ""))) return false;
+  var parts = dateKey.split("-");
+  var year = Number(parts[0]), month = Number(parts[1]), day = Number(parts[2]);
+  var date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+function isBookingDateInFutureOrToday(dateKey) {
+  var today = Utilities.formatDate(new Date(), "America/Sao_Paulo", "yyyy-MM-dd");
+  return isValidBookingDateKey(dateKey) && dateKey >= today;
+}
+
+function isValidBookingTime(timeKey) {
+  if (!/^\d{2}:\d{2}$/.test(String(timeKey || ""))) return false;
+  var parts = timeKey.split(":");
+  return Number(parts[0]) >= 0 && Number(parts[0]) <= 23 &&
+    Number(parts[1]) >= 0 && Number(parts[1]) <= 59;
 }
 
 function normalizeBookingTime(value) {
