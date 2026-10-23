@@ -132,6 +132,35 @@ runTest('Validação de sinal_40 (40%) e pre_pagamento_100 (100% sem desconto) p
   }
 });
 
+// 3. Serviços adicionais: validação do total combinado no servidor
+runTest('Serviços adicionais: soma oficial, sinal de 40% e pré-pagamento de 100%', () => {
+  const combined = {
+    serviceId: 'alongamento-fibra-slim',
+    additionalServiceIds: ['spa-das-maos-ouro'],
+    serviceTitle: 'Alongamento em Fibra Slim + Spa das Mãos & Esfoliação',
+    servicePrice: 'R$ 305,00',
+    depositAmount: 122,
+    paymentMode: 'sinal_40'
+  };
+  const validCombined = validateBookingPaymentCoherence(combined);
+  assertCondition(validCombined.valid === true, `Backend rejeitou total combinado válido: ${validCombined.error}`);
+  assertCondition(validCombined.verifiedServicePrice === 'R$ 305,00', 'Backend não retornou a soma dos preços oficiais');
+  assertCondition(validCombined.verifiedDepositAmount === 122, 'Sinal de 40% não foi calculado sobre o total combinado');
+
+  const wrongTotal = validateBookingPaymentCoherence({ ...combined, servicePrice: 'R$ 300,00', depositAmount: 120 });
+  assertCondition(wrongTotal.valid === false, 'Backend aceitou total adulterado de serviços combinados');
+
+  const wrongDeposit = validateBookingPaymentCoherence({ ...combined, depositAmount: 100 });
+  assertCondition(wrongDeposit.valid === false, 'Backend aceitou sinal incorreto para serviços combinados');
+
+  const fullPayment = validateBookingPaymentCoherence({
+    ...combined,
+    depositAmount: 305,
+    paymentMode: 'pre_pagamento_100'
+  });
+  assertCondition(fullPayment.valid === true, `Backend rejeitou pré-pagamento integral válido: ${fullPayment.error}`);
+});
+
 // 3. Confirmação de que NÃO existe mais desconto de 5% no pré-pagamento integral
 runTest('Remoção do desconto de 5%: valores com 5% de desconto são rejeitados no backend e removidos do BookingWizard', () => {
   for (const expected of EXPECTED_SERVICES) {
