@@ -79,7 +79,7 @@ export const EditAppointmentModal: React.FC<EditAppointmentModalProps> = ({
     setSubmitError(null);
 
     // Encontra preço/id correspondente se o serviço foi selecionado do catálogo
-    const matchedService = services.find(s => s.title.toLowerCase() === serviceTitle.toLowerCase());
+    const matchedService = services.find(s => s.id === appointment.serviceId) || services.find(s => s.title.toLowerCase() === serviceTitle.toLowerCase());
     const additionalServices = services.filter(service => additionalServiceIds.includes(service.id) && service.id !== matchedService?.id);
     const combinedPrice = matchedService ? matchedService.price + additionalServices.reduce((sum, service) => sum + service.price, 0) : undefined;
 
