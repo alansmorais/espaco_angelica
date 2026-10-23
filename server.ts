@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import { randomUUID } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import dotenv from 'dotenv';
 import { areDatesEqual } from './src/services/notificationTemplates';
 
@@ -398,27 +398,49 @@ export function recordServerAppointment(apt: ServerStoredAppointment): void {
   }
 }
 
-type AdminSession = { expiresAt: number };
-const adminSessions = new Map<string, AdminSession>();
 const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+
+function getAdminSessionSigningSecret(): string {
+  return (process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_TOKEN || process.env.ADMIN_PASSWORD || '').trim();
+}
+
+function signAdminSession(payload: string, secret: string): string {
+  return createHmac('sha256', secret).update(payload).digest('base64url');
+}
+
+function verifyAdminSession(token: string): boolean {
+  const secret = getAdminSessionSigningSecret();
+  if (!secret || !token.startsWith('session.')) return false;
+  const parts = token.split('.');
+  if (parts.length !== 3) return false;
+  const payload = parts[1];
+  const suppliedSignature = Buffer.from(parts[2], 'base64url');
+  const expectedSignature = Buffer.from(signAdminSession(payload, secret), 'base64url');
+  if (suppliedSignature.length !== expectedSignature.length || !timingSafeEqual(suppliedSignature, expectedSignature)) return false;
+  try {
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    return data?.exp > Date.now() && data?.scope === 'admin';
+  } catch {
+    return false;
+  }
+}
 
 app.post('/api/admin/session', (req: Request, res: Response) => {
   const supplied = String(req.body?.password || '').trim();
   const configuredToken = (process.env.ADMIN_TOKEN || '').trim();
   const configuredPassword = (process.env.ADMIN_PASSWORD || '').trim();
-  if (!supplied || (!configuredToken && !configuredPassword) ||
+  const signingSecret = getAdminSessionSigningSecret();
+  if (!supplied || !signingSecret ||
       !((configuredToken && supplied === configuredToken) || (configuredPassword && supplied === configuredPassword))) {
     return res.status(401).json({ success: false, error: 'Credencial administrativa inválida.' });
   }
-  const token = randomUUID();
-  adminSessions.set(token, { expiresAt: Date.now() + ADMIN_SESSION_TTL_MS });
+  const payload = Buffer.from(JSON.stringify({ scope: 'admin', exp: Date.now() + ADMIN_SESSION_TTL_MS })).toString('base64url');
+  const token = `session.${payload}.${signAdminSession(payload, signingSecret)}`;
   return res.json({ success: true, token, expiresInSeconds: ADMIN_SESSION_TTL_MS / 1000 });
 });
 
-app.delete('/api/admin/session', (req: Request, res: Response) => {
-  const auth = req.headers.authorization || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
-  if (token) adminSessions.delete(token);
+app.delete('/api/admin/session', (_req: Request, res: Response) => {
+  // Signed sessions expire after eight hours. Stateless tokens need no in-memory revocation store.
   return res.json({ success: true });
 });
 
@@ -428,14 +450,8 @@ function isAuthorizedAdminRequest(req: Request): boolean {
   const headerToken = (req.headers['x-admin-token'] as string || '').trim();
   const provided = bearerToken || headerToken;
 
-  // Prefer short-lived, server-issued sessions; never persist submitted passwords in the browser.
-  if (provided) {
-    const session = adminSessions.get(provided);
-    if (session) {
-      if (session.expiresAt > Date.now()) return true;
-      adminSessions.delete(provided);
-    }
-  }
+  // Stateless signed sessions work across Cloud Run instances and expire automatically.
+  if (provided && verifyAdminSession(provided)) return true;
   // Segurança estrita: NUNCA aceita credenciais administrativas via query string (req.query)
   if (!provided) return false;
 
