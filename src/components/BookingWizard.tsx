@@ -34,10 +34,25 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   appointments = [],
   blockedDates = []
 }) => {
-  const today = new Date();
+  // Booking dates must follow the studio's timezone, not the customer's device timezone.
+  // This avoids showing yesterday/tomorrow when the customer is outside Brazil.
+  const getStudioToday = () => {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(new Date());
+    const part = (type: string) => parts.find(item => item.type === type)?.value || '';
+    return new Date(Number(part('year')), Number(part('month')) - 1, Number(part('day')));
+  };
+  const today = getStudioToday();
   const toDateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  const [selectedDate, setSelectedDate] = useState<string>(() => toDateKey(new Date()));
-  const [visibleMonth, setVisibleMonth] = useState<Date>(() => new Date(today.getFullYear(), today.getMonth(), 1));
+  const [selectedDate, setSelectedDate] = useState<string>(() => toDateKey(getStudioToday()));
+  const [visibleMonth, setVisibleMonth] = useState<Date>(() => {
+    const studioToday = getStudioToday();
+    return new Date(studioToday.getFullYear(), studioToday.getMonth(), 1);
+  });
   const [selectedTime, setSelectedTime] = useState<string>('11:30');
   const [additionalServiceIds, setAdditionalServiceIds] = useState<string[]>([]);
   const [customRequest, setCustomRequest] = useState<string>('');
