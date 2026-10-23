@@ -35,7 +35,9 @@ import {
   fetchRemoteBlockedDates,
   fetchRemoteServices,
   saveRemoteService,
-  deleteRemoteService
+  deleteRemoteService,
+  createAdminSession,
+  revokeAdminSession
 } from './services/emailNotificationService';
 
 // Public Components
@@ -116,11 +118,16 @@ export default function App() {
     setAdminLoginError(null);
 
     try {
-      const result = await fetchRemoteAppointmentsDetailed(entered);
+      const session = await createAdminSession(entered);
+      if (!session.success || !session.token) {
+        setAdminLoginError(session.error || 'Não foi possível criar uma sessão administrativa segura.');
+        return;
+      }
+      const result = await fetchRemoteAppointmentsDetailed(session.token);
       if (result.success) {
-        setAdminSessionToken(entered);
+        setAdminSessionToken(session.token);
         try {
-          sessionStorage.setItem('angelica_admin_session', entered);
+          sessionStorage.setItem('angelica_admin_session', session.token);
         } catch {}
         setAppointments(result.appointments);
         setRemoteAppointmentsError(null);
@@ -163,6 +170,8 @@ export default function App() {
   };
 
   const handleAdminLogout = () => {
+    const token = adminSessionToken;
+    if (token) void revokeAdminSession(token);
     try {
       sessionStorage.removeItem('angelica_admin_session');
     } catch {}
@@ -264,6 +273,32 @@ export default function App() {
       return INITIAL_CLIENTS;
     }
   });
+
+  // Restore an existing server-issued session after refresh; expired sessions are rejected server-side.
+  useEffect(() => {
+    const token = adminSessionToken;
+    if (!token) return;
+    let active = true;
+    void fetchRemoteAppointmentsDetailed(token).then(result => {
+      if (!active) return;
+      if (result.success) {
+        setAppointments(result.appointments);
+        setRemoteAppointmentsError(null);
+        setAppMode('admin');
+        calculateLocalOnlyCount(result.appointments);
+      } else {
+        try { sessionStorage.removeItem('angelica_admin_session'); } catch {}
+        setAdminSessionToken('');
+        setAppMode('public');
+      }
+    }).catch(() => {
+      if (!active) return;
+      setRemoteAppointmentsError('Não foi possível validar a sessão administrativa.');
+    });
+    return () => { active = false; };
+  // Intentionally run only once on page load to validate the stored session.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Save to localStorage whenever states change
   useEffect(() => {

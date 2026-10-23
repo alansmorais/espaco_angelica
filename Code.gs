@@ -15,7 +15,7 @@ var OFFICIAL_CATALOG = {
   "manutencao-fibra": { title: "Manutenção Fibra de Vidro", price: 140 },
   "blindagem-diamante": { title: "Blindagem Diamante & Banho Gel", price: 130 },
   "esmaltacao-gel-premium": { title: "Esmaltação em Gel Premium", price: 95 },
-  "nail-art-encapsulada": { title: "Nail Art Autoral & Encapsulada", price: 50 },
+  "nail-art-encapsulada": { title: "Nail Art Autoral & Encapsulada", price: 30 },
   "spa-das-maos-ouro": { title: "Spa das Mãos & Esfoliação", price: 85 }
 };
 
@@ -42,7 +42,15 @@ function getOfficialSheet() {
   try {
     var ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
     if (!ss) return null;
-    return ss.getSheetByName("Agendamentos");
+    var sheet = ss.getSheetByName("Agendamentos");
+    if (!sheet) return null;
+    // Add new optional columns without overwriting existing booking data or legacy columns.
+    var extensionHeaders = ["Local do Atendimento", "Endereço Domiciliar", "IDs Serviços Adicionais", "Pedido Personalizado", "ID Serviço Principal"];
+    for (var h = 0; h < extensionHeaders.length; h++) {
+      var cell = sheet.getRange(1, 12 + h);
+      if (!String(cell.getValue() || "").trim()) cell.setValue(extensionHeaders[h]);
+    }
+    return sheet;
   } catch (e) {
     return null;
   }
@@ -76,7 +84,7 @@ function getServicesSheet() {
         ["manutencao-fibra-vidro", "Manutenção Fibra de Vidro", "manutencao", 140, "R$ 140,00", "1h 45min", "", "Reposição de estrutura, nivelamento e reforço das tensões.", "Recomendado a cada 21 a 28 dias", "https://images.unsplash.com/photo-1632345031435-8727f6897d53?auto=format&fit=crop&w=800&q=80", "Nivelamento milimétrico, Selagem de bordas, Troca de top coat", true, new Date()],
         ["blindagem-diamante", "Blindagem Diamante & Banho Gel", "blindagem", 130, "R$ 130,00", "1h 30min", "Brilho Intenso", "Camada protetora sobre as unhas naturais, conferindo brilho vitrificado e resistência.", "Ideal para quem busca manter o comprimento natural sem quebras", "https://images.unsplash.com/photo-1519014816548-bf5fe059798b?auto=format&fit=crop&w=800&q=80", "Gel autonivelante de alta densidade, Brilho espelhado, Resistência a impactos", true, new Date()],
         ["esmaltacao-gel-premium", "Esmaltação em Gel Premium", "esmaltacao", 95, "R$ 95,00", "1h 15min", "", "Secagem imediata em cabine LED/UV com brilho impecável por até 20 dias.", "Unhas prontas para sair sem borrar", "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=800&q=80", "Durabilidade 15 a 21 dias, Secagem instantânea, Não lasca", true, new Date()],
-        ["nail-art-encapsulada", "Nail Art Autoral & Encapsulada", "nailart", 50, "A partir de R$ 50,00", "45min", "Autoral", "Design personalizado: encapsulados, francesinha reversa, marmorizados e aplicações.", "Preço base por par ou aplicação conforme complexidade", "https://images.unsplash.com/photo-1599940824399-b87987ceb72a?auto=format&fit=crop&w=800&q=80", "Pigmentos importados, Pedrarias de alta fixação, Efeitos 3D e foil", true, new Date()],
+        ["nail-art-encapsulada", "Nail Art Autoral & Encapsulada", "nailart", 30, "A partir de R$ 30,00", "45min", "Autoral", "Design personalizado: encapsulados, francesinha reversa, marmorizados e aplicações.", "Preço base por par ou aplicação conforme complexidade", "https://images.unsplash.com/photo-1599940824399-b87987ceb72a?auto=format&fit=crop&w=800&q=80", "Pigmentos importados, Pedrarias de alta fixação, Efeitos 3D e foil", true, new Date()],
         ["spa-das-maos-ouro", "Spa das Mãos & Esfoliação", "spa", 85, "R$ 85,00", "50min", "Relaxamento", "Esfoliação enzimática, hidratação profunda com máscara térmica e massagem relaxante.", "Tratamento rejuvenescedor para mãos e cutículas", "https://images.unsplash.com/photo-1560750588-73207b1ef5b8?auto=format&fit=crop&w=800&q=80", "Esfoliação botânica, Máscara com colágeno, Massagem relaxante", true, new Date()]
       ];
       for (var d = 0; d < defaults.length; d++) {
@@ -218,6 +226,11 @@ function doPost(e) {
         if (data.depositAmount !== undefined) updateSheet.getRange(foundRowIndex, 8).setValue(Number(data.depositAmount));
         if (data.status !== undefined) updateSheet.getRange(foundRowIndex, 9).setValue(String(data.status).trim());
         if (data.notes !== undefined) updateSheet.getRange(foundRowIndex, 11).setValue(String(data.notes).trim());
+        if (data.appointmentLocation !== undefined) updateSheet.getRange(foundRowIndex, 12).setValue(String(data.appointmentLocation).trim());
+        if (data.homeAddress !== undefined) updateSheet.getRange(foundRowIndex, 13).setValue(String(data.homeAddress).trim());
+        if (data.additionalServiceIds !== undefined) updateSheet.getRange(foundRowIndex, 14).setValue(JSON.stringify(Array.isArray(data.additionalServiceIds) ? data.additionalServiceIds : []));
+        if (data.customRequest !== undefined) updateSheet.getRange(foundRowIndex, 15).setValue(String(data.customRequest).trim());
+        if (data.serviceId !== undefined) updateSheet.getRange(foundRowIndex, 16).setValue(String(data.serviceId).trim());
 
         return responseJSON({
           status: "success",
@@ -566,7 +579,30 @@ function doPost(e) {
         });
       }
 
-      var referencePrice = canonical.price;
+      // Recalculate the complete service total from the official Apps Script catalogue.
+      var additionalIds = Array.isArray(data.additionalServiceIds) ? data.additionalServiceIds : [];
+      var additionalTitles = [];
+      var additionalTotal = 0;
+      var seenAdditionalIds = {};
+      for (var ai = 0; ai < additionalIds.length; ai++) {
+        var additionalId = String(additionalIds[ai] || '').trim();
+        if (!additionalId || additionalId === serviceKey || seenAdditionalIds[additionalId]) {
+          return responseJSON({ status: "error", message: "Serviço adicional inválido ou duplicado." });
+        }
+        seenAdditionalIds[additionalId] = true;
+        var additionalCanonical = OFFICIAL_CATALOG[additionalId];
+        if (!additionalCanonical) {
+          return responseJSON({ status: "error", message: "Serviço adicional fora do catálogo oficial: " + additionalId });
+        }
+        additionalTitles.push(additionalCanonical.title);
+        additionalTotal += Number(additionalCanonical.price);
+      }
+
+      var referencePrice = Number(canonical.price) + additionalTotal;
+      var expectedServiceTitle = [canonical.title].concat(additionalTitles).join(" + ");
+      if (String(data.serviceTitle || '').trim().toLowerCase() !== expectedServiceTitle.toLowerCase()) {
+        return responseJSON({ status: "error", message: "Os serviços informados não correspondem ao catálogo oficial." });
+      }
       var expected40 = Math.round(referencePrice * 0.4 * 100) / 100;
       var expected100 = Math.round(referencePrice * 100) / 100;
       var depositNum = Number(data.depositAmount);
@@ -603,7 +639,7 @@ function doPost(e) {
       }
 
       var resolvedMode = data.paymentMode || (matches100 ? "pre_pagamento_100" : "sinal_40");
-      var serviceTitle = canonical.title;
+      var serviceTitle = expectedServiceTitle;
       var balanceNum = Math.max(0, referencePrice - depositNum);
       var amountFormatted = depositNum.toFixed(2).replace(".", ",");
       var balanceFormatted = balanceNum.toFixed(2).replace(".", ",");
@@ -626,6 +662,8 @@ function doPost(e) {
 
       // 9. Proteção anti-duplicidade atômica na planilha (Coluna J: ID Agendamento)
       var existing = sheet.getDataRange().getValues();
+      var requestedDateKey = normalizeBookingDate(bookingDate);
+      var requestedTimeKey = normalizeBookingTime(bookingTime);
       for (var i = 1; i < existing.length; i++) {
         var existingId = existing[i][9] ? String(existing[i][9]).trim() : "";
         if (existingId && existingId.toLowerCase() === rawId.toLowerCase()) {
@@ -650,6 +688,18 @@ function doPost(e) {
             }
           });
         }
+        var existingStatus = String(existing[i][8] || 'pendente_pix').toLowerCase();
+        var existingDateKey = normalizeBookingDate(existing[i][5]);
+        var existingTimeKey = normalizeBookingTime(existing[i][6]);
+        if (requestedDateKey && requestedTimeKey &&
+            requestedDateKey === existingDateKey && requestedTimeKey === existingTimeKey &&
+            ['cancelado', 'bloqueado', 'teste_sistema'].indexOf(existingStatus) === -1) {
+          return responseJSON({
+            status: "error",
+            conflict: true,
+            message: "Este horário acabou de ser reservado. Escolha outro horário."
+          });
+        }
       }
 
       // 10. Grava linha na aba oficial 'Agendamentos' (apenas após validação completa)
@@ -664,7 +714,12 @@ function doPost(e) {
         depositNum,
         data.status || 'pendente_pix',
         rawId,
-        data.notes ? String(data.notes).trim() : ''
+        data.notes ? String(data.notes).trim() : '',
+        data.appointmentLocation ? String(data.appointmentLocation) : 'salon',
+        data.appointmentLocation === 'home' ? String(data.homeAddress || '').trim() : '',
+        JSON.stringify(Array.isArray(data.additionalServiceIds) ? data.additionalServiceIds : []),
+        data.customRequest ? String(data.customRequest).trim() : '',
+        data.serviceId ? String(data.serviceId).trim() : ''
       ]);
 
       // 11. Disparo de e-mails para reserva real
@@ -808,6 +863,27 @@ function doPost(e) {
   }
 }
 
+function normalizeBookingDate(value) {
+  var tz = Session.getScriptTimeZone() || "America/Sao_Paulo";
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, tz, "yyyy-MM-dd");
+  }
+  var text = String(value || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.substring(0, 10);
+  var dmy = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (dmy) return dmy[3] + "-" + dmy[2] + "-" + dmy[1];
+  return text;
+}
+
+function normalizeBookingTime(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone() || "America/Sao_Paulo", "HH:mm");
+  }
+  var text = String(value || "").trim();
+  var match = text.match(/^(\d{1,2}):(\d{2})/);
+  return match ? ("0" + match[1]).slice(-2) + ":" + match[2] : text;
+}
+
 function fetchAppointmentsFromSheet() {
   var sheet = getOfficialSheet();
   if (!sheet) {
@@ -835,7 +911,12 @@ function fetchAppointmentsFromSheet() {
       time: timeStr,
       depositAmount: Number(row[7] || 0),
       status: String(row[8] || 'pendente_pix'),
-      notes: String(row[10] || '')
+      notes: String(row[10] || ''),
+      appointmentLocation: String(row[11] || 'salon') === 'home' ? 'home' : 'salon',
+      homeAddress: String(row[12] || '') || undefined,
+      additionalServiceIds: (function() { try { var parsed = JSON.parse(String(row[13] || '[]')); return Array.isArray(parsed) ? parsed : []; } catch (e) { return []; } })(),
+      customRequest: String(row[14] || '') || undefined,
+      serviceId: String(row[15] || '') || undefined
     });
   }
   return responseJSON({ status: "success", appointments: appointments, total: appointments.length });

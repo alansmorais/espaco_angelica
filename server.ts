@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import dotenv from 'dotenv';
 import { areDatesEqual } from './src/services/notificationTemplates';
 
@@ -397,12 +398,60 @@ export function recordServerAppointment(apt: ServerStoredAppointment): void {
   }
 }
 
+const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+
+function getAdminSessionSigningSecret(): string {
+  return (process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_TOKEN || process.env.ADMIN_PASSWORD || '').trim();
+}
+
+function signAdminSession(payload: string, secret: string): string {
+  return createHmac('sha256', secret).update(payload).digest('base64url');
+}
+
+function verifyAdminSession(token: string): boolean {
+  const secret = getAdminSessionSigningSecret();
+  if (!secret || !token.startsWith('session.')) return false;
+  const parts = token.split('.');
+  if (parts.length !== 3) return false;
+  const payload = parts[1];
+  const suppliedSignature = Buffer.from(parts[2], 'base64url');
+  const expectedSignature = Buffer.from(signAdminSession(payload, secret), 'base64url');
+  if (suppliedSignature.length !== expectedSignature.length || !timingSafeEqual(suppliedSignature, expectedSignature)) return false;
+  try {
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    return data?.exp > Date.now() && data?.scope === 'admin';
+  } catch {
+    return false;
+  }
+}
+
+app.post('/api/admin/session', (req: Request, res: Response) => {
+  const supplied = String(req.body?.password || '').trim();
+  const configuredToken = (process.env.ADMIN_TOKEN || '').trim();
+  const configuredPassword = (process.env.ADMIN_PASSWORD || '').trim();
+  const signingSecret = getAdminSessionSigningSecret();
+  if (!supplied || !signingSecret ||
+      !((configuredToken && supplied === configuredToken) || (configuredPassword && supplied === configuredPassword))) {
+    return res.status(401).json({ success: false, error: 'Credencial administrativa inválida.' });
+  }
+  const payload = Buffer.from(JSON.stringify({ scope: 'admin', exp: Date.now() + ADMIN_SESSION_TTL_MS })).toString('base64url');
+  const token = `session.${payload}.${signAdminSession(payload, signingSecret)}`;
+  return res.json({ success: true, token, expiresInSeconds: ADMIN_SESSION_TTL_MS / 1000 });
+});
+
+app.delete('/api/admin/session', (_req: Request, res: Response) => {
+  // Signed sessions expire after eight hours. Stateless tokens need no in-memory revocation store.
+  return res.json({ success: true });
+});
+
 function isAuthorizedAdminRequest(req: Request): boolean {
   const authHeader = req.headers.authorization;
   const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
   const headerToken = (req.headers['x-admin-token'] as string || '').trim();
   const provided = bearerToken || headerToken;
 
+  // Stateless signed sessions work across Cloud Run instances and expire automatically.
+  if (provided && verifyAdminSession(provided)) return true;
   // Segurança estrita: NUNCA aceita credenciais administrativas via query string (req.query)
   if (!provided) return false;
 
@@ -632,7 +681,12 @@ app.put('/api/appointments/:appointmentId', async (req: Request, res: Response) 
         time: updates.time,
         depositAmount: updates.depositAmount !== undefined ? Number(updates.depositAmount) : undefined,
         status: updates.status,
-        notes: updates.notes
+        notes: updates.notes,
+        appointmentLocation: updates.appointmentLocation,
+        homeAddress: updates.homeAddress,
+        additionalServiceIds: updates.additionalServiceIds,
+        customRequest: updates.customRequest,
+        serviceId: updates.serviceId
       }),
       redirect: 'follow',
       signal: AbortSignal.timeout(15000)
@@ -920,8 +974,8 @@ export const OFFICIAL_SERVICES_BY_ID: Record<string, CanonicalCatalogService> = 
   'nail-art-encapsulada': {
     id: 'nail-art-encapsulada',
     title: 'Nail Art Autoral & Encapsulada',
-    price: 50,
-    priceFormatted: 'A partir de R$ 50,00'
+    price: 30,
+    priceFormatted: 'A partir de R$ 30,00'
   },
   'spa-das-maos-ouro': {
     id: 'spa-das-maos-ouro',
@@ -982,6 +1036,9 @@ export function validateBookingPaymentCoherence(payload: any): {
   }
 
   const { serviceId, serviceTitle, servicePrice, depositAmount, paymentMode, status } = payload;
+  const additionalServiceIds: string[] = Array.isArray(payload.additionalServiceIds)
+    ? Array.from(new Set<string>(payload.additionalServiceIds.filter((id: unknown): id is string => typeof id === 'string' && id.trim() !== '')))
+    : [];
 
   if (typeof depositAmount !== 'number' || !Number.isFinite(depositAmount) || depositAmount <= 0) {
     return {
@@ -1019,7 +1076,7 @@ export function validateBookingPaymentCoherence(payload: any): {
       };
     }
 
-    if (typeof serviceTitle === 'string' && serviceTitle.trim() !== '') {
+    if (typeof serviceTitle === 'string' && serviceTitle.trim() !== '' && additionalServiceIds.length === 0) {
       const normalizedTitle = serviceTitle.trim().toLowerCase();
       if (normalizedTitle !== canonicalService.title.toLowerCase()) {
         return {
@@ -1044,18 +1101,31 @@ export function validateBookingPaymentCoherence(payload: any): {
     };
   }
 
-  // Reject spoofed or unparseable servicePrice if sent by the browser
+  // Resolve every additional service against the server-side catalogue. Never trust browser-supplied prices.
+  const additionalServices = additionalServiceIds.map(id => OFFICIAL_SERVICES_BY_ID[id] || DYNAMIC_SERVICES_BY_ID[id]);
+  if (additionalServices.some(service => !service)) {
+    return { valid: false, error: 'Um ou mais serviços adicionais não existem no catálogo oficial.' };
+  }
+  if (additionalServiceIds.includes(String(serviceId || ''))) {
+    return { valid: false, error: 'O procedimento principal não pode ser repetido como serviço adicional.' };
+  }
+  const referencePrice = canonicalService.price + additionalServices.reduce((sum, service) => sum + service!.price, 0);
+  const expectedTitle = [canonicalService.title, ...additionalServices.map(service => service!.title)].join(' + ');
+  if (additionalServices.length > 0 && typeof serviceTitle === 'string' && serviceTitle.trim().toLowerCase() !== expectedTitle.toLowerCase()) {
+    return { valid: false, error: 'Os nomes dos serviços não correspondem ao catálogo oficial.' };
+  }
+
+  // Reject spoofed or unparseable combined price if sent by the browser.
   if (servicePrice !== undefined && servicePrice !== null && String(servicePrice).trim() !== '') {
     const parsedPrice = parseBRLString(String(servicePrice));
-    if (parsedPrice === null || Math.abs(parsedPrice - canonicalService.price) > 0.01) {
+    if (parsedPrice === null || Math.abs(parsedPrice - referencePrice) > 0.01) {
       return {
         valid: false,
-        error: `Preço informado (${servicePrice}) diverge da tabela oficial para "${canonicalService.title}" (R$ ${formatCurrencyServerBRL(canonicalService.price)}).`
+        error: `Preço informado (${servicePrice}) diverge da soma oficial dos serviços selecionados (R$ ${formatCurrencyServerBRL(referencePrice)}).`
       };
     }
   }
 
-  const referencePrice = canonicalService.price;
   const expected40 = Math.round(referencePrice * 0.4 * 100) / 100;
   const expected100 = Math.round(referencePrice * 100) / 100;
   const matches40 = Math.abs(depositAmount - expected40) < 0.01;
@@ -1064,21 +1134,19 @@ export function validateBookingPaymentCoherence(payload: any): {
   if (paymentMode === 'sinal_40' && !matches40) {
     return {
       valid: false,
-      error: `Valor do sinal (R$ ${formatCurrencyServerBRL(depositAmount)}) diverge de 40% do procedimento (esperado: R$ ${formatCurrencyServerBRL(expected40)}).`
+      error: `Valor do sinal (R$ ${formatCurrencyServerBRL(depositAmount)}) diverge de 40% do total oficial (esperado: R$ ${formatCurrencyServerBRL(expected40)}).`
     };
   }
-
   if (paymentMode === 'pre_pagamento_100' && !matches100) {
     return {
       valid: false,
-      error: `Valor do pré-pagamento 100% (R$ ${formatCurrencyServerBRL(depositAmount)}) diverge do total oficial do procedimento sem descontos (esperado: R$ ${formatCurrencyServerBRL(expected100)}).`
+      error: `Valor do pré-pagamento 100% diverge do total oficial sem descontos (esperado: R$ ${formatCurrencyServerBRL(expected100)}).`
     };
   }
-
   if (!matches40 && !matches100) {
     return {
       valid: false,
-      error: `Valor enviado (R$ ${formatCurrencyServerBRL(depositAmount)}) não corresponde a 40% (R$ ${formatCurrencyServerBRL(expected40)}) nem a 100% (R$ ${formatCurrencyServerBRL(expected100)}) do procedimento.`
+      error: `Valor enviado não corresponde a 40% (R$ ${formatCurrencyServerBRL(expected40)}) nem a 100% (R$ ${formatCurrencyServerBRL(expected100)}) do total.`
     };
   }
 
@@ -1089,7 +1157,7 @@ export function validateBookingPaymentCoherence(payload: any): {
   return {
     valid: true,
     verifiedServiceId: canonicalService.id,
-    verifiedServiceTitle: canonicalService.title,
+    verifiedServiceTitle: expectedTitle,
     verifiedDepositAmount: resolvedDeposit,
     verifiedServicePrice: `R$ ${formatCurrencyServerBRL(referencePrice)}`,
     verifiedPaymentMode: resolvedMode
@@ -1212,8 +1280,8 @@ let dynamicServicesCache: any[] = [
     id: "nail-art-encapsulada",
     title: "Nail Art Autoral & Encapsulada",
     category: "nailart",
-    price: 50,
-    priceFormatted: "A partir de R$ 50,00",
+    price: 30,
+    priceFormatted: "A partir de R$ 30,00",
     duration: "45min",
     badge: "Autoral",
     description: "Design personalizado: encapsulados, francesinha reversa, marmorizados e aplicações.",
@@ -1531,6 +1599,25 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
 
     const isAdmin = isAuthorizedAdminRequest(req);
 
+    // Public requests must use a real future date in São Sebastião and the studio's Tuesday–Saturday schedule.
+    if (!isAdmin) {
+      const todayInSaoSebastiao = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit'
+      }).format(new Date());
+      const dateKey = String(date).slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || dateKey < todayInSaoSebastiao) {
+        return res.status(400).json({ success: false, error: 'Selecione uma data válida a partir de hoje.' });
+      }
+      const requestedDate = new Date(`${dateKey}T12:00:00-03:00`);
+      const weekday = requestedDate.getUTCDay();
+      if (weekday === 0 || weekday === 1) {
+        return res.status(400).json({ success: false, error: 'O salão atende de terça-feira a sábado. Selecione outro dia.' });
+      }
+      if (payload.appointmentLocation === 'home' && (typeof payload.homeAddress !== 'string' || payload.homeAddress.trim().length < 8)) {
+        return res.status(400).json({ success: false, error: 'O endereço completo é obrigatório para atendimento em domicílio.' });
+      }
+    }
+
     // Identificadores de teste (test-*, e2e-*) e modo de teste são permitidos EXCLUSIVAMENTE para administradores autenticados
     if (!isAdmin && typeof appointmentId === 'string' && (appointmentId.startsWith('test-') || appointmentId.startsWith('e2e-'))) {
       return res.status(400).json({
@@ -1558,6 +1645,21 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
       return res.status(400).json({
         success: false,
         error: `A data "${date}" está bloqueada para novos agendamentos.`
+      });
+    }
+
+    // Prevent two active appointments from taking the same date/time in the server's current appointment snapshot.
+    const conflictingAppointment = serverAppointments.find(a =>
+      a.id !== appointmentId &&
+      !deletedAppointmentIds.has(a.id) &&
+      areDatesEqual(a.date, String(date)) &&
+      String(a.time).trim() === String(time).trim() &&
+      !['cancelado', 'bloqueado', 'teste_sistema'].includes(String(a.status))
+    );
+    if (conflictingAppointment) {
+      return res.status(409).json({
+        success: false,
+        error: 'Este horário acabou de ser reservado. Atualize a agenda e escolha outro horário.'
       });
     }
 

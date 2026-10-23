@@ -1,0 +1,29 @@
+name: Validate booking changes
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ feat/complete-booking-flow-20261023 ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: TypeScript checks
+        run: npm run lint
+      - name: Booking and payment tests
+        run: npm test
+      - name: Production build
+        env:
+          VITE_BACKEND_API_URL: https://espaco-angelica-backend-770203144889.southamerica-east1.run.app
+        run: npm run build

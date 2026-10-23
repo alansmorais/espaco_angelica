@@ -20,6 +20,10 @@ export interface EmailNotificationPayload {
   clientPhone: string;
   clientEmail?: string;
   serviceId?: string;
+  additionalServiceIds?: string[];
+  customRequest?: string;
+  appointmentLocation?: 'salon' | 'home';
+  homeAddress?: string;
   serviceTitle: string;
   servicePrice?: string;
   date: string;
@@ -110,6 +114,10 @@ export function buildPreBookingEmailPayload(apt: Appointment): EmailNotification
     clientPhone: apt.clientPhone,
     clientEmail: apt.clientEmail,
     serviceId: apt.serviceId,
+    additionalServiceIds: apt.additionalServiceIds,
+    customRequest: apt.customRequest,
+    appointmentLocation: apt.appointmentLocation,
+    homeAddress: apt.homeAddress,
     serviceTitle: apt.serviceTitle,
     servicePrice: apt.servicePrice,
     date: apt.date,
@@ -120,7 +128,13 @@ export function buildPreBookingEmailPayload(apt: Appointment): EmailNotification
     status: apt.status || 'pendente_pix',
     appointmentId: apt.id,
     nailCondition: apt.nailCondition,
-    notes: apt.notes,
+    notes: [
+      apt.notes,
+      apt.appointmentLocation ? `Local: ${apt.appointmentLocation === 'home' ? 'Domicílio' : 'Salão'}` : '',
+      apt.appointmentLocation === 'home' && apt.homeAddress ? `Endereço: ${apt.homeAddress}` : '',
+      apt.additionalServiceIds?.length ? `Serviços adicionais (IDs): ${apt.additionalServiceIds.join(', ')}` : '',
+      apt.customRequest ? `Pedido personalizado (confirmar preço): ${apt.customRequest}` : ''
+    ].filter(Boolean).join('\n') || undefined,
     timestamp: new Date().toISOString(),
     isTest
   };
@@ -491,6 +505,43 @@ export async function submitManualBooking(
   authToken?: string
 ): Promise<EmailDispatchResult> {
   return triggerNewPreBookingEmailNotification(apt, authToken);
+}
+
+export interface AdminSessionResult {
+  success: boolean;
+  token?: string;
+  error?: string;
+  statusCode?: number;
+}
+
+export async function createAdminSession(password: string): Promise<AdminSessionResult> {
+  try {
+    const backendBase = getBackendApiUrl();
+    const targetUrl = backendBase ? `${backendBase}/api/admin/session` : '/api/admin/session';
+    const response = await fetch(targetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data?.success && typeof data.token === 'string' && data.token.length > 0) {
+      return { success: true, token: data.token, statusCode: response.status };
+    }
+    return { success: false, error: data?.error || `Falha no login administrativo (HTTP ${response.status}).`, statusCode: response.status };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Falha de conexão ao autenticar o painel.' };
+  }
+}
+
+export async function revokeAdminSession(token: string): Promise<void> {
+  if (!token) return;
+  try {
+    const backendBase = getBackendApiUrl();
+    const targetUrl = backendBase ? `${backendBase}/api/admin/session` : '/api/admin/session';
+    await fetch(targetUrl, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+  } catch {
+    // Local logout still clears the session if the server is unreachable.
+  }
 }
 
 export interface FetchAppointmentsDetailedResult {

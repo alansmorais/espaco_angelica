@@ -34,8 +34,15 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   appointments = [],
   blockedDates = []
 }) => {
-  const [selectedDate, setSelectedDate] = useState<string>('Quinta, 14 Nov');
+  const today = new Date();
+  const toDateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const [selectedDate, setSelectedDate] = useState<string>(() => toDateKey(new Date()));
+  const [visibleMonth, setVisibleMonth] = useState<Date>(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [selectedTime, setSelectedTime] = useState<string>('11:30');
+  const [additionalServiceIds, setAdditionalServiceIds] = useState<string[]>([]);
+  const [customRequest, setCustomRequest] = useState<string>('');
+  const [appointmentLocation, setAppointmentLocation] = useState<'salon' | 'home'>('salon');
+  const [homeAddress, setHomeAddress] = useState<string>('');
   const [clientName, setClientName] = useState<string>('');
   const [clientPhone, setClientPhone] = useState<string>('');
   const [clientEmail, setClientEmail] = useState<string>('');
@@ -80,18 +87,27 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
     return false;
   };
 
-  const availableDates = [
-    { day: 'Ter', num: '12', full: 'Terça, 12 Nov', available: !isDateBlocked('Terça, 12 Nov') },
-    { day: 'Qua', num: '13', full: 'Quarta, 13 Nov', available: !isDateBlocked('Quarta, 13 Nov') },
-    { day: 'Qui', num: '14', full: 'Quinta, 14 Nov', available: !isDateBlocked('Quinta, 14 Nov') },
-    { day: 'Sex', num: '15', full: 'Sexta, 15 Nov', available: !isDateBlocked('Sexta, 15 Nov') },
-    { day: 'Sáb', num: '16', full: 'Sábado, 16 Nov', available: !isDateBlocked('Sábado, 16 Nov') },
-    { day: 'Dom', num: '17', full: 'Domingo, 17 Nov', available: false },
-    { day: 'Seg', num: '18', full: 'Segunda, 18 Nov', available: false }
+  const dateLabel = (date: Date) => date.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+  const monthLabel = visibleMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  const monthOffset = (visibleMonth.getFullYear() - today.getFullYear()) * 12 + visibleMonth.getMonth() - today.getMonth();
+  const monthStartOffset = (visibleMonth.getDay() + 6) % 7;
+  const daysInVisibleMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 0).getDate();
+  const calendarCells: Array<number | null> = [
+    ...Array.from({ length: monthStartOffset }, () => null),
+    ...Array.from({ length: daysInVisibleMonth }, (_, index) => index + 1)
   ];
+  const isPastDate = (date: Date) => toDateKey(date) < toDateKey(today);
+  const isDateUnavailable = (date: Date) => {
+    const key = toDateKey(date);
+    const sameDayAppointments = appointments.filter(a => areDatesEqual(a.date, key) && !['cancelado', 'teste_sistema'].includes(a.status));
+    const weekday = date.getDay();
+    const outsideWorkingDays = weekday === 0 || weekday === 1;
+    return outsideWorkingDays || isDateBlocked(key) || (sameDayAppointments.length > 0 && sameDayAppointments.every(a => a.status === 'bloqueado'));
+  };
 
   // Price calculations (40% deposit or 100% full prepayment of selected procedure's official price)
-  const servicePrice = selectedService.price;
+  const additionalServices = services.filter(service => additionalServiceIds.includes(service.id) && service.id !== selectedService.id);
+  const servicePrice = selectedService.price + additionalServices.reduce((sum, service) => sum + service.price, 0);
   const fullPrepayment = calculateFullPrepayment(servicePrice);
   const standardDeposit = calculateDeposit40(servicePrice);
   const standardBalance = calculateRemainingBalance(servicePrice, standardDeposit);
@@ -185,6 +201,10 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
       alert('Por favor informe seu telefone WhatsApp para contato.');
       return;
     }
+    if (appointmentLocation === 'home' && homeAddress.trim().length < 8) {
+      setSubmissionError('Informe o endereço completo para atendimento em domicílio.');
+      return;
+    }
 
     setIsSubmittingBooking(true);
     setSubmissionError(null);
@@ -223,8 +243,12 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
       nailCondition,
       notes: clientNotes || undefined,
       serviceId: selectedService.id,
-      serviceTitle: selectedService.title,
-      servicePrice: selectedService.priceFormatted,
+      additionalServiceIds,
+      customRequest: customRequest.trim() || undefined,
+      appointmentLocation,
+      homeAddress: appointmentLocation === 'home' ? homeAddress.trim() : undefined,
+      serviceTitle: [selectedService.title, ...additionalServices.map(service => service.title)].join(' + '),
+      servicePrice: `R$ ${formatBRL(servicePrice)}`,
       serviceDuration: selectedService.duration,
       date: selectedDate,
       time: selectedTime,
@@ -381,42 +405,40 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                 </span>
               </div>
 
-              {/* Date Selector Strip - Horizontal snap-scroll on mobile, 7-col grid on tablet/desktop */}
-              <div className="flex items-center justify-between pb-1 sm:hidden">
-                <span className="font-jakarta text-[11px] text-[#786C63]">
-                  7 dias na agenda:
-                </span>
-                <span className="font-jakarta text-[10px] text-[#D4AF37] font-semibold flex items-center gap-0.5">
-                  <span>Deslize para ver</span>
-                  <span className="material-symbols-outlined text-[13px]">arrow_forward</span>
-                </span>
-              </div>
-              <div className="flex sm:grid sm:grid-cols-7 gap-2 overflow-x-auto pb-2 scrollbar-none snap-x touch-pan-x -mx-1 px-1">
-                {availableDates.map((item, idx) => {
-                  const isSelected = selectedDate === item.full;
-                  return (
-                    <button
-                      key={idx}
-                      type="button"
-                      disabled={!item.available}
-                      onClick={() => setSelectedDate(item.full)}
-                      className={`min-w-[62px] sm:min-w-0 flex-1 p-2 sm:p-2.5 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer min-h-[58px] snap-center shrink-0 active:scale-95 ${
-                        !item.available
-                          ? 'bg-[#F7EFEA] border border-[#E8D9B5]/40 opacity-40 cursor-not-allowed text-[#786C63]'
-                          : isSelected
-                          ? 'bg-[#D4AF37] text-[#3C2F00] font-bold shadow-md ring-2 ring-[#D4AF37]'
-                          : 'bg-[#FDFBF9] border border-[#E8D9B5] text-[#49382E] hover:border-[#D4AF37]/50 hover:bg-[#FFFFFF]'
-                      }`}
-                    >
-                      <span className="font-jakarta text-[10px] sm:text-[11px] uppercase tracking-wider font-semibold">
-                        {item.day}
-                      </span>
-                      <span className="font-syne text-base sm:text-lg font-bold mt-0.5">
-                        {item.num}
-                      </span>
-                    </button>
-                  );
-                })}
+              {/* Dynamic calendar: today through four months ahead */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <button type="button" aria-label="Mês anterior" disabled={monthOffset <= 0}
+                    onClick={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1))}
+                    className="rounded-lg border border-[#E8D9B5] px-3 py-2 disabled:opacity-30 disabled:cursor-not-allowed">‹</button>
+                  <h4 className="font-syne font-semibold capitalize text-[#49382E]">{monthLabel}</h4>
+                  <button type="button" aria-label="Próximo mês" disabled={monthOffset >= 4}
+                    onClick={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1))}
+                    className="rounded-lg border border-[#E8D9B5] px-3 py-2 disabled:opacity-30 disabled:cursor-not-allowed">›</button>
+                </div>
+                <div className="grid grid-cols-7 gap-1.5 text-center">
+                  {['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map(day => (
+                    <span key={day} className="py-1 text-[10px] font-semibold text-[#786C63]">{day}</span>
+                  ))}
+                  {calendarCells.map((day, index) => {
+                    if (day === null) return <span key={`blank-${index}`} />;
+                    const date = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), day);
+                    const key = toDateKey(date);
+                    const past = isPastDate(date);
+                    const unavailable = isDateUnavailable(date);
+                    const selected = selectedDate === key;
+                    const disabled = past || unavailable;
+                    return (
+                      <button key={key} type="button" disabled={disabled}
+                        aria-label={dateLabel(date)} aria-pressed={selected}
+                        onClick={() => setSelectedDate(key)}
+                        className={`min-h-10 rounded-lg border text-xs font-semibold transition-colors ${disabled ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : selected ? 'bg-[#D4AF37] text-[#3C2F00] border-[#D4AF37]' : 'bg-[#FDFBF9] text-[#49382E] border-[#E8D9B5] hover:border-[#D4AF37]'}`}>
+                        {day}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="font-jakarta text-[11px] text-[#786C63]">Selecione uma data disponível. A agenda mostra o mês atual e até quatro meses à frente.</p>
               </div>
 
               {/* Time Slots Section */}
@@ -862,6 +884,39 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                       ))}
                     </select>
                   </div>
+                )}
+              </div>
+
+              <div className="py-4 border-b border-[#E8D9B5] space-y-3">
+                <h4 className="font-syne font-semibold text-sm text-[#49382E]">Adicionar serviços</h4>
+                <div className="space-y-2">
+                  {services.filter(service => service.id !== selectedService.id).map(service => (
+                    <label key={service.id} className="flex items-center gap-2 text-xs text-[#49382E]">
+                      <input type="checkbox" checked={additionalServiceIds.includes(service.id)}
+                        onChange={event => setAdditionalServiceIds(current => event.target.checked ? [...current, service.id] : current.filter(id => id !== service.id))}
+                        className="accent-[#D4AF37]" />
+                      <span className="flex-1">{service.title}</span>
+                      <span className="font-semibold">+ {service.priceFormatted}</span>
+                    </label>
+                  ))}
+                </div>
+                <label className="block text-xs font-semibold text-[#49382E]">Pedido personalizado (opcional)
+                  <textarea value={customRequest} onChange={event => setCustomRequest(event.target.value)}
+                    placeholder="Ex.: decoração especial de unhas (preço sujeito à confirmação)"
+                    rows={2} className="mt-1 w-full rounded-lg border border-[#E8D9B5] bg-[#FDFBF9] p-2 text-xs" />
+                </label>
+                <p className="text-[10px] text-[#786C63]">Pedidos personalizados sem preço cadastrado precisam de confirmação e não alteram o total automaticamente.</p>
+                <h4 className="font-syne font-semibold text-sm text-[#49382E] pt-1">Local do atendimento</h4>
+                <div className="flex flex-wrap gap-4 text-xs">
+                  <label className="flex items-center gap-2"><input type="radio" name="appointmentLocation" checked={appointmentLocation === 'salon'} onChange={() => setAppointmentLocation('salon')} /> No salão</label>
+                  <label className="flex items-center gap-2"><input type="radio" name="appointmentLocation" checked={appointmentLocation === 'home'} onChange={() => setAppointmentLocation('home')} /> Em domicílio</label>
+                </div>
+                {appointmentLocation === 'home' && (
+                  <label className="block text-xs font-semibold text-[#49382E]">Endereço completo *
+                    <textarea required value={homeAddress} onChange={event => setHomeAddress(event.target.value)}
+                      placeholder="Rua, número, bairro, cidade e referência" rows={2}
+                      className="mt-1 w-full rounded-lg border border-[#E8D9B5] bg-[#FDFBF9] p-2 text-xs" />
+                  </label>
                 )}
               </div>
 
