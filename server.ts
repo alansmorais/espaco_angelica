@@ -1345,15 +1345,38 @@ let dynamicServicesCache: any[] = [
 
 function updateDynamicCatalogsFromServices(services: any[]) {
   if (!Array.isArray(services)) return;
+  // Replace the snapshot rather than retaining deleted or outdated prices from a prior request.
+  for (const key of Object.keys(DYNAMIC_SERVICES_BY_ID)) delete DYNAMIC_SERVICES_BY_ID[key];
+  for (const key of Object.keys(DYNAMIC_SERVICES_BY_TITLE)) delete DYNAMIC_SERVICES_BY_TITLE[key];
   for (const s of services) {
-    if (s && s.id && s.price !== undefined) {
+    if (s && s.id && s.price !== undefined && Number.isFinite(Number(s.price)) && Number(s.price) > 0) {
       registerDynamicService({
-        id: s.id,
-        title: s.title || s.id,
+        id: String(s.id).trim(),
+        title: String(s.title || s.id).trim(),
         price: Number(s.price),
         priceFormatted: s.priceFormatted || `R$ ${Number(s.price).toFixed(2).replace('.', ',')}`
       });
     }
+  }
+}
+
+async function refreshOfficialServiceCatalog(): Promise<boolean> {
+  const cfg = resolveAppsScriptConfig();
+  if (!cfg.configured || !cfg.webhookUrl || !cfg.token) return false;
+  try {
+    const response = await fetch(cfg.webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'getServices', token: cfg.token }),
+      redirect: 'follow',
+      signal: AbortSignal.timeout(8000)
+    });
+    const data: any = await response.json().catch(() => null);
+    if (!response.ok || data?.status !== 'success' || !Array.isArray(data.services) || data.services.length === 0) return false;
+    updateDynamicCatalogsFromServices(data.services);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -1663,6 +1686,9 @@ app.post('/api/notifications/new-booking', async (req: Request, res: Response) =
       });
     }
 
+    // Refresh authoritative prices immediately before validating a booking so this Cloud Run
+    // instance cannot reject the same service total using a stale/incomplete catalogue snapshot.
+    await refreshOfficialServiceCatalog();
     const paymentCheck = validateBookingPaymentCoherence(payload);
     if (!paymentCheck.valid) {
       return res.status(400).json({
