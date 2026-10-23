@@ -969,8 +969,8 @@ export const OFFICIAL_SERVICES_BY_ID: Record<string, CanonicalCatalogService> = 
   'nail-art-encapsulada': {
     id: 'nail-art-encapsulada',
     title: 'Nail Art Autoral & Encapsulada',
-    price: 50,
-    priceFormatted: 'A partir de R$ 50,00'
+    price: 30,
+    priceFormatted: 'A partir de R$ 30,00'
   },
   'spa-das-maos-ouro': {
     id: 'spa-das-maos-ouro',
@@ -1275,8 +1275,8 @@ let dynamicServicesCache: any[] = [
     id: "nail-art-encapsulada",
     title: "Nail Art Autoral & Encapsulada",
     category: "nailart",
-    price: 50,
-    priceFormatted: "A partir de R$ 50,00",
+    price: 30,
+    priceFormatted: "A partir de R$ 30,00",
     duration: "45min",
     badge: "Autoral",
     description: "Design personalizado: encapsulados, francesinha reversa, marmorizados e aplicações.",
