@@ -128,7 +128,13 @@ export function buildPreBookingEmailPayload(apt: Appointment): EmailNotification
     status: apt.status || 'pendente_pix',
     appointmentId: apt.id,
     nailCondition: apt.nailCondition,
-    notes: apt.notes,
+    notes: [
+      apt.notes,
+      apt.appointmentLocation ? `Local: ${apt.appointmentLocation === 'home' ? 'Domicílio' : 'Salão'}` : '',
+      apt.appointmentLocation === 'home' && apt.homeAddress ? `Endereço: ${apt.homeAddress}` : '',
+      apt.additionalServiceIds?.length ? `Serviços adicionais (IDs): ${apt.additionalServiceIds.join(', ')}` : '',
+      apt.customRequest ? `Pedido personalizado (confirmar preço): ${apt.customRequest}` : ''
+    ].filter(Boolean).join('\n') || undefined,
     timestamp: new Date().toISOString(),
     isTest
   };
