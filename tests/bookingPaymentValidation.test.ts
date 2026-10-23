@@ -1940,8 +1940,9 @@ runTest('Bloqueio de Agenda: BookingWizard recebe blockedDates explicitamente do
   // Verifica que BookingWizard é invocado com a prop blockedDates no App.tsx
   assertCondition(
     appContent.includes('<BookingWizard') &&
-    appContent.includes("blockedDates={appointments.filter(a => a.status === 'bloqueado').map(a => a.date)}"),
-    'App.tsx deve passar explicitamente a prop blockedDates computada a partir de appointments com status "bloqueado"'
+    appContent.includes('blockedDates={publicBlockedDates}') &&
+    appContent.includes('appointments={publicAvailability}'),
+    'App.tsx deve passar ao BookingWizard a disponibilidade pública confirmada pelo backend'
   );
 });
 
