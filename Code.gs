@@ -692,7 +692,6 @@ function getPublicPaymentConfigData() {
     pixKey: String(payment.pixKey || ""),
     pixBeneficiary: String(payment.pixBeneficiary || ""),
     depositAmount: Number(payment.depositAmount === undefined ? 40 : payment.depositAmount),
-    prepayDiscount: Number(payment.prepayDiscount === undefined ? 5 : payment.prepayDiscount)
   };
   return {
     status: "success",
