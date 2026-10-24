@@ -781,8 +781,8 @@ export async function fetchRemoteAppSettings(authToken?: string): Promise<Remote
 }
 
 export async function saveRemoteAppSetting(
-  settingKey: 'STUDIO_ADDRESS' | 'BLACKLIST' | 'WHATSAPP_CONFIG',
-  value: StudioAddressConfig | BlacklistEntry[] | WhatsAppConfig,
+  settingKey: 'STUDIO_ADDRESS' | 'BLACKLIST' | 'WHATSAPP_CONFIG' | 'PAYMENT_CONFIG',
+  value: StudioAddressConfig | BlacklistEntry[] | WhatsAppConfig | Record<string, unknown>,
   authToken?: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
