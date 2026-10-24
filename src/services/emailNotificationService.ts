@@ -1,9 +1,7 @@
 import { Appointment, Service, ClientProfile, StudioAddressConfig, BlacklistEntry, WhatsAppConfig } from '../types';
 import {
   AUTHORIZED_SENDER_EMAIL,
-  TARGET_NOTIFICATION_EMAIL,
-  getGmailAccessToken,
-  sendDirectGmailFromBrowser
+  TARGET_NOTIFICATION_EMAIL
 } from './gmailService';
 
 export { AUTHORIZED_SENDER_EMAIL, TARGET_NOTIFICATION_EMAIL };
