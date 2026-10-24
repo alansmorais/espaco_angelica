@@ -504,9 +504,15 @@ app.get('/api/public/availability', async (_req: Request, res: Response) => {
         id: String(a.id || ''),
         date: String(a.date || ''),
         time: String(a.time || ''),
+        serviceId: String(a.serviceId || ''),
+        serviceDuration: String(a.serviceDuration || ''),
         status: String(a.status || 'pendente_pix')
       }));
-    const blockedDates = Array.from(new Set(slots.filter((a: any) => a.status === 'bloqueado').map((a: any) => a.date)));
+    // Only full-day blocks belong in blockedDates. Timed blocks stay in slots so
+    // the public booking UI can disable only overlapping start times.
+    const blockedDates = Array.from(new Set(slots
+      .filter((a: any) => a.status === 'bloqueado' && !/(\d{1,2}:\d{2})\s*(?:às|as|[-–])\s*(\d{1,2}:\d{2})/i.test(a.time))
+      .map((a: any) => a.date)));
     return res.json({ success: true, slots, blockedDates, updatedAt: new Date().toISOString() });
   } catch {
     return res.status(503).json({ success: false, error: 'A agenda oficial está temporariamente inacessível. Não exibiremos horários sem confirmação.' });
