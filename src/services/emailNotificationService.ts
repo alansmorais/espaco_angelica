@@ -964,23 +964,18 @@ export async function deleteRemoteScheduleBlock(
 }
 
 export async function fetchRemoteServices(): Promise<Service[]> {
-  try {
-    const endpoint = getNotificationWebhookUrl();
-    if (!endpoint) return [];
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
-      body: JSON.stringify({ action: 'getServices' })
-    });
-    if (!response.ok) return [];
-    const data = await response.json();
-    if (data?.status === 'success' && Array.isArray(data.services)) {
-      return data.services as Service[];
-    }
-    return [];
-  } catch {
-    return [];
+  const endpoint = getNotificationWebhookUrl();
+  if (!endpoint) throw new Error('URL do Google Apps Script não configurada.');
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+    body: JSON.stringify({ action: 'getServices' })
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data || data.status !== 'success' || !Array.isArray(data.services)) {
+    throw new Error(data?.message || 'Não foi possível ler o catálogo oficial da aba Serviços.');
   }
+  return data.services as Service[];
 }
 
 export async function saveRemoteService(
