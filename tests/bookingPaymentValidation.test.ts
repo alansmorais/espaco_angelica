@@ -201,7 +201,9 @@ runTest('Rejeição de serviceId desconhecido ou serviço fora do catálogo (sem
     serviceTitle: 'Alongamento em Fibra Slim',
     servicePrice: 'R$ 220,00',
     depositAmount: 88,
-    paymentMode: 'sinal_40'
+    paymentMode: 'sinal_40',
+    pixKey: 'CHAVE_PIX_DA_PLANILHA',
+    pixBeneficiary: 'Titular configurado na planilha'
   });
   assertCondition(unknownIdRes.valid === false, 'Backend aceitou serviceId desconhecido');
 
@@ -436,8 +438,8 @@ runTest('WhatsApp Template: calcula sinal de 40%, saldo restante, política de 2
   // Validações de conteúdo da mensagem oficial
   assertCondition(message.includes('sinal (40%) de R$ 88,00'), 'Mensagem deve indicar sinal de 40% correto (R$ 88,00)');
   assertCondition(message.includes('Saldo restante a pagar no atendimento: R$ 132,00'), 'Mensagem deve conter o saldo restante de R$ 132,00');
-  assertCondition(message.includes('Chave PIX: 12974062241'), 'Mensagem deve conter a chave Pix oficial');
-  assertCondition(message.includes('Angelica do Carmo Costa Santos'), 'Mensagem deve conter o nome da titular');
+  assertCondition(message.includes('Chave PIX: CHAVE_PIX_DA_PLANILHA'), 'Mensagem deve conter a chave Pix oficial');
+  assertCondition(message.includes('Titular configurado na planilha'), 'Mensagem deve conter o nome da titular');
   assertCondition(message.includes('24 horas de antecedência'), 'Mensagem deve conter a política de 24h para remarcação');
   assertCondition(message.includes('40% do valor do procedimento'), 'Política de agendamento deve explicitar os 40%');
   assertCondition(!message.includes('R$ 50'), 'Mensagem não pode conter valor fixo legado de R$ 50');
