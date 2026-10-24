@@ -130,6 +130,48 @@ function isValidEmail(email) {
   return re.test(trimmed);
 }
 
+function bookingDurationMinutes(durationText) {
+  var text = String(durationText || "").toLowerCase();
+  var hoursMatch = text.match(/(\d+)\s*h/);
+  var minutesMatch = text.match(/(\d+)\s*min/);
+  var total = Number(hoursMatch ? hoursMatch[1] : 0) * 60 + Number(minutesMatch ? minutesMatch[1] : 0);
+  return total > 0 ? total : 90;
+}
+
+function bookingClockMinutes(timeText) {
+  var match = String(timeText || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  var hours = Number(match[1]);
+  var minutes = Number(match[2]);
+  return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59 ? hours * 60 + minutes : null;
+}
+
+function bookingTimeRange(timeText) {
+  var match = String(timeText || "").trim().match(/(\d{1,2}:\d{2})\s*(?:às|as|[-–])\s*(\d{1,2}:\d{2})/i);
+  if (!match) return null;
+  var start = bookingClockMinutes(match[1]);
+  var end = bookingClockMinutes(match[2]);
+  return start !== null && end !== null && end > start ? { start: start, end: end } : null;
+}
+
+function bookingServiceDurationMinutes(serviceId) {
+  var wanted = String(serviceId || "").trim();
+  if (!wanted) return 90;
+  try {
+    var servicesSheet = getServicesSheet();
+    if (!servicesSheet) return 90;
+    var rows = servicesSheet.getDataRange().getValues();
+    for (var i = 1; i < rows.length; i++) {
+      if (String(rows[i][0] || "").trim() === wanted) {
+        return bookingDurationMinutes(rows[i][5]);
+      }
+    }
+  } catch (err) {
+    console.error("Could not resolve service duration: " + err);
+  }
+  return 90;
+}
+
 function doPost(e) {
   try {
     if (!e || !e.postData || !e.postData.contents) {
@@ -741,10 +783,8 @@ function doPost(e) {
       if (!isValidBookingTime(requestedTimeKey)) {
         return responseJSON({ status: "error", message: "Horário inválido. Use o formato HH:mm." });
       }
-      var requestedWeekday = new Date(requestedDateKey + "T12:00:00-03:00").getUTCDay();
-      if (requestedWeekday === 0 || requestedWeekday === 1) {
-        return responseJSON({ status: "error", message: "O estúdio atende de terça-feira a sábado. Selecione outro dia." });
-      }
+      // Não bloquear segunda-feira por regra fixa: os dias de atendimento devem seguir a configuração semanal.
+      // A validação central da grade semanal precisa usar uma configuração persistida no backend antes da publicação.
       var location = data.appointmentLocation === undefined ? "salon" : String(data.appointmentLocation).trim();
       if (location !== "salon" && location !== "home") {
         return responseJSON({ status: "error", message: "Local de atendimento inválido." });
@@ -759,8 +799,11 @@ function doPost(e) {
         return responseJSON({ status: "error", message: "Aba 'Agendamentos' não encontrada na planilha oficial." });
       }
 
-      // 9. Proteção anti-duplicidade atômica na planilha (Coluna J: ID Agendamento)
+      // 9. Proteção anti-duplicidade e conflitos por sobreposição de intervalos.
       var existing = sheet.getDataRange().getValues();
+      var requestedStartMinutes = bookingClockMinutes(requestedTimeKey);
+      var requestedDurationMinutes = bookingServiceDurationMinutes(data.serviceId);
+      var requestedEndMinutes = requestedStartMinutes === null ? null : requestedStartMinutes + requestedDurationMinutes;
       for (var i = 1; i < existing.length; i++) {
         var existingId = existing[i][9] ? String(existing[i][9]).trim() : "";
         if (existingId && existingId.toLowerCase() === rawId.toLowerCase()) {
@@ -787,21 +830,26 @@ function doPost(e) {
         }
         var existingStatus = String(existing[i][8] || 'pendente_pix').toLowerCase();
         var existingDateKey = normalizeBookingDate(existing[i][5]);
-        var existingTimeKey = normalizeBookingTime(existing[i][6]);
-        var sameRequestedSlot = requestedDateKey === existingDateKey && requestedTimeKey === existingTimeKey;
-        var allDayBlocked = existingStatus === 'bloqueado' &&
-          requestedDateKey === existingDateKey &&
-          ['dia inteiro', 'dia todo', 'all day'].indexOf(String(existing[i][6] || '').trim().toLowerCase()) !== -1;
-        var slotBlocked = existingStatus === 'bloqueado' && sameRequestedSlot;
-        var activeBookingConflict = sameRequestedSlot &&
-          ['cancelado', 'teste_sistema', 'bloqueado'].indexOf(existingStatus) === -1;
-        if (allDayBlocked || slotBlocked || activeBookingConflict) {
+        if (requestedDateKey !== existingDateKey || ['cancelado', 'teste_sistema'].indexOf(existingStatus) !== -1) continue;
+
+        var existingTimeText = String(existing[i][6] || '').trim();
+        var existingBlockRange = existingStatus === 'bloqueado' ? bookingTimeRange(existingTimeText) : null;
+        var allDayBlocked = existingStatus === 'bloqueado' && !existingBlockRange;
+        var existingStartMinutes = bookingClockMinutes(existingTimeText);
+        var existingEndMinutes = existingBlockRange
+          ? existingBlockRange.end
+          : (existingStartMinutes === null ? null : existingStartMinutes + bookingServiceDurationMinutes(existing[i][15]));
+        var conflict = allDayBlocked;
+        if (!conflict && requestedStartMinutes !== null && requestedEndMinutes !== null && existingStartMinutes !== null && existingEndMinutes !== null) {
+          conflict = requestedStartMinutes < existingEndMinutes && requestedEndMinutes > (existingBlockRange ? existingBlockRange.start : existingStartMinutes);
+        }
+        if (conflict) {
           return responseJSON({
             status: "error",
             conflict: true,
             message: allDayBlocked
               ? "Esta data está bloqueada para atendimentos. Escolha outro dia."
-              : "Este horário acabou de ser reservado ou bloqueado. Escolha outro horário."
+              : "Este horário se sobrepõe a um agendamento ou bloqueio existente. Escolha outro horário."
           });
         }
       }
