@@ -172,6 +172,10 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
   };
 
   useEffect(() => {
+    setAddressText(address.fullAddress || '');
+  }, [address.fullAddress]);
+
+  useEffect(() => {
     if (!adminSessionToken) return;
     let active = true;
     void fetchRemoteAppSettings(adminSessionToken).then(result => {
