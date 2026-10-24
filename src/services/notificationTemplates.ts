@@ -37,6 +37,7 @@ export interface PreBookingTemplateData {
   paymentMode?: 'sinal_40' | 'pre_pagamento_100';
   pixKey?: string;
   pixBeneficiary?: string;
+  depositPercent?: number;
 }
 
 /**
@@ -61,7 +62,7 @@ export function buildOfficialPreBookingWhatsAppMessage(data: PreBookingTemplateD
       : balance !== undefined
       ? `\nSaldo restante a pagar no atendimento: R$ ${formatBRL(balance)}`
       : '';
-  const depositPercent = 40;
+  const depositPercent = Number.isFinite(data.depositPercent) ? Math.min(100, Math.max(0, Number(data.depositPercent))) : 40;
   const paymentPrompt =
     data.paymentMode === 'pre_pagamento_100'
       ? `Para confirmar, faça o PIX do pré-pagamento integral de ${signalValue}:`
@@ -81,7 +82,7 @@ ${pixDetails}
 Depois é só enviar o comprovante por aqui. Assim que conferirmos o pagamento, enviamos a confirmação do seu agendamento. 💛
 
 🤎 POLÍTICA DE AGENDAMENTO
-- Para confirmar o horário, é necessário pagar um sinal de 40% do valor do procedimento.
+- Para confirmar o horário, é necessário pagar um sinal de ${depositPercent}% do valor do procedimento.
 - O sinal garante a vaga e é descontado do valor total no dia do atendimento.
 - Em caso de desistência ou não comparecimento, o sinal não é reembolsado, pois cobre o bloqueio da vaga e os preparativos.
 - Mudanças de data exigem pelo menos 24 horas de antecedência, mantendo o sinal pago.
