@@ -817,6 +817,29 @@ export async function fetchPublicStudioAddress(): Promise<{ success: boolean; ad
   }
 }
 
+export async function fetchRemoteClients(authToken?: string): Promise<{ success: boolean; clients: ClientProfile[]; error?: string }> {
+  try {
+    const data = await callScheduleAction('getClients', {}, authToken);
+    return { success: true, clients: Array.isArray(data.clients) ? data.clients as ClientProfile[] : [] };
+  } catch (error: any) {
+    return { success: false, clients: [], error: error?.message || 'Falha ao ler clientes da planilha oficial.' };
+  }
+}
+
+export async function saveRemoteClient(
+  client: ClientProfile,
+  authToken?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const data = await callScheduleAction('saveClient', { client }, authToken);
+    return data.saved === true
+      ? { success: true }
+      : { success: false, error: data.message || 'Apps Script não confirmou a gravação da cliente.' };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Falha ao salvar perfil na planilha oficial.' };
+  }
+}
+
 export async function fetchRemoteServices(): Promise<Service[]> {
   const endpoint = getNotificationWebhookUrl();
   if (!endpoint) throw new Error('URL do Google Apps Script não configurada.');
