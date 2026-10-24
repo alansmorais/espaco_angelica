@@ -340,6 +340,177 @@ function validateAgainstSavedSchedule(dateKey, timeKey, durationMinutes) {
   return { allowed: true };
 }
 
+function normalizeWhatsAppPhone(value) {
+  var digits = String(value || "").replace(/\D/g, "");
+  if (digits.length === 8 || digits.length === 9) digits = "5512" + digits;
+  else if (digits.length === 10 || digits.length === 11) digits = "55" + digits;
+  return { normalized: digits, valid: /^55\d{10,11}$/.test(digits) };
+}
+
+function formatWhatsAppBRL(value) {
+  return Number(value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function buildWhatsAppConfirmationText(data) {
+  var address = String(data.studioAddress || "Rua Vereador José Luiz Soares, 92 - Pontal da Cruz, São Sebastião - SP");
+  var price = String(data.servicePrice || "");
+  var deposit = data.depositAmount !== undefined && data.depositAmount !== null && data.depositAmount !== ""
+    ? "R$ " + formatWhatsAppBRL(data.depositAmount) : "";
+  var paymentLabel = data.paymentMode === "pre_pagamento_100" ? "Pré-pagamento (100%)" : "Sinal (40%)";
+  var custom = String(data.customTemplate || "").trim();
+  if (custom) {
+    return custom.replace(/{cliente}/g, String(data.clientName || ""))
+      .replace(/{servico}/g, String(data.serviceTitle || "Procedimento"))
+      .replace(/{data}/g, String(data.date || "Hoje"))
+      .replace(/{horario}/g, String(data.time || "Horário agendado"))
+      .replace(/{valor}/g, price)
+      .replace(/{endereco}/g, address)
+      .replace(/{sinal}/g, deposit);
+  }
+
+  var text = "✨ *Confirmação de Agendamento • Espaço Angélica do Carmo* ✨\n\n" +
+    "Olá, *" + String(data.clientName || "") + "*! Seu horário no nosso atelier privativo foi *CONFIRMADO* com sucesso na grade. 💅✨\n\n" +
+    "📋 *Detalhes do seu atendimento:*\n" +
+    "• *Procedimento:* " + String(data.serviceTitle || "Procedimento de Nail Design") + "\n" +
+    "• *Data:* " + String(data.date || "Hoje") + "\n" +
+    "• *Horário:* às " + String(data.time || "Horário agendado");
+  if (price) text += "\n💳 *Valor do Procedimento:* " + price;
+  if (deposit) text += "\n💰 *" + paymentLabel + ":* " + deposit + " (" + (data.depositStatus === "liquidado" ? "Confirmado via Pix" : "Aguardando validação") + ")";
+  text += "\n\n📍 *Endereço:* " + address + "\n\n" +
+    "ℹ️ *Orientações importantes:*\n" +
+    "• Pedimos a gentileza de chegar com 5 a 10 minutos de antecedência.\n" +
+    "• Mudanças de data exigem pelo menos 24 horas de antecedência, mantendo o sinal pago.\n" +
+    "• Em caso de desistência ou não comparecimento, o sinal não é reembolsado.\n\n" +
+    "Qualquer dúvida ou caso queira enviar uma foto de referência de nail art, pode responder a esta mensagem. Mal podemos esperar para cuidar de você! 💕";
+  return text;
+}
+
+function getWhatsAppStatusData() {
+  var props = PropertiesService.getScriptProperties();
+  var token = props.getProperty("WHATSAPP_API_TOKEN") || props.getProperty("WHATSAPP_TOKEN") || props.getProperty("META_WA_TOKEN");
+  var phoneId = props.getProperty("WHATSAPP_PHONE_NUMBER_ID") || props.getProperty("META_PHONE_NUMBER_ID");
+  var businessId = props.getProperty("WHATSAPP_BUSINESS_ACCOUNT_ID");
+  var version = props.getProperty("WHATSAPP_API_VERSION") || "v20.0";
+  var configured = Boolean(token && phoneId);
+  var logs = getWhatsAppLogsData();
+  return {
+    status: configured ? "configured" : "sandbox_simulation",
+    mode: configured ? "Meta WhatsApp Cloud API (via Apps Script)" : "Modo manual/simulação — configure as chaves Meta nas Propriedades do Script",
+    isConfigured: configured,
+    phoneNumberIdConfigured: Boolean(phoneId),
+    tokenConfigured: Boolean(token),
+    businessAccountIdConfigured: Boolean(businessId),
+    apiVersion: version,
+    totalLogs: logs.length
+  };
+}
+
+function getWhatsAppLogsData() {
+  var ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
+  var sheet = ss.getSheetByName("Logs WhatsApp");
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  var values = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.min(10, sheet.getLastColumn())).getValues();
+  return values.reverse().slice(0, 50).map(function(row) {
+    return {
+      id: String(row[0] || ""),
+      recipientPhone: String(row[1] || ""),
+      recipientName: String(row[2] || ""),
+      appointmentId: String(row[3] || ""),
+      serviceTitle: String(row[4] || ""),
+      dateTime: String(row[5] || ""),
+      status: String(row[6] || "failed"),
+      timestamp: row[7] instanceof Date ? row[7].toISOString() : String(row[7] || ""),
+      messageText: String(row[8] || ""),
+      error: String(row[9] || "") || undefined
+    };
+  });
+}
+
+function saveWhatsAppLog(log) {
+  var ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
+  var sheet = ss.getSheetByName("Logs WhatsApp");
+  if (!sheet) {
+    sheet = ss.insertSheet("Logs WhatsApp");
+    sheet.getRange(1, 1, 1, 10).setValues([["ID", "Telefone", "Nome", "ID Agendamento", "Serviço", "Data/Hora", "Status", "Criado em", "Mensagem", "Erro"]]);
+    sheet.setFrozenRows(1);
+  }
+  sheet.appendRow([log.id, log.recipientPhone, log.recipientName, log.appointmentId || "", log.serviceTitle || "", log.dateTime || "", log.status, new Date(log.timestamp), log.messageText, log.error || ""]);
+}
+
+function processWhatsAppConfirmation(data, forceSimulation) {
+  if (!data.clientName || !data.clientPhone) {
+    return { success: false, status: "failed", error: "Nome e telefone da cliente são obrigatórios para envio da confirmação." };
+  }
+  var phone = normalizeWhatsAppPhone(data.clientPhone);
+  if (!phone.valid) return { success: false, status: "failed", error: "Número de telefone inválido para envio via WhatsApp." };
+
+  var messageText = buildWhatsAppConfirmationText(data);
+  var fallbackUrl = "https://wa.me/" + phone.normalized + "?text=" + encodeURIComponent(messageText);
+  var isTest = forceSimulation || (String(data.appointmentId || "").indexOf("test-") === 0) ||
+    String(data.depositStatus || "") === "teste_sistema" ||
+    String(data.clientName || "").toLowerCase().indexOf("teste_sistema") >= 0;
+
+  var props = PropertiesService.getScriptProperties();
+  var apiToken = props.getProperty("WHATSAPP_API_TOKEN") || props.getProperty("WHATSAPP_TOKEN") || props.getProperty("META_WA_TOKEN");
+  var phoneNumberId = props.getProperty("WHATSAPP_PHONE_NUMBER_ID") || props.getProperty("META_PHONE_NUMBER_ID");
+  var apiVersion = props.getProperty("WHATSAPP_API_VERSION") || "v20.0";
+  var log = {
+    id: "wa-log-" + Utilities.getUuid(),
+    recipientPhone: phone.normalized,
+    recipientName: String(data.clientName),
+    appointmentId: String(data.appointmentId || ""),
+    serviceTitle: String(data.serviceTitle || ""),
+    dateTime: String(data.date || "") + " às " + String(data.time || ""),
+    status: "simulated",
+    timestamp: new Date().toISOString(),
+    messageText: messageText,
+    error: ""
+  };
+
+  if (isTest) {
+    return { success: true, status: "simulated", mode: "test_isolated", normalizedPhone: phone.normalized, previewText: messageText, fallbackUrl: fallbackUrl, message: "Teste isolado: nenhuma mensagem foi enviada nem gravada nos logs reais." };
+  }
+
+  if (apiToken && phoneNumberId) {
+    try {
+      var metaResponse = UrlFetchApp.fetch("https://graph.facebook.com/" + apiVersion + "/" + phoneNumberId + "/messages", {
+        method: "post",
+        contentType: "application/json",
+        headers: { Authorization: "Bearer " + apiToken },
+        payload: JSON.stringify({
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: phone.normalized,
+          type: "text",
+          text: { preview_url: false, body: messageText }
+        }),
+        muteHttpExceptions: true
+      });
+      var metaText = metaResponse.getContentText();
+      var metaData;
+      try { metaData = JSON.parse(metaText); } catch (parseError) { metaData = { raw: metaText }; }
+      if (metaResponse.getResponseCode() >= 200 && metaResponse.getResponseCode() < 300) {
+        log.status = "sent";
+        saveWhatsAppLog(log);
+        return { success: true, status: "sent", normalizedPhone: phone.normalized, metaResponse: metaData, message: "Mensagem enviada via WhatsApp Business API.", log: log };
+      }
+      log.status = "failed";
+      log.error = metaData && metaData.error && metaData.error.message ? metaData.error.message : "Erro retornado pela API do WhatsApp.";
+      saveWhatsAppLog(log);
+      return { success: false, status: "failed", error: log.error, normalizedPhone: phone.normalized, fallbackUrl: fallbackUrl, log: log };
+    } catch (sendError) {
+      log.status = "failed";
+      log.error = String(sendError);
+      saveWhatsAppLog(log);
+      return { success: false, status: "failed", error: "Falha de comunicação com a API do WhatsApp.", fallbackUrl: fallbackUrl, log: log };
+    }
+  }
+
+  log.status = "simulated";
+  saveWhatsAppLog(log);
+  return { success: true, status: "simulated", mode: "manual_fallback", normalizedPhone: phone.normalized, previewText: messageText, fallbackUrl: fallbackUrl, message: "WhatsApp API não configurada. A mensagem foi registrada como tentativa simulada; abra o link para enviar manualmente.", log: log };
+}
+
 function doPost(e) {
   try {
     if (!e || !e.postData || !e.postData.contents) {
@@ -383,6 +554,19 @@ function doPost(e) {
 
     if (data.action === "deleteScheduleBlock") {
       return responseJSON(deleteScheduleBlock(data.blockId));
+    }
+
+    if (data.action === "getWhatsAppStatus") {
+      return responseJSON({ status: "success", success: true, ...getWhatsAppStatusData() });
+    }
+    if (data.action === "getWhatsAppLogs") {
+      return responseJSON({ status: "success", success: true, logs: getWhatsAppLogsData() });
+    }
+    if (data.action === "testWhatsAppMessage") {
+      return responseJSON(processWhatsAppConfirmation(data, true));
+    }
+    if (data.action === "sendWhatsAppConfirmation") {
+      return responseJSON(processWhatsAppConfirmation(data, false));
     }
 
     // 2. Leitura administrativa segura via POST (token no corpo)
