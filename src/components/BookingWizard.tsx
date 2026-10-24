@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Service, Appointment, TimeSlotConfig, BlacklistEntry, StudioAddressConfig, RecurrenceConfig, DayScheduleConfig } from '../types';
+import { Service, Appointment, TimeSlotConfig, BlacklistEntry, StudioAddressConfig, PaymentConfig, RecurrenceConfig, DayScheduleConfig } from '../types';
 import {
   buildOfficialWhatsAppUrl,
   calculateDeposit40,
@@ -16,6 +16,7 @@ interface BookingWizardProps {
   timeSlots?: TimeSlotConfig[];
   blacklist?: BlacklistEntry[];
   studioAddress?: StudioAddressConfig;
+  paymentConfig?: PaymentConfig;
   services?: Service[];
   onSelectService?: (service: Service) => void;
   appointments?: Appointment[];
@@ -29,6 +30,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   timeSlots = [],
   blacklist = [],
   studioAddress = { street: '', number: '', neighborhood: '', city: '', state: '', fullAddress: '', mapsUrl: '', wazeUrl: '' },
+  paymentConfig = { pixKey: '', pixBeneficiary: '', depositAmount: 40, prepayDiscount: 5 },
   services = [],
   onSelectService,
   appointments = [],
@@ -170,8 +172,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   // Price calculations (40% deposit or 100% full prepayment of selected procedure's official price)
   const additionalServices = services.filter(service => additionalServiceIds.includes(service.id) && service.id !== selectedService.id);
   const servicePrice = selectedService.price + additionalServices.reduce((sum, service) => sum + service.price, 0);
-  const fullPrepayment = calculateFullPrepayment(servicePrice);
-  const standardDeposit = calculateDeposit40(servicePrice);
+  const fullPrepayment = calculateFullPrepayment(servicePrice, paymentConfig.prepayDiscount);
+  const standardDeposit = calculateDeposit40(servicePrice, paymentConfig.depositAmount);
   const standardBalance = calculateRemainingBalance(servicePrice, standardDeposit);
 
   const depositValue = effectivePaymentMode === 'pre_pagamento_100'
@@ -1193,7 +1195,9 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                     time: confirmedAppointment?.time || selectedTime,
                     depositAmount: confirmedAppointment?.depositAmount || depositValue,
                     remainingBalance: balanceRemaining,
-                    paymentMode: confirmedAppointment?.paymentMode || effectivePaymentMode
+                    paymentMode: confirmedAppointment?.paymentMode || effectivePaymentMode,
+                    pixKey: paymentConfig.pixKey,
+                    pixBeneficiary: paymentConfig.pixBeneficiary
                   })}
                   target="_blank"
                   rel="noopener noreferrer"
