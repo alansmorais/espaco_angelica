@@ -125,10 +125,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
     return !parseBlockRange(value) || value.includes('dia inteiro') || value.includes('dia todo');
   };
 
-  const isDateBlocked = (dateStr: string): boolean => {
-    if (blockedDates.some(bd => areDatesEqual(bd, dateStr))) return true;
-    return appointments.some(a => a.status === 'bloqueado' && areDatesEqual(a.date, dateStr) && isFullDayBlock(a));
-  };
+  const isDateBlocked = (dateStr: string): boolean =>
+    appointments.some(a => a.status === 'bloqueado' && areDatesEqual(a.date, dateStr) && isFullDayBlock(a));
 
   const isSlotUnavailable = (dateStr: string, startTime: string): { blocked: boolean; reason?: string } => {
     const slotStart = parseClockMinutes(startTime);
