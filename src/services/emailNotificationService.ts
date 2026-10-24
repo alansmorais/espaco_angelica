@@ -954,6 +954,43 @@ export async function listDrivePhotos(authToken?: string): Promise<{ success: bo
   }
 }
 
+export interface PublicGalleryPhoto {
+  id: string;
+  title: string;
+  subtitle: string;
+  url: string;
+  thumbnailUrl: string;
+}
+
+export async function fetchPublicGalleryPhotos(): Promise<{ success: boolean; photos: PublicGalleryPhoto[]; error?: string }> {
+  try {
+    const endpoint = getNotificationWebhookUrl();
+    if (!endpoint) return { success: false, photos: [], error: 'URL do Google Apps Script não configurada.' };
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+      body: JSON.stringify({ action: 'getPublicGalleryPhotos' }),
+      cache: 'no-store'
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.status !== 'success' || !Array.isArray(data.photos)) {
+      return { success: false, photos: [], error: data?.message || 'Galeria oficial indisponível.' };
+    }
+    return {
+      success: true,
+      photos: data.photos.map((photo: any) => ({
+        id: String(photo.id || ''),
+        title: String(photo.title || 'Criação'),
+        subtitle: String(photo.subtitle || 'Portfólio Espaço Angélica do Carmo'),
+        url: String(photo.url || ''),
+        thumbnailUrl: String(photo.thumbnailUrl || photo.url || '')
+      })).filter((photo: PublicGalleryPhoto) => photo.id && photo.url)
+    };
+  } catch (error: any) {
+    return { success: false, photos: [], error: error?.message || 'Falha ao carregar fotos do Google Drive.' };
+  }
+}
+
 export async function uploadServicePhoto(
   file: File,
   authToken?: string
