@@ -652,6 +652,34 @@ function doPost(e) {
       }
     }
 
+    if (data.action === "listDrivePhotos") {
+      var driveFolderId = "1JGypjL9OqGL5i2OUrjiGMKxkWD11YuAw";
+      var driveFolder;
+      try {
+        driveFolder = DriveApp.getFolderById(driveFolderId);
+      } catch (folderError) {
+        return responseJSON({ status: "error", message: "Não foi possível abrir a pasta oficial de fotos no Google Drive." });
+      }
+
+      var driveFiles = driveFolder.getFiles();
+      var photos = [];
+      while (driveFiles.hasNext()) {
+        var driveFile = driveFiles.next();
+        var mime = String(driveFile.getMimeType() || "");
+        if (mime.indexOf("image/") !== 0 || driveFile.isTrashed()) continue;
+        var fileId = driveFile.getId();
+        photos.push({
+          id: fileId,
+          name: driveFile.getName(),
+          url: "https://drive.google.com/uc?export=view&id=" + fileId,
+          thumbnailUrl: "https://drive.google.com/thumbnail?id=" + fileId + "&sz=w600",
+          updatedAt: driveFile.getLastUpdated().toISOString()
+        });
+      }
+      photos.sort(function(a, b) { return String(b.updatedAt).localeCompare(String(a.updatedAt)); });
+      return responseJSON({ status: "success", photos: photos, total: photos.length });
+    }
+
     if (data.action === "uploadPhoto") {
       if (!data.imageBase64) {
         return responseJSON({ status: "error", message: "Conteúdo da imagem (base64) ausente." });
