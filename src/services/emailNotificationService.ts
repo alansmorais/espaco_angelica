@@ -1,4 +1,4 @@
-import { Appointment, Service, ClientProfile, StudioAddressConfig, BlacklistEntry, WhatsAppConfig } from '../types';
+import { Appointment, Service, ClientProfile, StudioAddressConfig, BlacklistEntry, WhatsAppConfig, PaymentConfig } from '../types';
 import {
   AUTHORIZED_SENDER_EMAIL,
   TARGET_NOTIFICATION_EMAIL
@@ -812,6 +812,36 @@ export async function fetchPublicStudioAddress(): Promise<{ success: boolean; ad
     return { success: true, address: data.address && typeof data.address === 'object' ? data.address as StudioAddressConfig : null };
   } catch (error: any) {
     return { success: false, error: error?.message || 'Falha ao carregar o endereço oficial.' };
+  }
+}
+
+export async function fetchPublicPaymentConfig(): Promise<{ success: boolean; configured: boolean; paymentConfig?: PaymentConfig; error?: string }> {
+  try {
+    const endpoint = getNotificationWebhookUrl();
+    if (!endpoint) return { success: false, configured: false, error: 'URL do Google Apps Script não configurada.' };
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+      body: JSON.stringify({ action: 'getPublicPaymentConfig' }),
+      cache: 'no-store'
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.status !== 'success' || !data.paymentConfig) {
+      return { success: false, configured: false, error: data?.message || 'Configuração de Pix indisponível.' };
+    }
+    const config = data.paymentConfig;
+    return {
+      success: true,
+      configured: data.configured === true,
+      paymentConfig: {
+        pixKey: String(config.pixKey || ''),
+        pixBeneficiary: String(config.pixBeneficiary || ''),
+        depositAmount: Number(config.depositAmount ?? 40),
+        prepayDiscount: Number(config.prepayDiscount ?? 5)
+      }
+    };
+  } catch (error: any) {
+    return { success: false, configured: false, error: error?.message || 'Falha ao ler configuração de Pix da planilha.' };
   }
 }
 
