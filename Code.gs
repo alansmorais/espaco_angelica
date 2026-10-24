@@ -737,6 +737,16 @@ function doPost(e) {
       return responseJSON(saveAppSetting(data.settingKey, data.value));
     }
 
+    if (data.action === "getEmailStatus") {
+      return responseJSON(getEmailStatusData());
+    }
+    if (data.action === "sendAdminEmail") {
+      return responseJSON(sendAdminEmailNotification(data));
+    }
+    if (data.action === "testEmailNotification") {
+      return responseJSON(sendTestEmailNotification());
+    }
+
     if (data.action === "getWhatsAppStatus") {
       return responseJSON({ status: "success", success: true, ...getWhatsAppStatusData() });
     }
@@ -1903,5 +1913,79 @@ function deleteScheduleBlock(blockId) {
     return { status: "success", deleted: false, notFound: true, id: id };
   } finally {
     lock.releaseLock();
+  }
+}
+
+
+function getEmailStatusData() {
+  try {
+    return {
+      status: "success",
+      success: true,
+      configured: true,
+      sender: "kontakt@alansmsolutions.com",
+      recipient: "angelikm19@gmail.com",
+      remainingDailyQuota: MailApp.getRemainingDailyQuota(),
+      mode: "Google Apps Script MailApp"
+    };
+  } catch (error) {
+    return { status: "error", success: false, configured: false, message: "Autorize o serviço MailApp no projeto Apps Script: " + String(error) };
+  }
+}
+
+function sendTestEmailNotification() {
+  try {
+    var recipient = "angelikm19@gmail.com";
+    MailApp.sendEmail({
+      to: recipient,
+      subject: "[TESTE] Integração de e-mail — Espaço Angélica do Carmo",
+      body: "Este é um teste solicitado pelo painel administrativo. Nenhum agendamento ou cliente foi criado.",
+      name: "Espaço Angélica do Carmo",
+      replyTo: "kontakt@alansmsolutions.com"
+    });
+    return { status: "success", success: true, emailSent: true, recipient: recipient, message: "E-mail de teste enviado pelo Google Apps Script." };
+  } catch (error) {
+    return { status: "error", success: false, emailSent: false, message: String(error) };
+  }
+}
+
+function sendAdminEmailNotification(data) {
+  var recipient = String(data.toEmail || "").trim();
+  if (!isValidEmail(recipient)) return { status: "error", success: false, emailSent: false, message: "O e-mail de destino não é válido." };
+  var clientName = String(data.clientName || "").trim();
+  var serviceTitle = String(data.serviceTitle || "Procedimento").trim();
+  var date = String(data.date || "").trim();
+  var time = String(data.time || "").trim();
+  if (!clientName || !date || !time) return { status: "error", success: false, emailSent: false, message: "Nome da cliente, data e horário são obrigatórios." };
+
+  var subject = "Confirmação de agendamento — Espaço Angélica do Carmo";
+  var textBody = "Olá, " + clientName + "!\n\n" +
+    "Segue a confirmação do seu atendimento no Espaço Angélica do Carmo.\n\n" +
+    "Procedimento: " + serviceTitle + "\n" +
+    "Data: " + date + "\n" +
+    "Horário: " + time + "\n" +
+    (data.servicePrice ? "Valor: " + String(data.servicePrice) + "\n" : "") +
+    (data.depositAmount !== undefined ? "Sinal: R$ " + formatWhatsAppBRL(data.depositAmount) + "\n" : "") +
+    "\nEm caso de dúvidas ou necessidade de alteração, entre em contato com o atelier.\n\n" +
+    "Espaço Angélica do Carmo";
+  var htmlBody = "<div style=\"font-family:Arial,sans-serif;color:#49382e;line-height:1.6\">" +
+    "<h2>Confirmação de agendamento</h2><p>Olá, <strong>" + escapeHtml(clientName) + "</strong>!</p>" +
+    "<p>Segue a confirmação do seu atendimento no Espaço Angélica do Carmo.</p>" +
+    "<ul><li><strong>Procedimento:</strong> " + escapeHtml(serviceTitle) + "</li>" +
+    "<li><strong>Data:</strong> " + escapeHtml(date) + "</li><li><strong>Horário:</strong> " + escapeHtml(time) + "</li>" +
+    (data.servicePrice ? "<li><strong>Valor:</strong> " + escapeHtml(String(data.servicePrice)) + "</li>" : "") +
+    "</ul><p>Em caso de dúvidas ou necessidade de alteração, entre em contato com o atelier.</p></div>";
+  try {
+    MailApp.sendEmail({
+      to: recipient,
+      subject: subject,
+      body: textBody,
+      htmlBody: htmlBody,
+      name: "Espaço Angélica do Carmo",
+      replyTo: "kontakt@alansmsolutions.com"
+    });
+    return { status: "success", success: true, emailSent: true, recipient: recipient, message: "E-mail enviado pelo Google Apps Script." };
+  } catch (error) {
+    return { status: "error", success: false, emailSent: false, message: "Falha ao enviar e-mail: " + String(error) };
   }
 }
