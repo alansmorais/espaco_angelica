@@ -10,9 +10,8 @@ export function calculateDeposit40(servicePrice: number, depositPercent: number 
   return Math.round(servicePrice * (safePercent / 100) * 100) / 100;
 }
 
-export function calculateFullPrepayment(servicePrice: number, discountPercent: number = 0): number {
-  const safeDiscount = Number.isFinite(discountPercent) ? Math.min(100, Math.max(0, discountPercent)) : 0;
-  return Math.round(servicePrice * (1 - safeDiscount / 100) * 100) / 100;
+export function calculateFullPrepayment(servicePrice: number): number {
+  return Math.round(servicePrice * 100) / 100;
 }
 
 export function calculateRemainingBalance(servicePrice: number, depositAmount: number): number {
