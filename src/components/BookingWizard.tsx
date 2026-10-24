@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Service, Appointment, TimeSlotConfig, BlacklistEntry, StudioAddressConfig, RecurrenceConfig } from '../types';
+import { Service, Appointment, TimeSlotConfig, BlacklistEntry, StudioAddressConfig, RecurrenceConfig, DayScheduleConfig } from '../types';
 import { INITIAL_TIME_SLOTS, INITIAL_BLACKLIST, STUDIO_ADDRESS } from '../data/mockData';
 import {
   buildOfficialWhatsAppUrl,
@@ -21,6 +21,7 @@ interface BookingWizardProps {
   onSelectService?: (service: Service) => void;
   appointments?: Appointment[];
   blockedDates?: string[];
+  daySchedules?: DayScheduleConfig[];
 }
 
 export const BookingWizard: React.FC<BookingWizardProps> = ({
@@ -32,7 +33,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   services = [],
   onSelectService,
   appointments = [],
-  blockedDates = []
+  blockedDates = [],
+  daySchedules
 }) => {
   // Booking dates must follow the studio's timezone, not the customer's device timezone.
   // This avoids showing yesterday/tomorrow when the customer is outside Brazil.
@@ -96,6 +98,12 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   const isAllDayBlock = (value: string) => ['dia inteiro', 'dia todo', 'all day'].includes(String(value || '').trim().toLowerCase());
   const isDateBlocked = (dateStr: string): boolean => {
     if (blockedDates.some(bd => areDatesEqual(bd, dateStr))) return true;
+    if (daySchedules && daySchedules.length > 0) {
+      const date = new Date(`${dateStr}T12:00:00`);
+      const keys = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
+      const dayConfig = daySchedules.find(day => day.dayKey === keys[date.getDay()]);
+      if (dayConfig && !dayConfig.isOpen) return true;
+    }
     return appointments.some(a => a.status === 'bloqueado' && areDatesEqual(a.date, dateStr) && isAllDayBlock(a.time));
   };
   const timeToMinutes = (value: string): number | null => {
@@ -115,6 +123,17 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
     const start = timeToMinutes(slotTime);
     if (start === null) return true;
     const end = start + durationMinutes(selectedService.duration);
+    if (daySchedules && daySchedules.length > 0) {
+      const date = new Date(`${selectedDate}T12:00:00`);
+      const keys = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
+      const dayConfig = daySchedules.find(day => day.dayKey === keys[date.getDay()]);
+      if (dayConfig) {
+        if (!dayConfig.isOpen) return true;
+        const opening = timeToMinutes(dayConfig.openTime);
+        const closing = timeToMinutes(dayConfig.closeTime);
+        if (opening === null || closing === null || start < opening || end > closing) return true;
+      }
+    }
     return appointments.some(a => {
       if (!areDatesEqual(a.date, selectedDate) || ['cancelado', 'teste_sistema'].includes(a.status)) return false;
       const raw = String(a.time || '').trim();
