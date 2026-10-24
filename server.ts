@@ -504,6 +504,7 @@ app.get('/api/public/availability', async (_req: Request, res: Response) => {
         id: String(a.id || ''),
         date: String(a.date || ''),
         time: String(a.time || ''),
+        serviceDuration: String(a.serviceDuration || ''),
         status: String(a.status || 'pendente_pix')
       }));
     const blockedDates = Array.from(new Set(slots
