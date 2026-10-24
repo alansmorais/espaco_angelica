@@ -1,4 +1,4 @@
-import { Appointment, Service, StudioAddressConfig, BlacklistEntry, WhatsAppConfig } from '../types';
+import { Appointment, Service, ClientProfile, StudioAddressConfig, BlacklistEntry, WhatsAppConfig } from '../types';
 import {
   AUTHORIZED_SENDER_EMAIL,
   TARGET_NOTIFICATION_EMAIL,
