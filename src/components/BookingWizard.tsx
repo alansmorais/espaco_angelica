@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Service, Appointment, TimeSlotConfig, BlacklistEntry, StudioAddressConfig, RecurrenceConfig } from '../types';
+import { Service, Appointment, TimeSlotConfig, BlacklistEntry, StudioAddressConfig, RecurrenceConfig, DayScheduleConfig } from '../types';
 import { INITIAL_TIME_SLOTS, INITIAL_BLACKLIST, STUDIO_ADDRESS } from '../data/mockData';
 import {
   buildOfficialWhatsAppUrl,
@@ -33,7 +33,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   services = [],
   onSelectService,
   appointments = [],
-  blockedDates = []
+  blockedDates = [],
+  daySchedules = []
 }) => {
   // Booking dates must follow the studio's timezone, not the customer's device timezone.
   // This avoids showing yesterday/tomorrow when the customer is outside Brazil.
