@@ -880,9 +880,9 @@ export interface DrivePhoto {
 }
 
 /** Lista fotos da pasta oficial via Apps Script, protegendo a ação com o token administrativo configurado. */
-export async function listDrivePhotos(): Promise<{ success: boolean; photos?: DrivePhoto[]; error?: string }> {
+export async function listDrivePhotos(authToken?: string): Promise<{ success: boolean; photos?: DrivePhoto[]; error?: string }> {
   const endpoint = getNotificationWebhookUrl();
-  const token = getNotificationWebhookToken();
+  const token = (authToken || (typeof window !== 'undefined' ? sessionStorage.getItem('angelica_admin_session') || '' : '') || getNotificationWebhookToken()).trim();
   if (!endpoint) return { success: false, error: 'Configure o URL do Google Apps Script nas definições antes de selecionar fotos.' };
   if (!token) return { success: false, error: 'Token administrativo do Google Apps Script não configurado.' };
   try {
@@ -915,8 +915,8 @@ export async function uploadServicePhoto(
     return { success: false, error: 'A imagem deve ter no máximo 5MB.' };
   }
 
-  const token = getNotificationWebhookToken().trim();
-  if (!token) return { success: false, error: 'Token administrativo do Google Apps Script não configurado.' };
+  const token = (authToken || (typeof window !== 'undefined' ? sessionStorage.getItem('angelica_admin_session') || '' : '') || getNotificationWebhookToken()).trim();
+  if (!token) return { success: false, error: 'Sessão administrativa do Google Apps Script não configurada.' };
 
   try {
     const dataUrl = await new Promise<string>((resolve, reject) => {
