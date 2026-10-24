@@ -511,6 +511,53 @@ function processWhatsAppConfirmation(data, forceSimulation) {
   return { success: true, status: "simulated", mode: "manual_fallback", normalizedPhone: phone.normalized, previewText: messageText, fallbackUrl: fallbackUrl, message: "WhatsApp API não configurada. A mensagem foi registrada como tentativa simulada; abra o link para enviar manualmente.", log: log };
 }
 
+function getAppSettingsData() {
+  var sheet = getOrCreateScheduleConfigSheet();
+  var values = sheet.getDataRange().getValues();
+  var settings = {};
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][0] || "").trim() !== "APP_SETTING") continue;
+    var key = String(values[i][1] || "").trim();
+    var raw = String(values[i][2] || "");
+    if (!key || !raw) continue;
+    try { settings[key] = JSON.parse(raw); } catch (parseError) {
+      console.error("Invalid APP_SETTING JSON for " + key);
+    }
+  }
+  return { status: "success", settings: settings };
+}
+
+function saveAppSetting(settingKey, value) {
+  var key = String(settingKey || "").trim();
+  var allowed = ["STUDIO_ADDRESS", "BLACKLIST", "WHATSAPP_CONFIG"];
+  if (allowed.indexOf(key) === -1) {
+    return { status: "error", saved: false, message: "Tipo de configuração não permitido." };
+  }
+  if (value === undefined) {
+    return { status: "error", saved: false, message: "Valor da configuração ausente." };
+  }
+  var serialized;
+  try { serialized = JSON.stringify(value); } catch (serializeError) {
+    return { status: "error", saved: false, message: "Configuração inválida para serialização." };
+  }
+  var sheet = getOrCreateScheduleConfigSheet();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    var rows = sheet.getDataRange().getValues();
+    for (var i = 1; i < rows.length; i++) {
+      if (String(rows[i][0] || "").trim() === "APP_SETTING" && String(rows[i][1] || "").trim() === key) {
+        sheet.getRange(i + 1, 1, 1, 4).setValues([["APP_SETTING", key, serialized, new Date()]]);
+        return { status: "success", saved: true, settingKey: key };
+      }
+    }
+    sheet.getRange(sheet.getLastRow() + 1, 1, 1, 4).setValues([["APP_SETTING", key, serialized, new Date()]]);
+    return { status: "success", saved: true, settingKey: key };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function doPost(e) {
   try {
     if (!e || !e.postData || !e.postData.contents) {
@@ -554,6 +601,13 @@ function doPost(e) {
 
     if (data.action === "deleteScheduleBlock") {
       return responseJSON(deleteScheduleBlock(data.blockId));
+    }
+
+    if (data.action === "getAppSettings") {
+      return responseJSON(getAppSettingsData());
+    }
+    if (data.action === "saveAppSetting") {
+      return responseJSON(saveAppSetting(data.settingKey, data.value));
     }
 
     if (data.action === "getWhatsAppStatus") {
