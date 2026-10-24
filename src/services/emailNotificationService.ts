@@ -518,6 +518,7 @@ export interface PublicAvailabilityResult {
   appointments: Appointment[];
   blockedDates: string[];
   updatedAt?: string;
+  weeklySchedule?: Record<string, any> | null;
   error?: string;
 }
 
@@ -544,7 +545,8 @@ export async function fetchPublicAvailability(): Promise<PublicAvailabilityResul
       success: true,
       appointments,
       blockedDates: Array.isArray(data.blockedDates) ? data.blockedDates.map(String) : [],
-      updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined
+      updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
+      weeklySchedule: data.weeklySchedule && typeof data.weeklySchedule === 'object' ? data.weeklySchedule : null
     };
   } catch (error: any) {
     return { success: false, appointments: [], blockedDates: [], error: error?.message || 'Falha de conexão ao consultar disponibilidade.' };
