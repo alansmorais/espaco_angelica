@@ -30,7 +30,7 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
   const [customRequest, setCustomRequest] = useState('');
   const [appointmentLocation, setAppointmentLocation] = useState<'salon' | 'home'>('salon');
   const [homeAddress, setHomeAddress] = useState('');
-  const [date, setDate] = useState('Quinta, 14 Nov');
+  const [date, setDate] = useState(() => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }));
   const [time, setTime] = useState('14:30');
   const [paymentMode, setPaymentMode] = useState<'sinal_40' | 'pre_pagamento_100'>('sinal_40');
   const [depositStatus, setDepositStatus] = useState<'liquidado' | 'pendente'>('liquidado');
@@ -300,7 +300,7 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
             </label>
             <label className="block font-semibold pt-2">Local do atendimento</label>
             <div className="flex gap-4">
-              <label className="flex items-center gap-2"><input type="radio" name="manualLocation" checked={appointmentLocation === 'salon'} onChange={() => setAppointmentLocation('salon')} /> Salão</label>
+              <label className="flex items-center gap-2"><input type="radio" name="manualLocation" checked={appointmentLocation === 'salon'} onChange={() => setAppointmentLocation('salon')} /> Espaço</label>
               <label className="flex items-center gap-2"><input type="radio" name="manualLocation" checked={appointmentLocation === 'home'} onChange={() => setAppointmentLocation('home')} /> Domicílio</label>
             </div>
             {appointmentLocation === 'home' && <label className="block font-semibold">Endereço completo *
@@ -314,17 +314,17 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
             <div>
               <label className="block text-[#49382E] font-semibold mb-1">Data</label>
               <input
-                type="text"
+                type="date"
                 value={date}
                 onChange={e => setDate(e.target.value)}
-                placeholder="Ex: Quinta, 14 Nov"
+                min={new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })}
                 className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:outline-none focus:border-[#D4AF37] text-base sm:text-sm min-h-[44px]"
               />
             </div>
             <div>
               <label className="block text-[#49382E] font-semibold mb-1">Horário</label>
               <input
-                type="text"
+                type="time"
                 value={time}
                 onChange={e => setTime(e.target.value)}
                 placeholder="Ex: 14:30"
