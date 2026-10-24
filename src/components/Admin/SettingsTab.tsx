@@ -911,10 +911,10 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
             </span>
             <div className="font-jakarta text-xs font-bold text-[#49382E] flex items-center gap-1.5">
               <span className="material-symbols-outlined text-[16px] text-[#D4AF37]">badge</span>
-              <span>{waStatus?.phoneNumberIdConfigured ? 'ID Vinculado no Servidor' : 'Injetável via .env'}</span>
+              <span>{waStatus?.phoneNumberIdConfigured ? 'ID configurado no Apps Script' : 'Configurar nas Propriedades do Script'}</span>
             </div>
             <p className="text-[11px] text-[#786C63]">
-              Variável: <code className="text-[#D4AF37] font-mono">WHATSAPP_PHONE_NUMBER_ID</code>
+              Propriedade do Apps Script: <code className="text-[#D4AF37] font-mono">WHATSAPP_PHONE_NUMBER_ID</code>
             </p>
           </div>
 
@@ -924,10 +924,10 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
             </span>
             <div className="font-jakarta text-xs font-bold text-[#49382E] flex items-center gap-1.5">
               <span className="material-symbols-outlined text-[16px] text-[#D4AF37]">key</span>
-              <span>{waStatus?.tokenConfigured ? 'Token Meta Autenticado' : 'Injetável via .env'}</span>
+              <span>{waStatus?.tokenConfigured ? 'Token Meta configurado no Apps Script' : 'Configurar nas Propriedades do Script'}</span>
             </div>
             <p className="text-[11px] text-[#786C63]">
-              Variável: <code className="text-[#D4AF37] font-mono">WHATSAPP_API_TOKEN</code>
+              Propriedade do Apps Script: <code className="text-[#D4AF37] font-mono">WHATSAPP_API_TOKEN</code>
             </p>
           </div>
         </div>
@@ -1509,20 +1509,20 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
               Segurança &amp; Senha do Painel Administrativo
             </h3>
             <p className="font-jakarta text-xs text-[#786C63]">
-              Altere a senha de acesso restrito ao painel de gestão do ateliê
+              A senha administrativa é validada diretamente pelo Google Apps Script
             </p>
           </div>
         </div>
 
         <div className="p-4 rounded-xl bg-[#FDFBF9] border border-[#E8D9B5] space-y-2 text-xs text-[#786C63] leading-relaxed max-w-xl">
           <p className="font-semibold text-[#49382E]">
-            Autenticação Segura no Servidor (Cloud Run / Node):
+            Autenticação segura pelo Google Apps Script:
           </p>
           <p>
-            A autorização de acesso a este painel e à listagem de agendamentos é verificada de forma centralizada pelo servidor backend através da variável de ambiente <code className="text-[#49382E] font-mono bg-stone-100 px-1.5 py-0.5 rounded">ADMIN_PASSWORD</code> ou <code className="text-[#49382E] font-mono bg-stone-100 px-1.5 py-0.5 rounded">ADMIN_TOKEN</code>.
+            O acesso ao painel é validado pelo Apps Script. Configure <code className="text-[#49382E] font-mono bg-stone-100 px-1.5 py-0.5 rounded">ADMIN_PASSWORD</code> em Google Apps Script → Configurações do projeto → Propriedades do script.
           </p>
           <p>
-            Nenhuma credencial mestra ou senha fixa é salva no código público ou no <code className="font-mono">localStorage</code> do navegador. Para alterar a senha do painel, configure a variável <code className="font-mono">ADMIN_PASSWORD</code> nas variáveis de ambiente do Cloud Run.
+            A senha não é incluída no código público nem no armazenamento do navegador. As credenciais opcionais do WhatsApp também devem ser guardadas nas Propriedades do Script, nunca no frontend.
           </p>
         </div>
       </div>
