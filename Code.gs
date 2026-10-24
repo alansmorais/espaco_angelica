@@ -711,7 +711,7 @@ function getPublicGalleryPhotosData() {
       var id = file.getId();
       photos.push({
         id: id,
-        title: String(file.getName() || "").replace(/\.[^.]+$/, ""),
+        title: "Nail Art",
         subtitle: "Portfólio Espaço Angélica do Carmo",
         url: "https://drive.google.com/uc?export=view&id=" + id,
         thumbnailUrl: "https://drive.google.com/thumbnail?id=" + id + "&sz=w800"
