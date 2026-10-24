@@ -131,7 +131,7 @@ function isValidEmail(email) {
 }
 
 function timeToMinutes(value) {
-  var match = String(value || "").trim().match(/^(\\d{1,2}):(\\d{2})$/);
+  var match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})$/);
   if (!match) return null;
   var hours = Number(match[1]), minutes = Number(match[2]);
   if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
@@ -140,8 +140,8 @@ function timeToMinutes(value) {
 
 function parseDurationMinutes(value) {
   var text = String(value || "").toLowerCase();
-  var hours = text.match(/(\\d+)\\s*h/);
-  var minutes = text.match(/(\\d+)\\s*(?:min|m\\b)/);
+  var hours = text.match(/(\d+)\s*h/);
+  var minutes = text.match(/(\d+)\s*(?:min|m\b)/);
   var total = (hours ? Number(hours[1]) * 60 : 0) + (minutes ? Number(minutes[1]) : 0);
   return total > 0 ? total : 30;
 }
@@ -167,7 +167,7 @@ function intervalsOverlap(startA, endA, startB, endB) {
 }
 
 function parseBlockInterval(value) {
-  var match = String(value || "").trim().match(/^(\\d{1,2}:\\d{2})\\s*(?:às|as|-)\\s*(\\d{1,2}:\\d{2})$/i);
+  var match = String(value || "").trim().match(/^(\d{1,2}:\d{2})\s*(?:às|as|-)\s*(\d{1,2}:\d{2})$/i);
   if (!match) return null;
   var start = timeToMinutes(match[1]), end = timeToMinutes(match[2]);
   return start !== null && end !== null && end > start ? { start: start, end: end } : null;
