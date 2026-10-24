@@ -25,7 +25,7 @@ interface SettingsTabProps {
   blacklist?: BlacklistEntry[];
   onUpdateBlacklist?: (entries: BlacklistEntry[]) => void;
   studioAddress?: StudioAddressConfig;
-  onUpdateStudioAddress?: (addr: StudioAddressConfig) => void;
+  onUpdateStudioAddress?: (addr: StudioAddressConfig) => Promise<boolean> | void;
   whatsappConfig?: WhatsAppConfig;
   onUpdateWhatsappConfig?: (config: WhatsAppConfig) => Promise<boolean> | void;
   adminSessionToken?: string;
