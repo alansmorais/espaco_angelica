@@ -166,7 +166,7 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
       if (sendWhatsAppAuto && trimmedPhone) {
         try {
           const waRes = await sendAppointmentWhatsAppConfirmation(newApt);
-          newApt.whatsappStatus = waRes.success ? 'enviado' : 'falha';
+          newApt.whatsappStatus = waRes.status === 'sent' ? 'enviado' : waRes.status === 'simulated' ? 'simulado' : 'falha';
           newApt.whatsappSentAt = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
           newApt.whatsappLastMessage = waRes.previewText || waRes.message;
         } catch {}
