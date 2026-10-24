@@ -12,9 +12,6 @@ import {
 import {
   AUTHORIZED_SENDER_EMAIL,
   TARGET_NOTIFICATION_EMAIL,
-  signInWithGmail,
-  logoutGmail,
-  getConnectedSenderEmail,
   sendDirectGmailFromBrowser
 } from '../../services/gmailService';
 import { CODE_GS_TEMPLATE } from '../../data/codeGsTemplate';
@@ -160,69 +157,29 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
   const [webhookFeedback, setWebhookFeedback] = useState<{ message: string; success: boolean } | null>(null);
   const [showScriptDetails, setShowScriptDetails] = useState<boolean>(false);
 
-  // Gmail OAuth Remetente no Navegador (kontakt@alansmsolutions.com)
-  const [gmailConnectedUser, setGmailConnectedUser] = useState<string | null>(() => getConnectedSenderEmail());
-  const [isSigningInGmail, setIsSigningInGmail] = useState<boolean>(false);
+  // Email is sent by Apps Script MailApp; no Firebase Auth or browser OAuth session.
   const [isTestingDirectGmail, setIsTestingDirectGmail] = useState<boolean>(false);
   const [gmailOAuthFeedback, setGmailOAuthFeedback] = useState<{ message: string; success: boolean } | null>(null);
-
-  const handleConnectGmailOAuth = async () => {
-    setIsSigningInGmail(true);
-    setGmailOAuthFeedback(null);
-    try {
-      const res = await signInWithGmail();
-      if (res) {
-        setGmailConnectedUser(res.userEmail);
-        if (res.isAuthorizedSender) {
-          setGmailOAuthFeedback({
-            success: true,
-            message: `Conta autorizada conectada com sucesso: ${res.userEmail}!`
-          });
-        } else {
-          setGmailOAuthFeedback({
-            success: false,
-            message: `Atenção: A conta conectada foi ${res.userEmail}. O remetente oficial autorizado é ${AUTHORIZED_SENDER_EMAIL}.`
-          });
-        }
-      }
-    } catch (err: any) {
-      setGmailOAuthFeedback({
-        success: false,
-        message: err.message || 'Erro ao conectar conta Google via OAuth.'
-      });
-    } finally {
-      setIsSigningInGmail(false);
-    }
-  };
-
-  const handleDisconnectGmailOAuth = async () => {
-    await logoutGmail();
-    setGmailConnectedUser(null);
-    setGmailOAuthFeedback(null);
-    notify('Sessão do Gmail desconectada do navegador.');
-  };
 
   const handleTestDirectGmail = async () => {
     setIsTestingDirectGmail(true);
     setGmailOAuthFeedback(null);
     try {
       const res = await sendDirectGmailFromBrowser({
-        clientName: 'Cliente Teste (Sistema)',
-        clientPhone: '(12) 97406-2241',
-        clientEmail: 'angelikm19@gmail.com',
-        serviceTitle: 'Teste Direto Gmail API',
-        date: 'Hoje',
+        clientName: 'Teste de integração',
+        clientPhone: '',
+        clientEmail: TARGET_NOTIFICATION_EMAIL,
+        serviceTitle: 'Teste de envio pelo Apps Script',
+        date: 'Teste',
         time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-        depositAmount: 88,
+        depositAmount: 0,
+        status: 'teste_sistema',
         appointmentId: `test-${Date.now()}`,
-        notes: `Disparo de verificação direta pelo navegador via Gmail API (${AUTHORIZED_SENDER_EMAIL} -> ${TARGET_NOTIFICATION_EMAIL}).`
+        notes: `Teste de envio solicitado no painel. Remetente esperado: ${AUTHORIZED_SENDER_EMAIL}.`
       });
       setGmailOAuthFeedback({ success: res.success, message: res.message });
     } catch (err: any) {
-      setGmailOAuthFeedback({
-        success: false,
-        message: err.message || 'Falha no disparo direto via Gmail API.'
-      });
+      setGmailOAuthFeedback({ success: false, message: err.message || 'Falha no teste de e-mail via Apps Script.' });
     } finally {
       setIsTestingDirectGmail(false);
     }
@@ -1410,90 +1367,36 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
           )}
         </div>
 
-        {/* MÓDULO 3: Envio Direto via Gmail OAuth no Navegador */}
+        {/* MÓDULO 3: Envio de e-mail via Google Apps Script MailApp */}
         <div className="p-5 rounded-2xl bg-[#FFFFFF] border border-[#E8D9B5] space-y-4 font-jakarta text-xs">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-emerald-600 text-[20px]">web</span>
-                <h4 className="font-syne text-sm font-bold text-[#49382E]">
-                  Opção 3: Envio Direto via Gmail OAuth no Navegador
-                </h4>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                  gmailConnectedUser ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-stone-100 text-stone-600 border border-stone-200'
-                }`}>
-                  {gmailConnectedUser ? 'Sessão Ativa' : 'Desconectado'}
-                </span>
-              </div>
+          <div className="flex items-start gap-3">
+            <span className="material-symbols-outlined text-emerald-600 text-[22px]">forward_to_inbox</span>
+            <div className="flex-1">
+              <h4 className="font-syne text-sm font-bold text-[#49382E]">Envio de e-mail via Google Apps Script</h4>
               <p className="text-[#786C63] mt-1 leading-relaxed">
-                Utiliza a Gmail API autorizada diretamente a partir do seu navegador através do Firebase Auth.
+                O Apps Script envia confirmações usando a conta autorizada <strong>{AUTHORIZED_SENDER_EMAIL}</strong>.
+                Não é necessário Firebase Auth nem manter uma sessão Gmail aberta no navegador.
               </p>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              {gmailConnectedUser ? (
-                <button
-                  type="button"
-                  onClick={handleDisconnectGmailOAuth}
-                  className="px-4 py-2 rounded-xl bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 font-bold transition-colors cursor-pointer"
-                >
-                  Desconectar Sessão
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={isSigningInGmail}
-                  onClick={handleConnectGmailOAuth}
-                  className="px-4 py-2 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-                >
-                  <span className="material-symbols-outlined text-[16px]">login</span>
-                  <span>{isSigningInGmail ? 'Conectando...' : `Conectar ${AUTHORIZED_SENDER_EMAIL}`}</span>
-                </button>
-              )}
+              <p className="text-[#786C63] mt-1">Destino do teste: <strong>{TARGET_NOTIFICATION_EMAIL}</strong>.</p>
             </div>
           </div>
-
-          {/* Banner de Esclarecimento Transparente (Requisito 4) */}
-          <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 space-y-1 text-[11px] leading-relaxed">
-            <div className="flex items-center gap-1.5 font-bold">
-              <span className="material-symbols-outlined text-amber-700 text-[18px]">info</span>
-              <span>Funcionamento no Navegador vs. Painel Fechado:</span>
-            </div>
-            <p>
-              Esta integração OAuth utiliza o token de sessão do seu navegador. O envio direto pela Gmail API <strong>só ocorre enquanto o painel administrativo estiver aberto com esta sessão ativa</strong>. Quando o painel estiver fechado ou se a cliente agendar de outro aparelho, o envio automático autônomo é delegado à <strong>Opção 1 (Webhook Apps Script)</strong>.
-            </p>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <button
+              type="button"
+              disabled={isTestingDirectGmail}
+              onClick={handleTestDirectGmail}
+              className="px-4 py-2.5 rounded-xl bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-jakarta text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 min-h-[44px]"
+            >
+              <span className="material-symbols-outlined text-[18px]">{isTestingDirectGmail ? 'sync' : 'forward_to_inbox'}</span>
+              <span>{isTestingDirectGmail ? 'Enviando teste...' : 'Testar envio de e-mail'}</span>
+            </button>
+            {gmailOAuthFeedback && (
+              <div className={`p-3 rounded-xl text-xs flex items-center gap-2 flex-1 ${gmailOAuthFeedback.success ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+                <span className="material-symbols-outlined text-[18px]">{gmailOAuthFeedback.success ? 'check_circle' : 'error'}</span>
+                <span>{gmailOAuthFeedback.message}</span>
+              </div>
+            )}
           </div>
-
-          {gmailConnectedUser && (
-            <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-              <button
-                type="button"
-                disabled={isTestingDirectGmail}
-                onClick={handleTestDirectGmail}
-                className="px-4 py-2.5 rounded-xl bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-jakarta text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 min-h-[44px]"
-              >
-                <span className="material-symbols-outlined text-[18px]">
-                  {isTestingDirectGmail ? 'sync' : 'forward_to_inbox'}
-                </span>
-                <span>{isTestingDirectGmail ? 'Disparando...' : 'Testar Envio Direto via Gmail API'}</span>
-              </button>
-
-              {gmailOAuthFeedback && (
-                <div
-                  className={`p-3 rounded-xl text-xs flex items-center gap-2 flex-1 ${
-                    gmailOAuthFeedback.success
-                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                      : 'bg-red-50 text-red-800 border border-red-200'
-                  }`}
-                >
-                  <span className="material-symbols-outlined text-[18px]">
-                    {gmailOAuthFeedback.success ? 'check_circle' : 'error'}
-                  </span>
-                  <span>{gmailOAuthFeedback.message}</span>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
 
