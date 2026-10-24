@@ -50,7 +50,7 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
 
     try {
       const waRes = await sendAppointmentWhatsAppConfirmation(apt);
-      waSent = waRes.success;
+      waSent = waRes.status === 'sent';
       waMessage = waRes.previewText || waRes.message;
     } catch {
       waSent = false;
@@ -79,7 +79,7 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
       if (onUpdateAppointment) {
         onUpdateAppointment({
           ...apt,
-          whatsappStatus: waRes.success ? 'enviado' : 'falha',
+          whatsappStatus: waRes.status === 'sent' ? 'enviado' : waRes.status === 'simulated' ? 'simulado' : 'falha',
           whatsappSentAt: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
           whatsappLastMessage: waRes.previewText || waRes.message
         });
