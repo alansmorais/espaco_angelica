@@ -64,7 +64,7 @@ export function buildOfficialPreBookingWhatsAppMessage(data: PreBookingTemplateD
   const depositPercent = Number.isFinite(data.depositPercent) ? Math.min(100, Math.max(0, Number(data.depositPercent))) : 40;
   const paymentPrompt =
     data.paymentMode === 'pre_pagamento_100'
-      ? `Para confirmar, faça o PIX do pré-pagamento integral de ${signalValue}:`
+      ? `Para confirmar, faça o PIX do pré-pagamento integral (100%) de ${signalValue}:`
       : `Para confirmar, faça o PIX do sinal (${depositPercent}%) de ${signalValue}:`;
   const pixDetails = data.pixKey?.trim()
     ? `Chave PIX: ${data.pixKey.trim()}\nTitular: ${data.pixBeneficiary?.trim() || 'Titular não informado'}`
