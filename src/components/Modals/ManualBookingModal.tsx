@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { SERVICES_CATALOG, INITIAL_BLACKLIST } from '../../data/mockData';
 import { Appointment, Service, BlacklistEntry, RecurrenceConfig } from '../../types';
 import { sendAppointmentWhatsAppConfirmation } from '../../services/whatsappService';
 import { calculateDeposit40, calculateFullPrepayment, formatBRL } from '../../services/notificationTemplates';
@@ -18,14 +17,14 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
   isOpen,
   onClose,
   onSaveAppointment,
-  services = SERVICES_CATALOG,
-  blacklist = INITIAL_BLACKLIST,
+  services = [],
+  blacklist = [],
   adminSessionToken
 }) => {
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [clientEmail, setClientEmail] = useState('');
-  const [selectedServiceId, setSelectedServiceId] = useState(services[0]?.id || SERVICES_CATALOG[0].id);
+  const [selectedServiceId, setSelectedServiceId] = useState(services[0]?.id || '');
   const [additionalServiceIds, setAdditionalServiceIds] = useState<string[]>([]);
   const [showAdditionalServices, setShowAdditionalServices] = useState(false);
   const [customRequest, setCustomRequest] = useState('');
@@ -63,7 +62,8 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
   const isInadimplente = Boolean(matchedBlacklist);
   const effectivePaymentMode = isInadimplente ? 'pre_pagamento_100' : paymentMode;
 
-  const serv = services.find(s => s.id === selectedServiceId) || services[0] || SERVICES_CATALOG[0];
+  const serv = services.find(s => s.id === selectedServiceId) || services[0];
+  if (!serv) return null;
   const additionalServices = services.filter(service => additionalServiceIds.includes(service.id) && service.id !== serv.id);
   const totalPrice = serv.price + additionalServices.reduce((sum, service) => sum + service.price, 0);
   const standardDeposit = calculateDeposit40(totalPrice);
