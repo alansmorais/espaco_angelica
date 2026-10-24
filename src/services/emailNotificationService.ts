@@ -1,4 +1,4 @@
-import { Appointment, Service } from '../types';
+import { Appointment, Service, StudioAddressConfig, BlacklistEntry, WhatsAppConfig } from '../types';
 import {
   AUTHORIZED_SENDER_EMAIL,
   TARGET_NOTIFICATION_EMAIL,
@@ -764,6 +764,56 @@ export async function deleteRemoteScheduleBlock(
       : { success: false, error: 'Apps Script não confirmou a exclusão do bloqueio.' };
   } catch (error: any) {
     return { success: false, error: error?.message || 'Falha ao excluir bloqueio de agenda.' };
+  }
+}
+
+export interface RemoteAppSettingsResult {
+  success: boolean;
+  settings?: Record<string, unknown>;
+  error?: string;
+}
+
+export async function fetchRemoteAppSettings(authToken?: string): Promise<RemoteAppSettingsResult> {
+  try {
+    const data = await callScheduleAction('getAppSettings', {}, authToken);
+    return { success: true, settings: data.settings && typeof data.settings === 'object' ? data.settings : {} };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Falha ao ler configurações da planilha oficial.' };
+  }
+}
+
+export async function saveRemoteAppSetting(
+  settingKey: 'STUDIO_ADDRESS' | 'BLACKLIST' | 'WHATSAPP_CONFIG',
+  value: StudioAddressConfig | BlacklistEntry[] | WhatsAppConfig,
+  authToken?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const data = await callScheduleAction('saveAppSetting', { settingKey, value }, authToken);
+    return data.saved === true
+      ? { success: true }
+      : { success: false, error: data.message || 'Apps Script não confirmou a gravação da configuração.' };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Falha ao salvar configuração na planilha oficial.' };
+  }
+}
+
+export async function fetchPublicStudioAddress(): Promise<{ success: boolean; address?: StudioAddressConfig | null; error?: string }> {
+  try {
+    const endpoint = getNotificationWebhookUrl();
+    if (!endpoint) return { success: false, error: 'URL do Google Apps Script não configurada.' };
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+      body: JSON.stringify({ action: 'getPublicStudioAddress' }),
+      cache: 'no-store'
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.status !== 'success') {
+      return { success: false, error: data?.message || 'Não foi possível carregar o endereço oficial.' };
+    }
+    return { success: true, address: data.address && typeof data.address === 'object' ? data.address as StudioAddressConfig : null };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Falha ao carregar o endereço oficial.' };
   }
 }
 
