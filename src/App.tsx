@@ -447,6 +447,19 @@ export default function App() {
       if (result.success) {
         setPublicAvailability(result.appointments);
         setPublicBlockedDates(result.blockedDates);
+        if (result.weeklySchedule) {
+          const weekly = result.weeklySchedule;
+          const dayMap: Record<string, string> = { seg: 'monday', ter: 'tuesday', qua: 'wednesday', qui: 'thursday', sex: 'friday', sab: 'saturday', dom: 'sunday' };
+          setDaySchedules(current => current.map(day => {
+            const saved = weekly[dayMap[day.dayKey]];
+            return saved && typeof saved === 'object'
+              ? { ...day, isOpen: saved.open === true, openTime: String(saved.openTime || day.openTime), closeTime: String(saved.closeTime || day.closeTime) }
+              : day;
+          }));
+          if (Array.isArray(weekly.slots)) {
+            setTimeSlots(weekly.slots.filter((slot: any) => slot && typeof slot.id === 'string' && typeof slot.time === 'string'));
+          }
+        }
         setPublicAvailabilityLoaded(true);
         setPublicAvailabilityError(null);
       } else {
