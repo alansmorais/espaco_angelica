@@ -338,7 +338,11 @@ export async function testNotificationWebhook(
     isTest: true
   };
 
-  const res = await sendWebhookNotification(url, testPayload, token);
+  const sessionToken = typeof window !== 'undefined'
+    ? window.sessionStorage?.getItem('angelica_admin_session') || ''
+    : '';
+  const effectiveToken = (token || getNotificationWebhookToken() || sessionToken).trim();
+  const res = await sendWebhookNotification(url, testPayload, effectiveToken);
   return {
     success: res.success,
     message: res.message
