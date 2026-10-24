@@ -506,7 +506,9 @@ app.get('/api/public/availability', async (_req: Request, res: Response) => {
         time: String(a.time || ''),
         status: String(a.status || 'pendente_pix')
       }));
-    const blockedDates = Array.from(new Set(slots.filter((a: any) => a.status === 'bloqueado').map((a: any) => a.date)));
+    const blockedDates = Array.from(new Set(slots
+      .filter((a: any) => a.status === 'bloqueado' && ['dia inteiro', 'dia todo', 'all day'].includes(String(a.time || '').trim().toLowerCase()))
+      .map((a: any) => a.date)));
     return res.json({ success: true, slots, blockedDates, updatedAt: new Date().toISOString() });
   } catch {
     return res.status(503).json({ success: false, error: 'A agenda oficial está temporariamente inacessível. Não exibiremos horários sem confirmação.' });
