@@ -201,6 +201,69 @@ function parseBlockInterval(value) {
   return start !== null && end !== null && end > start ? { start: start, end: end } : null;
 }
 
+function getPublicScheduleData() {
+  try {
+    var data = getScheduleConfigData();
+    return {
+      status: "success",
+      weeklySchedule: data.weeklySchedule || null,
+      blocks: (data.blocks || []).filter(function(block) { return block && block.active !== false; })
+    };
+  } catch (err) {
+    console.error("Unable to read public schedule config: " + err);
+    return { status: "error", message: "Configuração da agenda indisponível." };
+  }
+}
+
+function validateAgainstSavedSchedule(dateKey, timeKey, durationMinutes) {
+  var config = getScheduleConfigData();
+  var start = timeToMinutes(timeKey);
+  var end = start + durationMinutes;
+  var parts = dateKey.split("-");
+  var date = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])));
+  var dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  var dayName = dayNames[date.getUTCDay()];
+  var weekly = config.weeklySchedule;
+
+  if (weekly && weekly[dayName]) {
+    var day = weekly[dayName];
+    if (day.open === false) return { allowed: false, message: "O atelier não atende neste dia. Escolha outra data." };
+    if (day.open === true) {
+      var open = timeToMinutes(String(day.openTime || ""));
+      var close = timeToMinutes(String(day.closeTime || ""));
+      if (open === null || close === null || start < open || end > close) {
+        return { allowed: false, message: "Este horário está fora do expediente configurado. Escolha outro horário." };
+      }
+    }
+  }
+
+  if (weekly && Array.isArray(weekly.slots)) {
+    for (var si = 0; si < weekly.slots.length; si++) {
+      var slot = weekly.slots[si];
+      if (!slot || slot.active === false) continue;
+      var slotStatus = String(slot.status || "").toLowerCase();
+      if (["bloqueado", "autoclave", "almoco"].indexOf(slotStatus) === -1) continue;
+      var slotStart = timeToMinutes(String(slot.time || ""));
+      if (slotStart !== null && intervalsOverlap(start, end, slotStart, slotStart + 30)) {
+        return { allowed: false, message: "Este horário está bloqueado na configuração semanal. Escolha outro horário." };
+      }
+    }
+  }
+
+  var blocks = config.blocks || [];
+  for (var bi = 0; bi < blocks.length; bi++) {
+    var block = blocks[bi];
+    if (!block || block.active === false || String(block.date || "") !== dateKey) continue;
+    if (block.allDay === true) return { allowed: false, message: "Esta data está bloqueada para atendimentos. Escolha outro dia." };
+    var blockStart = timeToMinutes(String(block.startTime || ""));
+    var blockEnd = timeToMinutes(String(block.endTime || ""));
+    if (blockStart !== null && blockEnd !== null && intervalsOverlap(start, end, blockStart, blockEnd)) {
+      return { allowed: false, message: "Este intervalo está bloqueado. Escolha outro horário." };
+    }
+  }
+  return { allowed: true };
+}
+
 function doPost(e) {
   try {
     if (!e || !e.postData || !e.postData.contents) {
@@ -211,7 +274,7 @@ function doPost(e) {
 
     // Agendamento público: usa validações de cliente, catálogo, data, horário,
     // concorrência e duplicidade abaixo. Ações administrativas continuam exigindo token.
-    var isPublicBooking = data.action === "createBooking";
+    var isPublicBooking = data.action === "createBooking" || data.action === "getPublicSchedule";
     if (!isPublicBooking) {
       var tokenProvided = data.token || data.authToken || data.key || (e.parameter && e.parameter.token);
       var auth = validateAuthorization(tokenProvided);
@@ -224,7 +287,7 @@ function doPost(e) {
     // booking flow below. Do not persist bookings in an early shortcut that bypasses
     // official service, payment, duration, conflict and concurrency validation.
 
-    // Persistent weekly schedule and date/time blocks.
+    if (data.action === "getPublicSchedule") {\n      return responseJSON(getPublicScheduleData());\n    }\n\n    // Persistent weekly schedule and date/time blocks.
     // These administrative actions use the authorization check above.
     if (data.action === "getScheduleConfig") {
       return responseJSON(getScheduleConfigData());
@@ -775,6 +838,20 @@ function doPost(e) {
       }
       if (!isValidBookingTime(requestedTimeKey)) {
         return responseJSON({ status: "error", message: "Horário inválido. Use o formato HH:mm." });
+      }
+
+      // Enforce persisted weekly hours and date/time blocks on the authoritative
+      // booking endpoint, not only in the public calendar UI.
+      var savedScheduleValidation = validateAgainstSavedSchedule(
+        requestedDateKey, requestedTimeKey, requestedServiceDuration
+      );
+      if (!savedScheduleValidation.allowed) {
+        return responseJSON({
+          status: "error",
+          persisted: false,
+          conflict: true,
+          message: savedScheduleValidation.message
+        });
       }
       var location = data.appointmentLocation === undefined ? "salon" : String(data.appointmentLocation).trim();
       if (location !== "salon" && location !== "home") {
