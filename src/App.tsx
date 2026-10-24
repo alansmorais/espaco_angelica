@@ -8,9 +8,6 @@ import {
   SERVICES_CATALOG,
   INITIAL_TODAY_APPOINTMENTS,
   INITIAL_CLIENTS,
-  INITIAL_TIME_SLOTS,
-  INITIAL_DAY_SCHEDULES,
-  INITIAL_BLACKLIST,
   STUDIO_ADDRESS
 } from './data/mockData';
 import {
@@ -41,6 +38,9 @@ import {
   revokeAdminSession,
   fetchRemoteScheduleConfig,
   saveRemoteWeeklySchedule,
+  fetchRemoteAppSettings,
+  saveRemoteAppSetting,
+  fetchPublicStudioAddress,
   saveRemoteScheduleBlock,
   deleteRemoteScheduleBlock
 } from './services/emailNotificationService';
@@ -220,42 +220,23 @@ export default function App() {
   );
 
   // 4: Operating Hours & Time Slots State (Add, Edit, Delete, Block)
-  const [timeSlots, setTimeSlots] = useState<TimeSlotConfig[]>(() => {
-    try {
-      const saved = localStorage.getItem('angelica_timeslots');
-      return saved ? JSON.parse(saved) : INITIAL_TIME_SLOTS;
-    } catch {
-      return INITIAL_TIME_SLOTS;
-    }
-  });
-  const [daySchedules, setDaySchedules] = useState<DayScheduleConfig[]>(() => {
-    try {
-      const saved = localStorage.getItem('angelica_dayschedules');
-      return saved ? JSON.parse(saved) : INITIAL_DAY_SCHEDULES;
-    } catch {
-      return INITIAL_DAY_SCHEDULES;
-    }
-  });
+  const [timeSlots, setTimeSlots] = useState<TimeSlotConfig[]>([]);
+  // Empty, closed weekday structure is UI scaffolding only; actual opening hours come from Sheets.
+  const [daySchedules, setDaySchedules] = useState<DayScheduleConfig[]>([
+    { dayKey: 'seg', dayLabel: 'Segunda-feira', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'ter', dayLabel: 'Terça-feira', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'qua', dayLabel: 'Quarta-feira', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'qui', dayLabel: 'Quinta-feira', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'sex', dayLabel: 'Sexta-feira', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'sab', dayLabel: 'Sábado', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'dom', dayLabel: 'Domingo', isOpen: false, openTime: '', closeTime: '' }
+  ]);
 
   // 6: Inadimplentes Blacklist State (Requires 100% Pre-payment via Pix)
-  const [blacklist, setBlacklist] = useState<BlacklistEntry[]>(() => {
-    try {
-      const saved = localStorage.getItem('angelica_blacklist');
-      return saved ? JSON.parse(saved) : INITIAL_BLACKLIST;
-    } catch {
-      return INITIAL_BLACKLIST;
-    }
-  });
+  const [blacklist, setBlacklist] = useState<BlacklistEntry[]>([]);
 
   // 3: Studio Address State (Rua Vereador José Luiz Soares, 92 - Pontal da Cruz, São Sebastião - SP)
-  const [studioAddress, setStudioAddress] = useState<StudioAddressConfig>(() => {
-    try {
-      const saved = localStorage.getItem('angelica_address');
-      return saved ? JSON.parse(saved) : STUDIO_ADDRESS;
-    } catch {
-      return STUDIO_ADDRESS;
-    }
-  });
+  const [studioAddress, setStudioAddress] = useState<StudioAddressConfig>(STUDIO_ADDRESS);
 
   // Appointments & Clients State (Real data only, default empty)
   const [appointments, setAppointments] = useState<Appointment[]>(() => {
@@ -291,6 +272,54 @@ export default function App() {
     }).catch(error => console.error('[Schedule config] Read failed:', error));
     return () => { active = false; };
   }, [appMode]);
+
+  useEffect(() => {
+    let active = true;
+    void fetchPublicStudioAddress().then(result => {
+      if (active && result.success && result.address) setStudioAddress(result.address);
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (appMode !== 'admin' || !adminSessionToken) return;
+    let active = true;
+    void fetchRemoteAppSettings(adminSessionToken).then(result => {
+      if (!active || !result.success || !result.settings) return;
+      const settings = result.settings;
+      if (Array.isArray(settings.BLACKLIST)) setBlacklist(settings.BLACKLIST as BlacklistEntry[]);
+      if (settings.STUDIO_ADDRESS && typeof settings.STUDIO_ADDRESS === 'object') setStudioAddress(settings.STUDIO_ADDRESS as StudioAddressConfig);
+      if (settings.WHATSAPP_CONFIG && typeof settings.WHATSAPP_CONFIG === 'object') setWhatsappConfig(settings.WHATSAPP_CONFIG as WhatsAppConfig);
+    }).catch(error => console.error('[Official app settings] Read failed:', error));
+    return () => { active = false; };
+  }, [appMode, adminSessionToken]);
+
+  const handleUpdateBlacklist = async (next: BlacklistEntry[]) => {
+    const result = await saveRemoteAppSetting('BLACKLIST', next, adminSessionToken);
+    if (!result.success) {
+      window.alert('Não foi possível salvar a lista de bloqueio na planilha oficial. ' + (result.error || ''));
+      return;
+    }
+    setBlacklist(next);
+  };
+
+  const handleUpdateStudioAddress = async (next: StudioAddressConfig) => {
+    const result = await saveRemoteAppSetting('STUDIO_ADDRESS', next, adminSessionToken);
+    if (!result.success) {
+      window.alert('Não foi possível salvar o endereço na planilha oficial. ' + (result.error || ''));
+      return;
+    }
+    setStudioAddress(next);
+  };
+
+  const handleUpdateWhatsappConfig = async (next: WhatsAppConfig) => {
+    const result = await saveRemoteAppSetting('WHATSAPP_CONFIG', next, adminSessionToken);
+    if (!result.success) {
+      window.alert('Não foi possível salvar as configurações do WhatsApp na planilha oficial. ' + (result.error || ''));
+      return;
+    }
+    setWhatsappConfig(next);
+  };
 
   const persistWeeklySchedule = async (nextDays: DayScheduleConfig[], nextSlots: TimeSlotConfig[]): Promise<boolean> => {
     const dayMap: Record<string, string> = { seg: 'monday', ter: 'tuesday', qua: 'wednesday', qui: 'thursday', sex: 'friday', sab: 'saturday', dom: 'sunday' };
@@ -342,30 +371,6 @@ export default function App() {
   }, []);
 
   // Official service catalogue is always reloaded from Google Sheets; do not cache it as a source of truth.
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('angelica_timeslots', JSON.stringify(timeSlots));
-    } catch {}
-  }, [timeSlots]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('angelica_dayschedules', JSON.stringify(daySchedules));
-    } catch {}
-  }, [daySchedules]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('angelica_blacklist', JSON.stringify(blacklist));
-    } catch {}
-  }, [blacklist]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('angelica_address', JSON.stringify(studioAddress));
-    } catch {}
-  }, [studioAddress]);
 
   useEffect(() => {
     try {
@@ -526,14 +531,7 @@ export default function App() {
   }, []);
 
   // WhatsApp Business API Config State
-  const [whatsappConfig, setWhatsappConfig] = useState<WhatsAppConfig>(() => {
-    try {
-      const saved = localStorage.getItem('angelica_whatsapp_config');
-      return saved ? JSON.parse(saved) : { autoSendOnConfirm: true };
-    } catch {
-      return { autoSendOnConfirm: true };
-    }
-  });
+  const [whatsappConfig, setWhatsappConfig] = useState<WhatsAppConfig>({ autoSendOnConfirm: false });
 
   const [waGlobalToast, setWaGlobalToast] = useState<{
     message: string;
@@ -542,12 +540,6 @@ export default function App() {
     success: boolean;
     fallbackUrl?: string;
   } | null>(null);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('angelica_whatsapp_config', JSON.stringify(whatsappConfig));
-    } catch {}
-  }, [whatsappConfig]);
 
   // Admin Real-time Pre-Booking Notification Toast State
   const [adminNewBookingToast, setAdminNewBookingToast] = useState<{
@@ -1388,11 +1380,11 @@ export default function App() {
                   daySchedules={daySchedules}
                   onUpdateDaySchedules={handleUpdateDaySchedules}
                   blacklist={blacklist}
-                  onUpdateBlacklist={setBlacklist}
+                  onUpdateBlacklist={handleUpdateBlacklist}
                   studioAddress={studioAddress}
-                  onUpdateStudioAddress={setStudioAddress}
+                  onUpdateStudioAddress={handleUpdateStudioAddress}
                   whatsappConfig={whatsappConfig}
-                  onUpdateWhatsappConfig={setWhatsappConfig}
+                  onUpdateWhatsappConfig={handleUpdateWhatsappConfig}
                 />
               )}
             </main>
