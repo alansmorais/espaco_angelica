@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Appointment, Service, BlacklistEntry, RecurrenceConfig } from '../../types';
+import { Appointment, Service, BlacklistEntry, PaymentConfig, RecurrenceConfig } from '../../types';
 import { sendAppointmentWhatsAppConfirmation } from '../../services/whatsappService';
 import { calculateDeposit40, calculateFullPrepayment, formatBRL } from '../../services/notificationTemplates';
 import { submitManualBooking } from '../../services/emailNotificationService';
@@ -11,6 +11,7 @@ interface ManualBookingModalProps {
   services?: Service[];
   blacklist?: BlacklistEntry[];
   adminSessionToken?: string;
+  paymentConfig?: PaymentConfig;
 }
 
 export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
@@ -19,7 +20,8 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
   onSaveAppointment,
   services = [],
   blacklist = [],
-  adminSessionToken
+  adminSessionToken,
+  paymentConfig = { pixKey: '', pixBeneficiary: '', depositAmount: 40, prepayDiscount: 5 }
 }) => {
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
@@ -66,8 +68,8 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
   if (!serv) return null;
   const additionalServices = services.filter(service => additionalServiceIds.includes(service.id) && service.id !== serv.id);
   const totalPrice = serv.price + additionalServices.reduce((sum, service) => sum + service.price, 0);
-  const standardDeposit = calculateDeposit40(totalPrice);
-  const fullPrepayment = calculateFullPrepayment(totalPrice);
+  const standardDeposit = calculateDeposit40(totalPrice, paymentConfig.depositAmount);
+  const fullPrepayment = calculateFullPrepayment(totalPrice, paymentConfig.prepayDiscount);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
