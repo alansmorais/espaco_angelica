@@ -432,7 +432,9 @@ runTest('WhatsApp Template: calcula sinal de 40%, saldo restante, política de 2
     time: '14:30',
     depositAmount: deposit,
     remainingBalance: balance,
-    paymentMode: 'sinal_40'
+    paymentMode: 'sinal_40',
+    pixKey: 'CHAVE_PIX_DA_PLANILHA',
+    pixBeneficiary: 'Titular configurado na planilha'
   });
 
   // Validações de conteúdo da mensagem oficial
