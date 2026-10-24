@@ -87,7 +87,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [pixKey, setPixKey] = useState('');
   const [pixBeneficiary, setPixBeneficiary] = useState('');
   const [depositAmount, setDepositAmount] = useState('40');
-  const [prepayDiscount, setPrepayDiscount] = useState('5');
   const [savedSuccess, setSavedSuccess] = useState<string | null>(null);
 
   // Time Slot Management UI State
@@ -182,7 +181,6 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
         setPixKey(String(payment.pixKey || ''));
         setPixBeneficiary(String(payment.pixBeneficiary || ''));
         setDepositAmount(String(payment.depositAmount ?? '40'));
-        setPrepayDiscount(String(payment.prepayDiscount ?? '5'));
       }
     });
     return () => { active = false; };
@@ -199,7 +197,6 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
       pixKey: pixKey.trim(),
       pixBeneficiary: pixBeneficiary.trim(),
       depositAmount: Number(depositAmount || 40),
-      prepayDiscount: Number(prepayDiscount || 0)
     };
     if (onUpdatePaymentConfig) {
       const saved = await onUpdatePaymentConfig(nextConfig);
