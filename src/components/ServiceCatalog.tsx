@@ -152,15 +152,22 @@ export const ServiceCatalog: React.FC<ServiceCatalogProps> = ({
                   {/* Image & Badges */}
                   <div
                     className="relative h-52 sm:h-56 w-full overflow-hidden bg-[#F7EFEA] cursor-pointer"
-                    onClick={() => setPreviewPhoto({ title: service.title, url: service.imageUrl })}
+                    onClick={() => { if (service.imageUrl) setPreviewPhoto({ title: service.title, url: service.imageUrl }); }}
                     title="Clique para ampliar a foto do serviço"
                   >
-                    <img
-                      src={service.imageUrl}
-                      alt={service.title}
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-                    />
+                    {service.imageUrl ? (
+                      <img
+                        src={service.imageUrl}
+                        alt={service.title}
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-[#A89A8C]">
+                        <span className="material-symbols-outlined text-4xl">image</span>
+                        <span className="text-xs">Foto ainda não cadastrada</span>
+                      </div>
+                    )}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
 
                     {/* Zoom indicator */}
