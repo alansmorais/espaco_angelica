@@ -707,7 +707,7 @@ export default function App() {
         );
         const withWa: Appointment = {
           ...updated,
-          whatsappStatus: res.success ? 'enviado' : 'falha',
+          whatsappStatus: res.status === 'sent' ? 'enviado' : res.status === 'simulated' ? 'simulado' : 'falha',
           whatsappSentAt: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
           whatsappLastMessage: res.previewText || res.message
         };
@@ -716,7 +716,7 @@ export default function App() {
           message: res.message,
           clientName: updated.clientName,
           clientPhone: updated.clientPhone,
-          success: res.success,
+          success: res.status === 'sent',
           fallbackUrl: res.fallbackUrl
         });
         setTimeout(() => setWaGlobalToast(null), 6000);
