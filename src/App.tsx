@@ -340,6 +340,14 @@ export default function App() {
   };
 
   const handleUpdatePaymentConfig = async (next: PaymentConfig): Promise<boolean> => {
+    if (!next.pixKey.trim() || !next.pixBeneficiary.trim()) {
+      window.alert('Informe a chave Pix oficial e o nome do favorecido antes de salvar.');
+      return false;
+    }
+    if (!Number.isFinite(next.depositAmount) || next.depositAmount <= 0 || next.depositAmount > 100) {
+      window.alert('O percentual do sinal deve ser maior que 0 e menor ou igual a 100.');
+      return false;
+    }
     const result = await saveRemoteAppSetting('PAYMENT_CONFIG', next, adminSessionToken);
     if (!result.success) {
       window.alert('Não foi possível salvar as regras de Pix na planilha oficial. ' + (result.error || ''));
