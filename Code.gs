@@ -162,6 +162,34 @@ function getServiceDurationMinutes(serviceId, serviceTitle) {
   return 30;
 }
 
+// Strict duration lookup for new public bookings. Unlike legacy display/conflict
+// helpers, this never invents a duration when the official catalogue is unavailable
+// or the selected service cannot be matched.
+function getConfiguredServiceDurationMinutes(serviceId, serviceTitle) {
+  try {
+    var sheet = getServicesSheet();
+    if (!sheet) return null;
+    var rows = sheet.getDataRange().getValues();
+    for (var i = 1; i < rows.length; i++) {
+      var rowId = String(rows[i][0] || "").trim();
+      var rowTitle = String(rows[i][1] || "").trim();
+      var idMatches = serviceId && rowId === String(serviceId).trim();
+      var titleMatches = serviceTitle && rowTitle.toLowerCase() === String(serviceTitle).trim().toLowerCase();
+      if (!idMatches && !titleMatches) continue;
+      if (rows[i][11] === false || String(rows[i][11]).toLowerCase() === "false") return null;
+      var durationText = String(rows[i][5] || "").toLowerCase();
+      var hoursMatch = durationText.match(/(\\d+)\\s*h/);
+      var minutesMatch = durationText.match(/(\\d+)\\s*(?:min|m\\b)/);
+      var total = (hoursMatch ? Number(hoursMatch[1]) * 60 : 0) +
+        (minutesMatch ? Number(minutesMatch[1]) : 0);
+      return total > 0 && Number.isFinite(total) ? total : null;
+    }
+  } catch (e) {
+    console.error("Unable to validate official service duration: " + e);
+  }
+  return null;
+}
+
 function intervalsOverlap(startA, endA, startB, endB) {
   return startA < endB && startB < endA;
 }
@@ -775,6 +803,15 @@ function doPost(e) {
 
       var requestedDateKey = normalizeBookingDate(bookingDate);
       var requestedTimeKey = normalizeBookingTime(bookingTime);
+      var requestedServiceDuration = getConfiguredServiceDurationMinutes(data.serviceId, serviceTitle);
+      if (!requestedServiceDuration) {
+        return responseJSON({
+          status: "error",
+          persisted: false,
+          configurationError: true,
+          message: "Não foi possível confirmar a duração oficial deste serviço. Verifique o catálogo 'Serviços' na planilha e tente novamente."
+        });
+      }
       if (!isValidBookingDateKey(requestedDateKey)) {
         return responseJSON({ status: "error", message: "Data inválida. Use uma data real no formato AAAA-MM-DD." });
       }
@@ -830,7 +867,7 @@ function doPost(e) {
         var existingTimeKey = normalizeBookingTime(existingTimeRaw);
         var sameDate = requestedDateKey === existingDateKey;
         var requestedStart = timeToMinutes(requestedTimeKey);
-        var requestedEnd = requestedStart + getServiceDurationMinutes(data.serviceId, serviceTitle);
+        var requestedEnd = requestedStart + requestedServiceDuration;
         var allDayBlocked = existingStatus === 'bloqueado' && sameDate &&
           ['dia inteiro', 'dia todo', 'all day'].indexOf(existingTimeRaw.toLowerCase()) !== -1;
         var blockInterval = existingStatus === 'bloqueado' && sameDate ? parseBlockInterval(existingTimeRaw) : null;
