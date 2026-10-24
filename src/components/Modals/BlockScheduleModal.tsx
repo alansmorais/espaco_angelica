@@ -21,7 +21,7 @@ export const BlockScheduleModal: React.FC<BlockScheduleModalProps> = ({
   initialDate
 }) => {
   const [reason, setReason] = useState('Folga / Descanso');
-  const [date, setDate] = useState(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()));
+  const [date, setDate] = useState(() => { const parts = new Intl.DateTimeFormat('en', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()); const p = Object.fromEntries(parts.map(part => [part.type, part.value])); return `${p.year}-${p.month}-${p.day}`; });
   const [isAllDay, setIsAllDay] = useState(true);
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('19:30');
