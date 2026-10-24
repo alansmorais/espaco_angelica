@@ -21,7 +21,7 @@ export const BlockScheduleModal: React.FC<BlockScheduleModalProps> = ({
   initialDate
 }) => {
   const [reason, setReason] = useState('Folga / Descanso');
-  const [date, setDate] = useState('Quarta, 13 Nov');
+  const [date, setDate] = useState(() => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`; });
   const [isAllDay, setIsAllDay] = useState(true);
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('19:30');
@@ -56,6 +56,12 @@ export const BlockScheduleModal: React.FC<BlockScheduleModalProps> = ({
 
     setIsSubmitting(true);
     setSubmitError(null);
+
+    if (!isAllDay && (!/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(endTime) || startTime >= endTime)) {
+      setSubmitError('Informe um intervalo válido: o horário final deve ser posterior ao inicial.');
+      setIsSubmitting(false);
+      return;
+    }
 
     const timeSpan = isAllDay ? 'Dia Inteiro' : `${startTime} às ${endTime}`;
 
@@ -135,11 +141,10 @@ export const BlockScheduleModal: React.FC<BlockScheduleModalProps> = ({
             <div className="flex flex-col gap-1">
               <label className="text-[10px] uppercase text-[#786C63] font-bold">Data *</label>
               <input
-                type="text"
+                type="date"
                 value={date}
                 onChange={e => setDate(e.target.value)}
                 required
-                placeholder="Ex: Quarta, 13 Nov"
                 className="bg-[#FDFBF9] text-[#49382E] px-3 py-2.5 rounded-xl border border-[#E8D9B5] outline-none focus:border-[#D4AF37] font-semibold"
               />
             </div>
@@ -164,14 +169,14 @@ export const BlockScheduleModal: React.FC<BlockScheduleModalProps> = ({
               <label className="text-[10px] uppercase text-[#786C63] font-bold">Horário de Início e Fim</label>
               <div className="flex items-center gap-2">
                 <input
-                  type="text"
+                  type="time"
                   value={startTime}
                   onChange={e => setStartTime(e.target.value)}
                   className="w-1/2 bg-[#FDFBF9] text-[#49382E] px-2 py-2.5 rounded-xl text-center border border-[#E8D9B5] focus:border-[#D4AF37] outline-none"
                 />
                 <span className="text-[#786C63]">às</span>
                 <input
-                  type="text"
+                  type="time"
                   value={endTime}
                   onChange={e => setEndTime(e.target.value)}
                   className="w-1/2 bg-[#FDFBF9] text-[#49382E] px-2 py-2.5 rounded-xl text-center border border-[#E8D9B5] focus:border-[#D4AF37] outline-none"
