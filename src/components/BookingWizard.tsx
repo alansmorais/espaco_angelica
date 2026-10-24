@@ -920,7 +920,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                     {!(['alongamento', 'blindagem'].includes(selectedService.category)) && <p className="text-xs text-[#786C63] py-3">Não há complementos cadastrados para este procedimento. Registre pedidos especiais abaixo, sem alterar o preço automaticamente.</p>}
                     <button type="button" onClick={() => setShowAdditionalServices(false)} className="mt-4 w-full rounded-full bg-[#D4AF37] px-4 py-3 font-bold text-[#49382E]">Confirmar seleção</button>
                   </div>
-                </div>
+                </div>}
                 <label className="block text-xs font-semibold text-[#49382E]">Pedido personalizado (opcional)
                   <textarea value={customRequest} onChange={event => setCustomRequest(event.target.value)}
                     placeholder="Ex.: decoração especial de unhas (preço sujeito à confirmação)"
