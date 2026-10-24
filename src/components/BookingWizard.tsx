@@ -122,7 +122,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   const isFullDayBlock = (apt: Appointment): boolean => {
     if (apt.status !== 'bloqueado') return false;
     const value = String(apt.time || apt.serviceDuration || '').trim().toLocaleLowerCase('pt-BR');
-    return !parseBlockRange(value) || value.includes('dia inteiro') || value.includes('dia todo');
+    const range = parseBlockRange(apt.time || '') || parseBlockRange(apt.serviceDuration || '');
+    return !range || value.includes('dia inteiro') || value.includes('dia todo');
   };
 
   const isDateBlocked = (dateStr: string): boolean =>
@@ -139,7 +140,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
     for (const apt of dayAppointments) {
       if (apt.status === 'bloqueado') {
         if (isFullDayBlock(apt)) return { blocked: true, reason: 'Dia bloqueado' };
-        const range = parseBlockRange(apt.time || apt.serviceDuration || '');
+        const range = parseBlockRange(apt.time || '') || parseBlockRange(apt.serviceDuration || '');
         if (range && slotStart < range.end && slotEnd > range.start) {
           return { blocked: true, reason: apt.blockReason || apt.notes || 'Horário bloqueado' };
         }
@@ -147,7 +148,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
       }
       const aptStart = parseClockMinutes(apt.time);
       if (aptStart === null) continue;
-      const aptEnd = aptStart + parseDurationMinutes(apt.serviceDuration);
+      const matchedService = services.find(service => service.id === apt.serviceId);
+      const aptEnd = aptStart + parseDurationMinutes(apt.serviceDuration || matchedService?.duration || '');
       if (slotStart < aptEnd && slotEnd > aptStart) {
         return { blocked: true, reason: 'Conflito com agendamento existente' };
       }
