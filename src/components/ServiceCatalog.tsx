@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { SERVICES_CATALOG } from '../data/mockData';
 import { Service } from '../types';
 
 interface ServiceCatalogProps {
@@ -9,7 +8,7 @@ interface ServiceCatalogProps {
 }
 
 export const ServiceCatalog: React.FC<ServiceCatalogProps> = ({
-  services = SERVICES_CATALOG,
+  services = [],
   onSelectService,
   selectedServiceId
 }) => {
