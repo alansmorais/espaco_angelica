@@ -569,9 +569,9 @@ function normalizeClientPhoneKey(value) {
 
 function getOrCreateClientsSheet() {
   var ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
-  var sheet = ss.getSheetByName("Clientes");
+  var sheet = ss.getSheetByName("Perfis de Clientes");
   if (!sheet) {
-    sheet = ss.insertSheet("Clientes");
+    sheet = ss.insertSheet("Perfis de Clientes");
     sheet.getRange(1, 1, 1, 4).setValues([["ID", "Telefone Normalizado", "Perfil JSON", "Atualizado em"]]);
     sheet.setFrozenRows(1);
   }
