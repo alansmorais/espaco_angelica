@@ -510,7 +510,53 @@ app.get('/api/public/availability', async (_req: Request, res: Response) => {
     const blockedDates = Array.from(new Set(slots
       .filter((a: any) => a.status === 'bloqueado' && ['dia inteiro', 'dia todo', 'all day'].includes(String(a.time || '').trim().toLowerCase()))
       .map((a: any) => a.date)));
-    return res.json({ success: true, slots, blockedDates, updatedAt: new Date().toISOString() });
+
+    // Date/time blocks and weekly settings are read from the same official Apps Script config.
+    // This endpoint is public-safe: it returns no client or payment information.
+    let weeklySchedule: Record<string, any> | null = null;
+    let scheduleBlocks: any[] = [];
+    try {
+      const scheduleRes = await fetch(cfg.webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'getPublicSchedule' }),
+        redirect: 'follow',
+        signal: AbortSignal.timeout(10000)
+      });
+      const scheduleData = await scheduleRes.json().catch(() => null);
+      if (scheduleRes.ok && scheduleData?.status === 'success') {
+        weeklySchedule = scheduleData.weeklySchedule && typeof scheduleData.weeklySchedule === 'object'
+          ? scheduleData.weeklySchedule
+          : null;
+        scheduleBlocks = Array.isArray(scheduleData.blocks) ? scheduleData.blocks.filter((b: any) => b && b.active !== false) : [];
+      }
+    } catch {
+      // Final booking validation remains authoritative even if public schedule metadata is unavailable.
+    }
+
+    for (const block of scheduleBlocks) {
+      const date = String(block.date || '');
+      if (!date) continue;
+      const time = block.allDay === true
+        ? 'Dia Inteiro'
+        : `${String(block.startTime || '')} às ${String(block.endTime || '')}`;
+      if (block.allDay === true) blockedDates.push(date);
+      slots.push({
+        id: `schedule-block-${String(block.id || date)}`,
+        date,
+        time,
+        serviceDuration: block.allDay === true ? 'Dia Inteiro' : '30 min',
+        status: 'bloqueado'
+      });
+    }
+
+    return res.json({
+      success: true,
+      slots,
+      blockedDates: Array.from(new Set(blockedDates)),
+      weeklySchedule,
+      updatedAt: new Date().toISOString()
+    });
   } catch {
     return res.status(503).json({ success: false, error: 'A agenda oficial está temporariamente inacessível. Não exibiremos horários sem confirmação.' });
   }
