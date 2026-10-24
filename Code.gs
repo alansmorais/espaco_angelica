@@ -178,8 +178,8 @@ function getConfiguredServiceDurationMinutes(serviceId, serviceTitle) {
       if (!idMatches && !titleMatches) continue;
       if (rows[i][11] === false || String(rows[i][11]).toLowerCase() === "false") return null;
       var durationText = String(rows[i][5] || "").toLowerCase();
-      var hoursMatch = durationText.match(/(\\d+)\\s*h/);
-      var minutesMatch = durationText.match(/(\\d+)\\s*(?:min|m\\b)/);
+      var hoursMatch = durationText.match(/(\d+)\s*h/);
+      var minutesMatch = durationText.match(/(\d+)\s*(?:min|m\b)/);
       var total = (hoursMatch ? Number(hoursMatch[1]) * 60 : 0) +
         (minutesMatch ? Number(minutesMatch[1]) : 0);
       return total > 0 && Number.isFinite(total) ? total : null;
