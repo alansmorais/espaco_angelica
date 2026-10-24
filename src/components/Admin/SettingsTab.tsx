@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TimeSlotConfig, DayScheduleConfig, BlacklistEntry, StudioAddressConfig, WhatsAppConfig } from '../../types';
+import { TimeSlotConfig, DayScheduleConfig, BlacklistEntry, StudioAddressConfig, WhatsAppConfig, PaymentConfig } from '../../types';
 import { checkWhatsAppStatus, testWhatsAppMessage, fetchWhatsAppLogs, WhatsAppStatus } from '../../services/whatsappService';
 import {
   DEFAULT_APPS_SCRIPT_WEBHOOK_URL,
@@ -29,6 +29,7 @@ interface SettingsTabProps {
   whatsappConfig?: WhatsAppConfig;
   onUpdateWhatsappConfig?: (config: WhatsAppConfig) => Promise<boolean> | void;
   adminSessionToken?: string;
+  onUpdatePaymentConfig?: (config: PaymentConfig) => Promise<boolean> | void;
 }
 
 export const SettingsTab: React.FC<SettingsTabProps> = ({
@@ -42,7 +43,8 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   onUpdateStudioAddress,
   whatsappConfig: propWhatsappConfig,
   onUpdateWhatsappConfig,
-  adminSessionToken = ''
+  adminSessionToken = '',
+  onUpdatePaymentConfig
 }) => {
   // Local fallbacks if not wired in App
   // Fallbacks are empty/closed only; real hours and slots must come from the sheet.
@@ -193,15 +195,21 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
   }, [propWhatsappConfig]);
 
   const handleSavePixSettings = async () => {
-    const result = await saveRemoteAppSetting('PAYMENT_CONFIG', {
+    const nextConfig: PaymentConfig = {
       pixKey: pixKey.trim(),
       pixBeneficiary: pixBeneficiary.trim(),
-      depositAmount,
-      prepayDiscount
-    }, adminSessionToken);
-    if (!result.success) {
-      notify('Não foi possível salvar as regras de Pix na planilha oficial: ' + (result.error || ''));
-      return;
+      depositAmount: Number(depositAmount || 40),
+      prepayDiscount: Number(prepayDiscount || 0)
+    };
+    if (onUpdatePaymentConfig) {
+      const saved = await onUpdatePaymentConfig(nextConfig);
+      if (saved === false) return;
+    } else {
+      const result = await saveRemoteAppSetting('PAYMENT_CONFIG', nextConfig, adminSessionToken);
+      if (!result.success) {
+        notify('Não foi possível salvar as regras de Pix na planilha oficial: ' + (result.error || ''));
+        return;
+      }
     }
     notify('Regras de Pix salvas na planilha oficial.');
   };
