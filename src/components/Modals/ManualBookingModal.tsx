@@ -21,7 +21,7 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
   services = [],
   blacklist = [],
   adminSessionToken,
-  paymentConfig = { pixKey: '', pixBeneficiary: '', depositAmount: 40, prepayDiscount: 5 }
+  paymentConfig = { pixKey: '', pixBeneficiary: '', depositAmount: 40 }
 }) => {
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
@@ -69,7 +69,7 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
   const additionalServices = services.filter(service => additionalServiceIds.includes(service.id) && service.id !== serv.id);
   const totalPrice = serv.price + additionalServices.reduce((sum, service) => sum + service.price, 0);
   const standardDeposit = calculateDeposit40(totalPrice, paymentConfig.depositAmount);
-  const fullPrepayment = calculateFullPrepayment(totalPrice, paymentConfig.prepayDiscount);
+  const fullPrepayment = calculateFullPrepayment(totalPrice);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
