@@ -208,14 +208,7 @@ export default function App() {
   const [adminSearch, setAdminSearch] = useState<string>('');
 
   // 1 & 2: Services State (Shared between Public Catalog & Admin Price/Photo Manager)
-  const [services, setServices] = useState<Service[]>(() => {
-    try {
-      const saved = localStorage.getItem('angelica_services');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return SERVICES_CATALOG;
-    }
-  });
+  const [services, setServices] = useState<Service[]>([]);
 
   const activeServices = services.filter(s => s.active !== false);
   const [publicAvailability, setPublicAvailability] = useState<Appointment[]>([]);
@@ -348,12 +341,7 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Save to localStorage whenever states change
-  useEffect(() => {
-    try {
-      localStorage.setItem('angelica_services', JSON.stringify(services));
-    } catch {}
-  }, [services]);
+  // Official service catalogue is always reloaded from Google Sheets; do not cache it as a source of truth.
 
   useEffect(() => {
     try {
@@ -521,9 +509,18 @@ export default function App() {
     const syncServices = async () => {
       try {
         const remoteServices = await fetchRemoteServices();
-        if (!isMounted || !Array.isArray(remoteServices) || remoteServices.length === 0) return;
+        if (!isMounted) return;
         setServices(remoteServices);
-      } catch {}
+        if (remoteServices.length > 0) {
+          setSelectedService(current => remoteServices.find(service => service.id === current.id) || remoteServices[0]);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setServices([]);
+          setPublicAvailabilityError(error instanceof Error ? error.message : 'Não foi possível carregar o catálogo oficial.');
+        }
+        console.error('[Official service catalogue] Read failed:', error);
+      }
     };
     syncServices();
   }, []);
