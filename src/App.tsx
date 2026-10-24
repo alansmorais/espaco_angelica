@@ -17,7 +17,8 @@ import {
   DayScheduleConfig,
   BlacklistEntry,
   StudioAddressConfig,
-  WhatsAppConfig
+  WhatsAppConfig,
+  PaymentConfig
 } from './types';
 import { sendAppointmentWhatsAppConfirmation } from './services/whatsappService';
 import { playDiscreteAdminNotificationSound, registerUserInteraction } from './services/soundNotificationService';
@@ -238,6 +239,9 @@ export default function App() {
 
   // 3: Studio Address State (Rua Vereador José Luiz Soares, 92 - Pontal da Cruz, São Sebastião - SP)
   const [studioAddress, setStudioAddress] = useState<StudioAddressConfig>(STUDIO_ADDRESS);
+  const [paymentConfig, setPaymentConfig] = useState<PaymentConfig>({ pixKey: '', pixBeneficiary: '', depositAmount: 40, prepayDiscount: 5 });
+  const [paymentConfigLoaded, setPaymentConfigLoaded] = useState(false);
+  const [paymentConfigConfigured, setPaymentConfigConfigured] = useState(false);
 
   // Appointments & Clients State (Real data only, default empty)
   const [appointments, setAppointments] = useState<Appointment[]>(() => {
@@ -266,6 +270,21 @@ export default function App() {
     }).catch(error => console.error('[Schedule config] Read failed:', error));
     return () => { active = false; };
   }, [appMode]);
+
+  useEffect(() => {
+    let active = true;
+    void fetchPublicPaymentConfig().then(result => {
+      if (!active) return;
+      if (result.success && result.paymentConfig) {
+        setPaymentConfig(result.paymentConfig);
+        setPaymentConfigConfigured(result.configured);
+      } else {
+        setPaymentConfigConfigured(false);
+      }
+      setPaymentConfigLoaded(true);
+    });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -317,6 +336,17 @@ export default function App() {
       return;
     }
     setStudioAddress(next);
+  };
+
+  const handleUpdatePaymentConfig = async (next: PaymentConfig): Promise<boolean> => {
+    const result = await saveRemoteAppSetting('PAYMENT_CONFIG', next, adminSessionToken);
+    if (!result.success) {
+      window.alert('Não foi possível salvar as regras de Pix na planilha oficial. ' + (result.error || ''));
+      return false;
+    }
+    setPaymentConfig(next);
+    setPaymentConfigConfigured(Boolean(next.pixKey.trim() && next.pixBeneficiary.trim()));
+    return true;
   };
 
   const handleUpdateWhatsappConfig = async (next: WhatsAppConfig): Promise<boolean> => {
@@ -938,13 +968,14 @@ export default function App() {
             />
 
             {/* Public booking is unavailable until the real service catalogue loads; never show a mock service as bookable. */}
-            {activeServices.length > 0 && publicAvailabilityLoaded ? (
+            {activeServices.length > 0 && publicAvailabilityLoaded && paymentConfigLoaded && paymentConfigConfigured ? (
               <BookingWizard
                 selectedService={activeServices.find(s => s.id === selectedService?.id) || activeServices[0]}
                 onBookingConfirmed={handleBookingConfirmed}
                 timeSlots={timeSlots}
                 blacklist={blacklist}
                 studioAddress={studioAddress}
+                paymentConfig={paymentConfig}
                 services={activeServices}
                 onSelectService={handleSelectService}
                 appointments={publicAvailability}
@@ -954,7 +985,7 @@ export default function App() {
             ) : (
               <section id="wizard-agendamento" className="mx-auto my-12 max-w-3xl rounded-2xl border border-[#E8D9B5] bg-white p-8 text-center">
                 <h2 className="font-syne text-xl font-bold text-[#49382E]">Agenda temporariamente indisponível</h2>
-                <p className="mt-2 text-sm text-[#786C63]">{!publicAvailabilityLoaded ? (publicAvailabilityError || 'Carregando a disponibilidade oficial da agenda…') : 'Não foi possível carregar o catálogo oficial de serviços. Nenhum serviço de demonstração será exibido. Tente novamente em instantes ou entre em contato com o espaço.'}</p>
+                <p className="mt-2 text-sm text-[#786C63]">{!publicAvailabilityLoaded ? (publicAvailabilityError || 'Carregando a disponibilidade oficial da agenda…') : !paymentConfigLoaded ? 'Carregando a configuração oficial de pagamento…' : !paymentConfigConfigured ? 'Os dados oficiais de Pix ainda não foram cadastrados na planilha. O agendamento está temporariamente indisponível para evitar instruções de pagamento incorretas.' : 'Não foi possível carregar o catálogo oficial de serviços. Nenhum serviço de demonstração será exibido. Tente novamente em instantes ou entre em contato com o espaço.'}</p>
               </section>
             )}
 
@@ -1296,6 +1327,7 @@ export default function App() {
                   onUpdateBlacklist={handleUpdateBlacklist}
                   studioAddress={studioAddress}
                   onUpdateStudioAddress={handleUpdateStudioAddress}
+                  onUpdatePaymentConfig={handleUpdatePaymentConfig}
                   whatsappConfig={whatsappConfig}
                   onUpdateWhatsappConfig={handleUpdateWhatsappConfig}
                 />
@@ -1331,6 +1363,7 @@ export default function App() {
         services={services}
         blacklist={blacklist}
         adminSessionToken={adminSessionToken}
+        paymentConfig={paymentConfig}
       />
 
       <BlockScheduleModal
