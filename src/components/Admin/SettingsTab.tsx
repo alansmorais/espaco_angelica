@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { STUDIO_ADDRESS } from '../../data/mockData';
 import { TimeSlotConfig, DayScheduleConfig, BlacklistEntry, StudioAddressConfig, WhatsAppConfig } from '../../types';
 import { checkWhatsAppStatus, testWhatsAppMessage, fetchWhatsAppLogs, WhatsAppStatus } from '../../services/whatsappService';
 import {
@@ -70,7 +69,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
   const [internalBlacklist, setInternalBlacklist] = useState<BlacklistEntry[]>([]);
 
-  const [internalAddress, setInternalAddress] = useState<StudioAddressConfig>(STUDIO_ADDRESS);
+  const [internalAddress, setInternalAddress] = useState<StudioAddressConfig>({ street: '', number: '', neighborhood: '', city: '', state: '', fullAddress: '', mapsUrl: '', wazeUrl: '' });
 
   const slots = propTimeSlots || internalSlots;
   const days = propDaySchedules || internalDays;
