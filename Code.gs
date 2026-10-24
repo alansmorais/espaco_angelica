@@ -1080,6 +1080,7 @@ function fetchAppointmentsFromSheet() {
       clientPhone: String(row[2] || ''),
       clientEmail: String(row[3] || ''),
       serviceTitle: String(row[4] || ''),
+      serviceDuration: getServiceDurationMinutes(String(row[15] || ''), String(row[4] || '')) + ' min',
       date: dateStr,
       time: timeStr,
       depositAmount: Number(row[7] || 0),
