@@ -71,7 +71,6 @@ export interface PaymentConfig {
   pixKey: string;
   pixBeneficiary: string;
   depositAmount: number;
-  prepayDiscount: number;
 }
 
 export interface WhatsAppConfig {
