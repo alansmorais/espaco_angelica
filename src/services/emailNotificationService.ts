@@ -988,7 +988,7 @@ export async function saveRemoteService(
   authToken?: string
 ): Promise<{ success: boolean; saved?: boolean; error?: string; service?: Service }> {
   try {
-    const token = (authToken || getNotificationWebhookToken()).trim();
+    const token = getNotificationWebhookToken().trim();
     if (!token) return { success: false, error: 'Token administrativo do Google Apps Script não configurado.' };
     const data = await callScheduleAction('saveService', { ...service, token });
     if (data.saved === true) {
@@ -1005,7 +1005,7 @@ export async function deleteRemoteService(
   authToken?: string
 ): Promise<{ success: boolean; deleted?: boolean; error?: string }> {
   try {
-    const token = (authToken || getNotificationWebhookToken()).trim();
+    const token = getNotificationWebhookToken().trim();
     if (!token) return { success: false, error: 'Token administrativo do Google Apps Script não configurado.' };
     const data = await callScheduleAction('deleteService', { id: serviceId, token });
     if (data.deleted === true || data.notFound === true) {
@@ -1061,7 +1061,7 @@ export async function uploadServicePhoto(
     return { success: false, error: 'A imagem deve ter no máximo 5MB.' };
   }
 
-  const token = (authToken || getNotificationWebhookToken()).trim();
+  const token = getNotificationWebhookToken().trim();
   if (!token) return { success: false, error: 'Token administrativo do Google Apps Script não configurado.' };
 
   try {
