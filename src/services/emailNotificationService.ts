@@ -372,8 +372,7 @@ export async function triggerNewPreBookingEmailNotification(
     };
   }
 
-  // O agendamento público fala diretamente com o Apps Script; não usa Cloud Run,
-  // Node server nem rota /api para persistir a reserva.
+  // O agendamento público grava diretamente no Google Apps Script e na planilha oficial.
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -596,8 +595,7 @@ export async function deleteRemoteAppointment(
 }
 
 /**
- * Busca agendamentos centralizados persistidos no backend seguro (Cloud Run / Google Sheets)
- * para exibição no painel administrativo compartilhado.
+ * Busca agendamentos diretamente do Google Apps Script e da planilha oficial.
  */
 export async function fetchRemoteAppointments(authToken?: string): Promise<Appointment[]> {
   const result = await fetchRemoteAppointmentsDetailed(authToken);
