@@ -7,7 +7,6 @@ import React, { useState, useEffect } from 'react';
 import {
   SERVICES_CATALOG,
   INITIAL_TODAY_APPOINTMENTS,
-  INITIAL_CLIENTS,
   STUDIO_ADDRESS
 } from './data/mockData';
 import {
@@ -40,6 +39,8 @@ import {
   saveRemoteWeeklySchedule,
   fetchRemoteAppSettings,
   saveRemoteAppSetting,
+  fetchRemoteClients,
+  saveRemoteClient,
   fetchPublicStudioAddress,
   saveRemoteScheduleBlock,
   deleteRemoteScheduleBlock
@@ -248,14 +249,7 @@ export default function App() {
     }
   });
 
-  const [clients, setClients] = useState<ClientProfile[]>(() => {
-    try {
-      const saved = localStorage.getItem('angelica_clients');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [clients, setClients] = useState<ClientProfile[]>([]);
 
   useEffect(() => {
     if (appMode !== 'admin') return;
@@ -280,6 +274,19 @@ export default function App() {
     });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (appMode !== 'admin' || !adminSessionToken) return;
+    let active = true;
+    const syncClients = async () => {
+      const result = await fetchRemoteClients(adminSessionToken);
+      if (active && result.success) setClients(result.clients);
+      else if (active && !result.success) console.error('[Official clients] Read failed:', result.error);
+    };
+    void syncClients();
+    const interval = setInterval(() => { void syncClients(); }, 30000);
+    return () => { active = false; clearInterval(interval); };
+  }, [appMode, adminSessionToken]);
 
   useEffect(() => {
     if (appMode !== 'admin' || !adminSessionToken) return;
@@ -377,12 +384,6 @@ export default function App() {
       localStorage.setItem('angelica_appointments', JSON.stringify(appointments));
     } catch {}
   }, [appointments]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('angelica_clients', JSON.stringify(clients));
-    } catch {}
-  }, [clients]);
 
   // Centralized Appointments Synchronization (Cloud Run / Sheets)
   useEffect(() => {
@@ -668,58 +669,7 @@ export default function App() {
     setAppointments(prev => [newApt, ...prev]);
     notifyNewPreBooking(newApt);
 
-    // Automatically register or update client profile
-    setClients(prev => {
-      const normalizedPhone = newApt.clientPhone.replace(/\D/g, '');
-      const existingIndex = prev.findIndex(c => c.phone.replace(/\D/g, '') === normalizedPhone);
-      if (existingIndex >= 0) {
-        const updated = [...prev];
-        updated[existingIndex] = {
-          ...updated[existingIndex],
-          lastVisit: `${newApt.date} às ${newApt.time}`,
-          lastService: newApt.serviceTitle
-        };
-        return updated;
-      }
 
-      const initials = newApt.clientName
-        .split(' ')
-        .map(n => n[0])
-        .slice(0, 2)
-        .join('')
-        .toUpperCase();
-
-      const newClientProfile: ClientProfile = {
-        id: `client-${Date.now()}`,
-        name: newApt.clientName,
-        initials,
-        phone: newApt.clientPhone,
-        tier: '1ª Sessão',
-        status: 'nova',
-        lastVisit: `${newApt.date} às ${newApt.time}`,
-        lastService: newApt.serviceTitle,
-        nextMaintenanceDays: 21,
-        daysRemainingOrOverdue: '21 dias rest.',
-        isOverdue: false,
-        ltv: newApt.depositAmount,
-        ltvFormatted: `R$ ${formatBRL(newApt.depositAmount)}`,
-        laminaType: newApt.nailCondition || 'Natural',
-        oiliness: 'Média',
-        allergies: 'Nenhuma informada',
-        onycholysis: 'Lâmina íntegra',
-        preferredShape: 'Almond Clássica',
-        preferredColor: 'Tons Nude / Translúcidos',
-        products: {
-          preparer: 'Desidratador Max + Primer Sem Ácido',
-          baseGel: 'Fiber Base Gel Haute Pink',
-          tensionPoint: 'Gel Construtor Hard Classic',
-          topCoat: 'Diamond Brilho Espelhado'
-        },
-        privateNotes: newApt.notes || 'Cliente cadastrada via agendamento online.'
-      };
-
-      return [newClientProfile, ...prev];
-    });
   };
 
   const handleUpdateAppointment = async (updated: Appointment) => {
@@ -804,8 +754,13 @@ export default function App() {
     if (archiveCount !== null) setLocalOnlyCount(archiveCount);
   };
 
-  const handleUpdateClient = (updated: ClientProfile) => {
-    setClients(prev => prev.map(c => (c.id === updated.id ? updated : c)));
+  const handleUpdateClient = async (updated: ClientProfile) => {
+    const result = await saveRemoteClient(updated, adminSessionToken);
+    if (!result.success) {
+      window.alert('Não foi possível salvar o perfil da cliente na planilha oficial. ' + (result.error || ''));
+      return;
+    }
+    setClients(prev => prev.map(c => (c.id === updated.id || c.phone.replace(/\D/g, '') === updated.phone.replace(/\D/g, '') ? updated : c)));
   };
 
   const handleManualBookingSave = async (newApt: Appointment) => {
@@ -815,61 +770,12 @@ export default function App() {
       return exists ? prev.map(a => (a.id === newApt.id ? newApt : a)) : [newApt, ...prev];
     });
 
-    // 2. Registra ou atualiza perfil da cliente no CRM do ateliê
-    setClients(prev => {
-      const normalizedPhone = newApt.clientPhone.replace(/\D/g, '');
-      const existingIndex = prev.findIndex(c => c.phone.replace(/\D/g, '') === normalizedPhone);
-      if (existingIndex >= 0) {
-        const updated = [...prev];
-        updated[existingIndex] = {
-          ...updated[existingIndex],
-          lastVisit: `${newApt.date} às ${newApt.time}`,
-          lastService: newApt.serviceTitle
-        };
-        return updated;
-      }
-
-      const initials = newApt.clientName
-        .split(' ')
-        .map(n => n[0])
-        .slice(0, 2)
-        .join('')
-        .toUpperCase();
-
-      const newClientProfile: ClientProfile = {
-        id: `client-${Date.now()}`,
-        name: newApt.clientName,
-        initials,
-        phone: newApt.clientPhone,
-        tier: '1ª Sessão',
-        status: 'nova',
-        lastVisit: `${newApt.date} às ${newApt.time}`,
-        lastService: newApt.serviceTitle,
-        nextMaintenanceDays: 21,
-        daysRemainingOrOverdue: '21 dias rest.',
-        isOverdue: false,
-        ltv: newApt.depositAmount,
-        ltvFormatted: `R$ ${formatBRL(newApt.depositAmount)}`,
-        laminaType: newApt.nailCondition || 'Natural',
-        oiliness: 'Média',
-        allergies: 'Nenhuma informada',
-        onycholysis: 'Lâmina íntegra',
-        preferredShape: 'Almond Clássica',
-        preferredColor: 'Tons Nude / Translúcidos',
-        products: {
-          preparer: 'Desidratador Max + Primer Sem Ácido',
-          baseGel: 'Fiber Base Gel Haute Pink',
-          tensionPoint: 'Gel Construtor Hard Classic',
-          topCoat: 'Diamond Brilho Espelhado'
-        },
-        privateNotes: newApt.notes || 'Cliente cadastrada via agendamento manual administrativo.'
-      };
-
-      return [newClientProfile, ...prev];
-    });
+    // Client profiles are read from the official Clientes sheet after the booking is saved.
 
     // 3. Re-sincroniza imediatamente com a planilha oficial do Google Sheets (fonte da verdade)
     await refreshRemoteAppointments();
+    const clientsResult = await fetchRemoteClients(adminSessionToken);
+    if (clientsResult.success) setClients(clientsResult.clients);
 
     if (newApt.whatsappStatus === 'enviado' || newApt.whatsappStatus === 'simulado') {
       setWaGlobalToast({
@@ -882,8 +788,13 @@ export default function App() {
     }
   };
 
-  const handleNewClientSave = (newClient: ClientProfile) => {
-    setClients(prev => [newClient, ...prev]);
+  const handleNewClientSave = async (newClient: ClientProfile) => {
+    const result = await saveRemoteClient(newClient, adminSessionToken);
+    if (!result.success) {
+      window.alert('Não foi possível cadastrar a cliente na planilha oficial. ' + (result.error || ''));
+      return;
+    }
+    setClients(prev => [newClient, ...prev.filter(client => client.id !== newClient.id && client.phone.replace(/\D/g, '') !== newClient.phone.replace(/\D/g, ''))]);
   };
 
   const handleBlockConfirm = async (data: BlockScheduleData): Promise<{ success: boolean; error?: string }> => {
