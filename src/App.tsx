@@ -43,6 +43,7 @@ import {
   fetchRemoteClients,
   saveRemoteClient,
   fetchPublicStudioAddress,
+  fetchPublicPaymentConfig,
   saveRemoteScheduleBlock,
   deleteRemoteScheduleBlock
 } from './services/emailNotificationService';
