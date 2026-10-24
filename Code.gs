@@ -1312,7 +1312,7 @@ function doPost(e) {
       var matches100 = data.paymentMode === "pre_pagamento_100";
       var resolvedMode = data.paymentMode || "sinal_40";
       var serviceTitle = expectedServiceTitle;
-      var balanceNum = Math.max(0, referencePrice - depositNum);
+      var balanceNum = resolvedMode === "pre_pagamento_100" ? 0 : Math.max(0, referencePrice - depositNum);
       var amountFormatted = depositNum.toFixed(2).replace(".", ",");
       var balanceFormatted = balanceNum.toFixed(2).replace(".", ",");
       var paymentLabel = resolvedMode === "pre_pagamento_100" ? "Pré-pagamento Pix (100%)" : "Sinal Pix (40%)";
