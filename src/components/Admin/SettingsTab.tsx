@@ -15,6 +15,7 @@ import {
   sendDirectGmailFromBrowser
 } from '../../services/gmailService';
 import { CODE_GS_TEMPLATE } from '../../data/codeGsTemplate';
+import { fetchRemoteAppSettings, saveRemoteAppSetting } from '../../services/emailNotificationService';
 
 interface SettingsTabProps {
   timeSlots?: TimeSlotConfig[];
@@ -26,7 +27,8 @@ interface SettingsTabProps {
   studioAddress?: StudioAddressConfig;
   onUpdateStudioAddress?: (addr: StudioAddressConfig) => void;
   whatsappConfig?: WhatsAppConfig;
-  onUpdateWhatsappConfig?: (config: WhatsAppConfig) => void;
+  onUpdateWhatsappConfig?: (config: WhatsAppConfig) => Promise<boolean> | void;
+  adminSessionToken?: string;
 }
 
 export const SettingsTab: React.FC<SettingsTabProps> = ({
@@ -39,29 +41,20 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   studioAddress: propStudioAddress,
   onUpdateStudioAddress,
   whatsappConfig: propWhatsappConfig,
-  onUpdateWhatsappConfig
+  onUpdateWhatsappConfig,
+  adminSessionToken = ''
 }) => {
   // Local fallbacks if not wired in App
-  const [internalSlots, setInternalSlots] = useState<TimeSlotConfig[]>([
-    { id: 'slot-1', time: '09:00', status: 'disponivel', active: true },
-    { id: 'slot-2', time: '10:30', status: 'disponivel', active: true },
-    { id: 'slot-3', time: '11:30', status: 'disponivel', active: true },
-    { id: 'slot-4', time: '13:00', status: 'bloqueado', note: 'Almoço & Descanso', active: true },
-    { id: 'slot-5', time: '14:00', status: 'disponivel', active: true },
-    { id: 'slot-6', time: '15:30', status: 'disponivel', active: true },
-    { id: 'slot-7', time: '16:30', status: 'bloqueado', note: 'Autoclave & Higienização', active: true },
-    { id: 'slot-8', time: '18:00', status: 'disponivel', active: true },
-    { id: 'slot-9', time: '19:30', status: 'disponivel', active: true }
-  ]);
-
+  // Fallbacks are empty/closed only; real hours and slots must come from the sheet.
+  const [internalSlots, setInternalSlots] = useState<TimeSlotConfig[]>([]);
   const [internalDays, setInternalDays] = useState<DayScheduleConfig[]>([
-    { dayKey: 'ter', dayLabel: 'Terça-feira', isOpen: true, openTime: '09:00', closeTime: '19:30' },
-    { dayKey: 'qua', dayLabel: 'Quarta-feira', isOpen: true, openTime: '09:00', closeTime: '19:30' },
-    { dayKey: 'qui', dayLabel: 'Quinta-feira', isOpen: true, openTime: '09:00', closeTime: '19:30' },
-    { dayKey: 'sex', dayLabel: 'Sexta-feira', isOpen: true, openTime: '09:00', closeTime: '20:00' },
-    { dayKey: 'sab', dayLabel: 'Sábado', isOpen: true, openTime: '08:30', closeTime: '18:00' },
-    { dayKey: 'dom', dayLabel: 'Domingo', isOpen: false, openTime: '00:00', closeTime: '00:00' },
-    { dayKey: 'seg', dayLabel: 'Segunda-feira', isOpen: false, openTime: '00:00', closeTime: '00:00' }
+    { dayKey: 'seg', dayLabel: 'Segunda-feira', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'ter', dayLabel: 'Terça-feira', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'qua', dayLabel: 'Quarta-feira', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'qui', dayLabel: 'Quinta-feira', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'sex', dayLabel: 'Sexta-feira', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'sab', dayLabel: 'Sábado', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'dom', dayLabel: 'Domingo', isOpen: false, openTime: '', closeTime: '' }
   ]);
 
   const [internalBlacklist, setInternalBlacklist] = useState<BlacklistEntry[]>([]);
@@ -89,8 +82,8 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   };
 
   // State for Pix & Settings
-  const [pixKey, setPixKey] = useState('+5512974062241');
-  const [pixBeneficiary, setPixBeneficiary] = useState('Angelica do Carmo E. Silva ME');
+  const [pixKey, setPixKey] = useState('');
+  const [pixBeneficiary, setPixBeneficiary] = useState('');
   const [depositAmount, setDepositAmount] = useState('40');
   const [prepayDiscount, setPrepayDiscount] = useState('5');
   const [savedSuccess, setSavedSuccess] = useState<string | null>(null);
@@ -113,15 +106,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
   // WhatsApp Business API State
   const [waStatus, setWaStatus] = useState<WhatsAppStatus | null>(null);
-  const [waConfig, setWaConfig] = useState<WhatsAppConfig>(() => {
-    if (propWhatsappConfig) return propWhatsappConfig;
-    try {
-      const saved = localStorage.getItem('angelica_whatsapp_config');
-      return saved ? JSON.parse(saved) : { autoSendOnConfirm: true };
-    } catch {
-      return { autoSendOnConfirm: true };
-    }
-  });
+  const [waConfig, setWaConfig] = useState<WhatsAppConfig>(() => propWhatsappConfig || { autoSendOnConfirm: false });
   const [waTemplate, setWaTemplate] = useState<string>(() => {
     return waConfig.customTemplate || `✨ *Confirmação de Agendamento • Espaço Angélica do Carmo* ✨
 
@@ -185,6 +170,42 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
     }
   };
 
+  useEffect(() => {
+    if (!adminSessionToken) return;
+    let active = true;
+    void fetchRemoteAppSettings(adminSessionToken).then(result => {
+      if (!active || !result.success || !result.settings) return;
+      const payment = result.settings.PAYMENT_CONFIG as Record<string, unknown> | undefined;
+      if (payment) {
+        setPixKey(String(payment.pixKey || ''));
+        setPixBeneficiary(String(payment.pixBeneficiary || ''));
+        setDepositAmount(String(payment.depositAmount ?? '40'));
+        setPrepayDiscount(String(payment.prepayDiscount ?? '5'));
+      }
+    });
+    return () => { active = false; };
+  }, [adminSessionToken]);
+
+  useEffect(() => {
+    if (!propWhatsappConfig) return;
+    setWaConfig(propWhatsappConfig);
+    if (propWhatsappConfig.customTemplate) setWaTemplate(propWhatsappConfig.customTemplate);
+  }, [propWhatsappConfig]);
+
+  const handleSavePixSettings = async () => {
+    const result = await saveRemoteAppSetting('PAYMENT_CONFIG', {
+      pixKey: pixKey.trim(),
+      pixBeneficiary: pixBeneficiary.trim(),
+      depositAmount,
+      prepayDiscount
+    }, adminSessionToken);
+    if (!result.success) {
+      notify('Não foi possível salvar as regras de Pix na planilha oficial: ' + (result.error || ''));
+      return;
+    }
+    notify('Regras de Pix salvas na planilha oficial.');
+  };
+
   const handleSaveWebhook = (e: React.FormEvent) => {
     e.preventDefault();
     setNotificationWebhookUrl(webhookUrlInput);
@@ -209,19 +230,14 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
     }
   };
 
-  const handleSaveWaConfig = () => {
-    const updated: WhatsAppConfig = {
-      ...waConfig,
-      customTemplate: waTemplate
-    };
-    setWaConfig(updated);
+  const handleSaveWaConfig = async () => {
+    const updated: WhatsAppConfig = { ...waConfig, customTemplate: waTemplate };
     if (onUpdateWhatsappConfig) {
-      onUpdateWhatsappConfig(updated);
+      const saved = await onUpdateWhatsappConfig(updated);
+      if (saved === false) return;
     }
-    try {
-      localStorage.setItem('angelica_whatsapp_config', JSON.stringify(updated));
-    } catch {}
-    notify('Parâmetros da API do WhatsApp Business salvos!');
+    setWaConfig(updated);
+    notify('Configurações do WhatsApp salvas na planilha oficial.');
   };
 
   const handleTestWhatsApp = async (e: React.FormEvent) => {
@@ -800,7 +816,7 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
         <div className="flex justify-end pt-3 border-t border-[#E8D9B5]">
           <button
             type="button"
-            onClick={() => notify('Configurações de Pix e parâmetros salvas com sucesso!')}
+            onClick={() => { void handleSavePixSettings(); }}
             className="px-6 py-2.5 rounded-full bg-[#D4AF37] text-[#3C2F00] font-jakarta text-xs font-bold hover:bg-[#E5C158] transition-all cursor-pointer shadow-md"
           >
             Salvar Regras de Pix
