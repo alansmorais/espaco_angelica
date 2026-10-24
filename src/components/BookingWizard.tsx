@@ -21,6 +21,7 @@ interface BookingWizardProps {
   onSelectService?: (service: Service) => void;
   appointments?: Appointment[];
   blockedDates?: string[];
+  daySchedules?: DayScheduleConfig[];
 }
 
 export const BookingWizard: React.FC<BookingWizardProps> = ({
@@ -93,14 +94,66 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   const isInadimplente = Boolean(matchedBlacklist);
   const effectivePaymentMode = isInadimplente ? 'pre_pagamento_100' : paymentMode;
 
+  const parseClockMinutes = (value: string): number | null => {
+    const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return null;
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59 ? hours * 60 + minutes : null;
+  };
+
+  const parseDurationMinutes = (value: string): number => {
+    const text = String(value || '').toLowerCase();
+    const hours = Number((text.match(/(\d+)\s*h/) || [])[1] || 0);
+    const minutes = Number((text.match(/(\d+)\s*min/) || [])[1] || 0);
+    const total = hours * 60 + minutes;
+    return total > 0 ? total : 90;
+  };
+
+  const parseBlockRange = (value: string): { start: number; end: number } | null => {
+    const match = String(value || '').match(/(\d{1,2}:\d{2})\s*(?:às|as|[-–])\s*(\d{1,2}:\d{2})/i);
+    if (!match) return null;
+    const start = parseClockMinutes(match[1]);
+    const end = parseClockMinutes(match[2]);
+    return start !== null && end !== null && end > start ? { start, end } : null;
+  };
+
+  const isFullDayBlock = (apt: Appointment): boolean => {
+    if (apt.status !== 'bloqueado') return false;
+    const value = String(apt.time || apt.serviceDuration || '').trim().toLocaleLowerCase('pt-BR');
+    return !parseBlockRange(value) || value.includes('dia inteiro') || value.includes('dia todo');
+  };
+
   const isDateBlocked = (dateStr: string): boolean => {
-    if (blockedDates.length > 0 && blockedDates.some(bd => areDatesEqual(bd, dateStr))) {
-      return true;
+    if (blockedDates.some(bd => areDatesEqual(bd, dateStr))) return true;
+    return appointments.some(a => a.status === 'bloqueado' && areDatesEqual(a.date, dateStr) && isFullDayBlock(a));
+  };
+
+  const isSlotUnavailable = (dateStr: string, startTime: string): { blocked: boolean; reason?: string } => {
+    const slotStart = parseClockMinutes(startTime);
+    if (slotStart === null) return { blocked: true, reason: 'Horário inválido' };
+    const slotEnd = slotStart + parseDurationMinutes(selectedService.duration);
+    const dayAppointments = appointments.filter(a =>
+      areDatesEqual(a.date, dateStr) && !['cancelado', 'teste_sistema'].includes(a.status)
+    );
+
+    for (const apt of dayAppointments) {
+      if (apt.status === 'bloqueado') {
+        if (isFullDayBlock(apt)) return { blocked: true, reason: 'Dia bloqueado' };
+        const range = parseBlockRange(apt.time || apt.serviceDuration || '');
+        if (range && slotStart < range.end && slotEnd > range.start) {
+          return { blocked: true, reason: apt.blockReason || apt.notes || 'Horário bloqueado' };
+        }
+        continue;
+      }
+      const aptStart = parseClockMinutes(apt.time);
+      if (aptStart === null) continue;
+      const aptEnd = aptStart + parseDurationMinutes(apt.serviceDuration);
+      if (slotStart < aptEnd && slotEnd > aptStart) {
+        return { blocked: true, reason: 'Conflito com agendamento existente' };
+      }
     }
-    if (appointments.length > 0) {
-      return appointments.some(a => a.status === 'bloqueado' && areDatesEqual(a.date, dateStr));
-    }
-    return false;
+    return { blocked: false };
   };
 
   const dateLabel = (date: Date) => date.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
@@ -115,10 +168,11 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   const isPastDate = (date: Date) => toDateKey(date) < toDateKey(today);
   const isDateUnavailable = (date: Date) => {
     const key = toDateKey(date);
-    const sameDayAppointments = appointments.filter(a => areDatesEqual(a.date, key) && !['cancelado', 'teste_sistema'].includes(a.status));
-    const weekday = date.getDay();
-    const outsideWorkingDays = weekday === 0 || weekday === 1;
-    return outsideWorkingDays || isDateBlocked(key) || (sameDayAppointments.length > 0 && sameDayAppointments.every(a => a.status === 'bloqueado'));
+    const weekdayKeys = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
+    const weekdayKey = weekdayKeys[date.getDay()];
+    const configuredDay = daySchedules.find(day => day.dayKey.toLocaleLowerCase('pt-BR') === weekdayKey);
+    const outsideWorkingDays = configuredDay ? !configuredDay.isOpen : date.getDay() === 0;
+    return outsideWorkingDays || isDateBlocked(key);
   };
 
   // Price calculations (40% deposit or 100% full prepayment of selected procedure's official price)
@@ -466,7 +520,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                   <span className="font-jakarta text-[10px] text-[#D4AF37] font-semibold">
                     {isDateBlocked(selectedDate)
                       ? '0 horários abertos (Data Bloqueada)'
-                      : `${timeSlots.filter(s => s.status === 'disponivel' && s.active).length} horários abertos`}
+                      : `${timeSlots.filter(s => s.active && s.status === 'disponivel' && !isSlotUnavailable(selectedDate, s.time).blocked).length} horários abertos`}
                   </span>
                 </div>
 
@@ -483,7 +537,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                 ) : (
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-2.5">
                     {timeSlots.filter(s => s.active).map(slot => {
-                      const isBlocked = slot.status === 'bloqueado' || slot.status === 'autoclave' || slot.status === 'almoco';
+                      const intervalConflict = isSlotUnavailable(selectedDate, slot.time);
+                      const isBlocked = slot.status === 'bloqueado' || slot.status === 'autoclave' || slot.status === 'almoco' || intervalConflict.blocked;
                       const isSelected = selectedTime === slot.time && !isBlocked;
 
                       return (
@@ -499,7 +554,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                               ? 'bg-[#D4AF37] text-[#3C2F00] border-[#D4AF37] font-bold shadow-xs cursor-pointer'
                               : 'bg-[#FDFBF9] border-[#E8D9B5] text-[#49382E] hover:border-[#D4AF37]/50 cursor-pointer'
                           }`}
-                          title={slot.note || (isBlocked ? 'Horário Bloqueado' : 'Horário Disponível')}
+                          title={slot.note || intervalConflict.reason || (isBlocked ? 'Horário Bloqueado' : 'Horário Disponível')}
                         >
                           <span className="font-syne text-sm font-bold block">{slot.time}</span>
                           <span className="text-[10px] block font-jakarta truncate max-w-full px-1">
