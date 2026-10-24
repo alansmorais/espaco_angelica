@@ -330,13 +330,14 @@ export default function App() {
     setBlacklist(next);
   };
 
-  const handleUpdateStudioAddress = async (next: StudioAddressConfig) => {
+  const handleUpdateStudioAddress = async (next: StudioAddressConfig): Promise<boolean> => {
     const result = await saveRemoteAppSetting('STUDIO_ADDRESS', next, adminSessionToken);
     if (!result.success) {
       window.alert('Não foi possível salvar o endereço na planilha oficial. ' + (result.error || ''));
-      return;
+      return false;
     }
     setStudioAddress(next);
+    return true;
   };
 
   const handleUpdatePaymentConfig = async (next: PaymentConfig): Promise<boolean> => {
