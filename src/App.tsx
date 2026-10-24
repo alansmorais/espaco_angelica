@@ -851,7 +851,7 @@ export default function App() {
       servicePrice: 'R$ 0,00',
       serviceDuration: data.timeSpan,
       date: data.date,
-      time: isAllDay ? 'Dia Inteiro' : (data.timeSpan.split(' ')[0] || '09:00'),
+      time: isAllDay ? 'Dia Inteiro' : data.timeSpan,
       status: 'bloqueado',
       paymentMode: 'sinal_40',
       depositAmount: 0,
