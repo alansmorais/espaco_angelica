@@ -733,15 +733,15 @@ export interface RemoteScheduleConfig {
   error?: string;
 }
 
-async function callScheduleAction(action: string, extra: Record<string, unknown> = {}): Promise<any> {
+async function callScheduleAction(action: string, extra: Record<string, unknown> = {}, authToken?: string): Promise<any> {
   const url = getNotificationWebhookUrl();
-  const token = getNotificationWebhookToken().trim();
+  const token = (authToken || getNotificationWebhookToken()).trim();
   if (!url) throw new Error('URL do Google Apps Script não configurada.');
-  if (!token) throw new Error('Token do Apps Script não configurado no painel administrativo.');
+  if (!token) throw new Error('Sessão/token administrativo do Apps Script não configurado.');
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
-    body: JSON.stringify({ action, token, ...extra })
+    body: JSON.stringify({ action, ...extra, token })
   });
   const data = await response.json().catch(() => null);
   if (!response.ok || !data || data.status !== 'success') {
@@ -750,9 +750,9 @@ async function callScheduleAction(action: string, extra: Record<string, unknown>
   return data;
 }
 
-export async function fetchRemoteScheduleConfig(): Promise<RemoteScheduleConfig> {
+export async function fetchRemoteScheduleConfig(authToken?: string): Promise<RemoteScheduleConfig> {
   try {
-    const data = await callScheduleAction('getScheduleConfig');
+    const data = await callScheduleAction('getScheduleConfig', {}, authToken);
     return {
       success: true,
       weeklySchedule: data.weeklySchedule && typeof data.weeklySchedule === 'object' ? data.weeklySchedule : null,
@@ -764,10 +764,11 @@ export async function fetchRemoteScheduleConfig(): Promise<RemoteScheduleConfig>
 }
 
 export async function saveRemoteWeeklySchedule(
-  weeklySchedule: Record<string, unknown>
+  weeklySchedule: Record<string, unknown>,
+  authToken?: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const data = await callScheduleAction('saveWeeklySchedule', { weeklySchedule });
+    const data = await callScheduleAction('saveWeeklySchedule', { weeklySchedule }, authToken);
     return data.saved === true
       ? { success: true }
       : { success: false, error: 'Apps Script não confirmou a gravação da agenda semanal.' };
@@ -777,10 +778,11 @@ export async function saveRemoteWeeklySchedule(
 }
 
 export async function saveRemoteScheduleBlock(
-  block: SavedScheduleBlock
+  block: SavedScheduleBlock,
+  authToken?: string
 ): Promise<{ success: boolean; block?: SavedScheduleBlock; error?: string }> {
   try {
-    const data = await callScheduleAction('saveScheduleBlock', { block });
+    const data = await callScheduleAction('saveScheduleBlock', { block }, authToken);
     return data.saved === true
       ? { success: true, block: data.block }
       : { success: false, error: 'Apps Script não confirmou a gravação do bloqueio.' };
@@ -790,10 +792,11 @@ export async function saveRemoteScheduleBlock(
 }
 
 export async function deleteRemoteScheduleBlock(
-  blockId: string
+  blockId: string,
+  authToken?: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const data = await callScheduleAction('deleteScheduleBlock', { blockId });
+    const data = await callScheduleAction('deleteScheduleBlock', { blockId }, authToken);
     return data.deleted === true || data.notFound === true
       ? { success: true }
       : { success: false, error: 'Apps Script não confirmou a exclusão do bloqueio.' };
@@ -868,9 +871,9 @@ export interface DrivePhoto {
 }
 
 /** Lista fotos da pasta oficial via Apps Script, protegendo a ação com o token administrativo configurado. */
-export async function listDrivePhotos(): Promise<{ success: boolean; photos?: DrivePhoto[]; error?: string }> {
+export async function listDrivePhotos(authToken?: string): Promise<{ success: boolean; photos?: DrivePhoto[]; error?: string }> {
   const endpoint = getNotificationWebhookUrl();
-  const token = getNotificationWebhookToken();
+  const token = (authToken || (typeof window !== 'undefined' ? sessionStorage.getItem('angelica_admin_session') || '' : '') || getNotificationWebhookToken()).trim();
   if (!endpoint) return { success: false, error: 'Configure o URL do Google Apps Script nas definições antes de selecionar fotos.' };
   if (!token) return { success: false, error: 'Token administrativo do Google Apps Script não configurado.' };
   try {
@@ -893,63 +896,31 @@ export async function uploadServicePhoto(
   file: File,
   authToken?: string
 ): Promise<{ success: boolean; url?: string; error?: string }> {
+  const validMimes = ['image/jpeg', 'image/png', 'image/webp'];
+  if (!validMimes.includes(file.type)) {
+    return { success: false, error: 'Formato não suportado. Por favor utilize JPEG, PNG ou WebP.' };
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    return { success: false, error: 'A imagem deve ter no máximo 5MB.' };
+  }
+  const token = (authToken || (typeof window !== 'undefined' ? sessionStorage.getItem('angelica_admin_session') || '' : '') || getNotificationWebhookToken()).trim();
+  if (!token) return { success: false, error: 'Sessão administrativa do Google Apps Script não configurada.' };
   try {
-    const validMimes = ['image/jpeg', 'image/png', 'image/webp'];
-    if (!validMimes.includes(file.type)) {
-      return {
-        success: false,
-        error: 'Formato não suportado. Por favor utilize JPEG, PNG ou WebP.'
-      };
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      return {
-        success: false,
-        error: 'A imagem deve ter no máximo 5MB.'
-      };
-    }
-
-    const base64 = await new Promise<string>((resolve, reject) => {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Não foi possível ler o arquivo de imagem.'));
       reader.readAsDataURL(file);
     });
-
-    const backendBase = getBackendApiUrl();
-    const targetUrl = backendBase ? `${backendBase}/api/upload-photo` : '/api/upload-photo';
-    const token = (authToken || '').trim();
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Accept: 'application/json'
-    };
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-
-    const response = await fetch(targetUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        imageBase64: base64,
-        fileName: file.name,
-        mimeType: file.type
-      })
-    });
-
-    let data: any;
-    try {
-      data = await response.json();
-    } catch {
-      return { success: false, error: 'Resposta inválida do servidor ao enviar foto.' };
-    }
-
-    if (response.ok && data?.success && data?.url) {
-      return { success: true, url: data.url };
-    }
-
-    return { success: false, error: data?.error || `Erro HTTP ${response.status} ao processar foto.` };
+    const imageBase64 = dataUrl.includes(',') ? dataUrl.slice(dataUrl.indexOf(',') + 1) : dataUrl;
+    const data = await callScheduleAction('uploadPhoto', {
+      imageBase64,
+      fileName: file.name,
+      mimeType: file.type
+    }, token);
+    if (typeof data.url === 'string' && data.url) return { success: true, url: data.url };
+    return { success: false, error: data.message || 'O Apps Script não confirmou o upload para o Google Drive.' };
   } catch (err: any) {
-    return { success: false, error: `Falha no upload: ${err.message || 'servidor indisponível'}.` };
+    return { success: false, error: err?.message || 'Falha ao enviar a foto para o Google Drive.' };
   }
 }
