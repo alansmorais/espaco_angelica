@@ -319,13 +319,14 @@ export default function App() {
     setStudioAddress(next);
   };
 
-  const handleUpdateWhatsappConfig = async (next: WhatsAppConfig) => {
+  const handleUpdateWhatsappConfig = async (next: WhatsAppConfig): Promise<boolean> => {
     const result = await saveRemoteAppSetting('WHATSAPP_CONFIG', next, adminSessionToken);
     if (!result.success) {
       window.alert('Não foi possível salvar as configurações do WhatsApp na planilha oficial. ' + (result.error || ''));
-      return;
+      return false;
     }
     setWhatsappConfig(next);
+    return true;
   };
 
   const persistWeeklySchedule = async (nextDays: DayScheduleConfig[], nextSlots: TimeSlotConfig[]): Promise<boolean> => {
@@ -1286,6 +1287,7 @@ export default function App() {
 
               {adminTab === 'configuracoes' && (
                 <SettingsTab
+                   adminSessionToken={adminSessionToken}
                   timeSlots={timeSlots}
                   onUpdateTimeSlots={handleUpdateTimeSlots}
                   daySchedules={daySchedules}
