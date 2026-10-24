@@ -700,6 +700,30 @@ function getPublicPaymentConfigData() {
   };
 }
 
+function getPublicGalleryPhotosData() {
+  try {
+    var folder = DriveApp.getFolderById("1JGypjL9OqGL5i2OUrjiGMKxkWD11YuAw");
+    var files = folder.getFiles();
+    var photos = [];
+    while (files.hasNext()) {
+      var file = files.next();
+      if (file.isTrashed() || String(file.getMimeType() || "").indexOf("image/") !== 0) continue;
+      var id = file.getId();
+      photos.push({
+        id: id,
+        title: String(file.getName() || "").replace(/\.[^.]+$/, ""),
+        subtitle: "Portfólio Espaço Angélica do Carmo",
+        url: "https://drive.google.com/uc?export=view&id=" + id,
+        thumbnailUrl: "https://drive.google.com/thumbnail?id=" + id + "&sz=w800"
+      });
+    }
+    return { status: "success", photos: photos };
+  } catch (error) {
+    console.error("Public gallery read failed: " + error);
+    return { status: "error", message: "A galeria oficial do Google Drive está indisponível." };
+  }
+}
+
 function doPost(e) {
   try {
     if (!e || !e.postData || !e.postData.contents) {
@@ -710,7 +734,7 @@ function doPost(e) {
 
     // Agendamento público: usa validações de cliente, catálogo, data, horário,
     // concorrência e duplicidade abaixo. Ações administrativas continuam exigindo token.
-    var isPublicBooking = data.action === "createBooking" || data.action === "getPublicSchedule" || data.action === "getPublicAvailability" || data.action === "getPublicStudioAddress" || data.action === "getPublicPaymentConfig" || data.action === "getServices" || data.action === "createAdminSession";
+    var isPublicBooking = data.action === "createBooking" || data.action === "getPublicSchedule" || data.action === "getPublicAvailability" || data.action === "getPublicStudioAddress" || data.action === "getPublicPaymentConfig" || data.action === "getPublicGalleryPhotos" || data.action === "getServices" || data.action === "createAdminSession";
     if (!isPublicBooking) {
       var tokenProvided = data.token || data.authToken || data.key || (e.parameter && e.parameter.token);
       var auth = validateAuthorization(tokenProvided);
@@ -728,6 +752,7 @@ function doPost(e) {
     if (data.action === "getPublicAvailability") return responseJSON(getPublicAvailabilityData());
     if (data.action === "getPublicStudioAddress") return responseJSON(getPublicStudioAddressData());
     if (data.action === "getPublicPaymentConfig") return responseJSON(getPublicPaymentConfigData());
+    if (data.action === "getPublicGalleryPhotos") return responseJSON(getPublicGalleryPhotosData());
 
     if (data.action === "getPublicSchedule") {    return responseJSON(getPublicScheduleData());  }    // Persistent weekly schedule and date/time blocks.
     // These administrative actions use the authorization check above.
