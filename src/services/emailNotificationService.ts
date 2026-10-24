@@ -537,6 +537,7 @@ export async function fetchPublicAvailability(): Promise<PublicAvailabilityResul
       serviceTitle: '',
       date: String(slot.date || ''),
       time: String(slot.time || ''),
+      serviceDuration: String(slot.serviceDuration || ''),
       status: String(slot.status || 'pendente_pix') as Appointment['status']
     }));
     return {
