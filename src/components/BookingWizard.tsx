@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Service, Appointment, TimeSlotConfig, BlacklistEntry, StudioAddressConfig, RecurrenceConfig, DayScheduleConfig } from '../types';
-import { INITIAL_TIME_SLOTS, INITIAL_BLACKLIST, STUDIO_ADDRESS } from '../data/mockData';
 import {
   buildOfficialWhatsAppUrl,
   calculateDeposit40,
@@ -27,9 +26,9 @@ interface BookingWizardProps {
 export const BookingWizard: React.FC<BookingWizardProps> = ({
   selectedService,
   onBookingConfirmed,
-  timeSlots = INITIAL_TIME_SLOTS,
-  blacklist = INITIAL_BLACKLIST,
-  studioAddress = STUDIO_ADDRESS,
+  timeSlots = [],
+  blacklist = [],
+  studioAddress = { street: '', number: '', neighborhood: '', city: '', state: '', fullAddress: '', mapsUrl: '', wazeUrl: '' },
   services = [],
   onSelectService,
   appointments = [],
