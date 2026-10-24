@@ -1197,7 +1197,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                     remainingBalance: balanceRemaining,
                     paymentMode: confirmedAppointment?.paymentMode || effectivePaymentMode,
                     pixKey: paymentConfig.pixKey,
-                    pixBeneficiary: paymentConfig.pixBeneficiary
+                    pixBeneficiary: paymentConfig.pixBeneficiary,
+                    depositPercent: paymentConfig.depositAmount
                   })}
                   target="_blank"
                   rel="noopener noreferrer"
