@@ -287,7 +287,7 @@ function doPost(e) {
     // booking flow below. Do not persist bookings in an early shortcut that bypasses
     // official service, payment, duration, conflict and concurrency validation.
 
-    if (data.action === "getPublicSchedule") {\n      return responseJSON(getPublicScheduleData());\n    }\n\n    // Persistent weekly schedule and date/time blocks.
+    if (data.action === "getPublicSchedule") {    return responseJSON(getPublicScheduleData());  }    // Persistent weekly schedule and date/time blocks.
     // These administrative actions use the authorization check above.
     if (data.action === "getScheduleConfig") {
       return responseJSON(getScheduleConfigData());
