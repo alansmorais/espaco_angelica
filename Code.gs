@@ -563,6 +563,127 @@ function getPublicStudioAddressData() {
   return { status: "success", address: data.settings && data.settings.STUDIO_ADDRESS ? data.settings.STUDIO_ADDRESS : null };
 }
 
+function normalizeClientPhoneKey(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function getOrCreateClientsSheet() {
+  var ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
+  var sheet = ss.getSheetByName("Clientes");
+  if (!sheet) {
+    sheet = ss.insertSheet("Clientes");
+    sheet.getRange(1, 1, 1, 4).setValues([["ID", "Telefone Normalizado", "Perfil JSON", "Atualizado em"]]);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function getClientsData() {
+  var profilesByPhone = {};
+  var clientSheet = getOrCreateClientsSheet();
+  var savedRows = clientSheet.getDataRange().getValues();
+  for (var i = 1; i < savedRows.length; i++) {
+    var savedPhone = normalizeClientPhoneKey(savedRows[i][1]);
+    var rawProfile = String(savedRows[i][2] || "");
+    if (!savedPhone || !rawProfile) continue;
+    try { profilesByPhone[savedPhone] = JSON.parse(rawProfile); } catch (parseError) {
+      console.error("Invalid client profile JSON on row " + (i + 1));
+    }
+  }
+
+  var appointmentsSheet = getOfficialSheet();
+  if (appointmentsSheet) {
+    var rows = appointmentsSheet.getDataRange().getValues();
+    var derived = {};
+    for (var r = 1; r < rows.length; r++) {
+      var row = rows[r];
+      var phone = String(row[2] || "");
+      var phoneKey = normalizeClientPhoneKey(phone);
+      var name = String(row[1] || "").trim();
+      if (!phoneKey || !name || String(row[8] || "").toLowerCase() === "bloqueado") continue;
+      var profile = derived[phoneKey];
+      if (!profile) {
+        var saved = profilesByPhone[phoneKey] || {};
+        var initials = name.split(/\s+/).map(function(part) { return part.charAt(0); }).slice(0, 2).join("").toUpperCase();
+        profile = {
+          id: saved.id || ("client-" + phoneKey),
+          name: name,
+          initials: initials,
+          phone: phone,
+          tier: saved.tier || "1ª Sessão",
+          status: saved.status || "nova",
+          lastVisit: saved.lastVisit || "",
+          lastService: "",
+          nextMaintenanceDays: Number(saved.nextMaintenanceDays || 0),
+          daysRemainingOrOverdue: String(saved.daysRemainingOrOverdue || ""),
+          isOverdue: saved.isOverdue === true,
+          ltv: Number(saved.ltv || 0),
+          ltvFormatted: String(saved.ltvFormatted || "R$ 0,00"),
+          laminaType: String(saved.laminaType || ""),
+          oiliness: String(saved.oiliness || ""),
+          allergies: String(saved.allergies || ""),
+          onycholysis: String(saved.onycholysis || ""),
+          preferredShape: String(saved.preferredShape || ""),
+          preferredColor: String(saved.preferredColor || ""),
+          products: saved.products && typeof saved.products === "object" ? saved.products : { preparer: "", baseGel: "", tensionPoint: "", topCoat: "" },
+          privateNotes: String(saved.privateNotes || ""),
+          isBlacklisted: saved.isBlacklisted === true,
+          blacklistReason: String(saved.blacklistReason || "")
+        };
+        derived[phoneKey] = profile;
+      }
+      profile.name = name;
+      profile.phone = phone;
+      profile.initials = name.split(/\s+/).map(function(part) { return part.charAt(0); }).slice(0, 2).join("").toUpperCase();
+      profile.lastService = String(row[4] || profile.lastService || "");
+      if (String(row[8] || "").toLowerCase() === "concluido") {
+        profile.lastVisit = String(row[5] || "") + (row[6] ? " às " + String(row[6]) : "");
+      }
+      profile._bookingCount = Number(profile._bookingCount || 0) + 1;
+      if (profile._bookingCount > 1 && !profilesByPhone[phoneKey]?.tier) {
+        profile.tier = "Frequente";
+        profile.status = "frequente";
+      }
+    }
+    Object.keys(derived).forEach(function(key) { profilesByPhone[key] = derived[key]; });
+  }
+
+  return { status: "success", clients: Object.keys(profilesByPhone).map(function(key) {
+    var profile = profilesByPhone[key];
+    delete profile._bookingCount;
+    return profile;
+  }) };
+}
+
+function saveClientProfile(profile) {
+  if (!profile || typeof profile !== "object" || Array.isArray(profile)) {
+    return { status: "error", saved: false, message: "Perfil de cliente inválido." };
+  }
+  var name = String(profile.name || "").trim();
+  var phone = String(profile.phone || "").trim();
+  var phoneKey = normalizeClientPhoneKey(phone);
+  var id = String(profile.id || "").trim();
+  if (!name || !phoneKey || !id) {
+    return { status: "error", saved: false, message: "Nome, telefone e ID são obrigatórios para salvar a cliente." };
+  }
+  var sheet = getOrCreateClientsSheet();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    var rows = sheet.getDataRange().getValues();
+    for (var i = 1; i < rows.length; i++) {
+      if (String(rows[i][0] || "") === id || normalizeClientPhoneKey(rows[i][1]) === phoneKey) {
+        sheet.getRange(i + 1, 1, 1, 4).setValues([[id, phoneKey, JSON.stringify(profile), new Date()]]);
+        return { status: "success", saved: true, clientId: id };
+      }
+    }
+    sheet.getRange(sheet.getLastRow() + 1, 1, 1, 4).setValues([[id, phoneKey, JSON.stringify(profile), new Date()]]);
+    return { status: "success", saved: true, clientId: id };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function doPost(e) {
   try {
     if (!e || !e.postData || !e.postData.contents) {
@@ -627,6 +748,13 @@ function doPost(e) {
     }
     if (data.action === "sendWhatsAppConfirmation") {
       return responseJSON(processWhatsAppConfirmation(data, false));
+    }
+
+    if (data.action === "getClients") {
+      return responseJSON(getClientsData());
+    }
+    if (data.action === "saveClient") {
+      return responseJSON(saveClientProfile(data.client));
     }
 
     // 2. Leitura administrativa segura via POST (token no corpo)
