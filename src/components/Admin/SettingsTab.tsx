@@ -805,16 +805,8 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
               className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:border-[#D4AF37] outline-none"
             />
           </div>
-          <div>
-            <label className="block text-[#49382E] font-semibold mb-1">
-              Desconto VIP p/ Pré-pagamento Total 100% (%)
-            </label>
-            <input
-              type="number"
-              value={prepayDiscount}
-              onChange={e => setPrepayDiscount(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:border-[#D4AF37] outline-none"
-            />
+          <div className="flex items-center text-xs text-[#786C63]">
+            O pré-pagamento integral é de 100% do preço oficial, sem desconto.
           </div>
         </div>
 
