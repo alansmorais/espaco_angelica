@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { SERVICES_CATALOG, SERVICE_PHOTO_PRESETS } from '../../data/mockData';
+import { SERVICE_PHOTO_PRESETS } from '../../data/mockData';
 import { Service, ServiceCategory, Appointment } from '../../types';
 import { uploadServicePhoto, listDrivePhotos, DrivePhoto } from '../../services/emailNotificationService';
 
@@ -70,7 +70,7 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
   appointments = [],
   adminSessionToken
 }) => {
-  const [internalServices, setInternalServices] = useState<Service[]>(SERVICES_CATALOG);
+  const [internalServices, setInternalServices] = useState<Service[]>([]);
   const services = propServices || internalServices;
 
   // Real KPI calculations from genuine appointments
@@ -239,7 +239,7 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
     setIsDrivePickerOpen(true);
     setIsLoadingDrivePhotos(true);
     setDrivePhotoError(null);
-    const result = await listDrivePhotos();
+    const result = await listDrivePhotos(adminSessionToken);
     if (result.success) setDrivePhotos(result.photos || []);
     else setDrivePhotoError(result.error || 'Não foi possível carregar as fotos.');
     setIsLoadingDrivePhotos(false);
