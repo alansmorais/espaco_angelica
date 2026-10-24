@@ -784,10 +784,6 @@ function doPost(e) {
       if (!isValidBookingTime(requestedTimeKey)) {
         return responseJSON({ status: "error", message: "Horário inválido. Use o formato HH:mm." });
       }
-      var requestedWeekday = new Date(requestedDateKey + "T12:00:00-03:00").getUTCDay();
-      if (requestedWeekday === 0 || requestedWeekday === 1) {
-        return responseJSON({ status: "error", message: "O estúdio atende de terça-feira a sábado. Selecione outro dia." });
-      }
       var location = data.appointmentLocation === undefined ? "salon" : String(data.appointmentLocation).trim();
       if (location !== "salon" && location !== "home") {
         return responseJSON({ status: "error", message: "Local de atendimento inválido." });
