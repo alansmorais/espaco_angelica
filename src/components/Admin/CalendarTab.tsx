@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Appointment, TimeSlotConfig, Service } from '../../types';
-import { INITIAL_TIME_SLOTS } from '../../data/mockData';
 import { sendAppointmentWhatsAppConfirmation } from '../../services/whatsappService';
 import { formatBRL, areDatesEqual } from '../../services/notificationTemplates';
 import { EditAppointmentModal } from '../Modals/EditAppointmentModal';
@@ -21,7 +20,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
   onOpenExtraEncaixeModal,
   onSelectClientForDossier,
   appointments = [],
-  timeSlots = INITIAL_TIME_SLOTS,
+  timeSlots = [],
   services = [],
   onUpdateAppointment,
   onDeleteAppointment
@@ -90,7 +89,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
       if (onUpdateAppointment) {
         onUpdateAppointment({
           ...apt,
-          whatsappStatus: res.success ? 'enviado' : 'falha',
+          whatsappStatus: res.status === 'sent' ? 'enviado' : res.status === 'simulated' ? 'simulado' : 'falha',
           whatsappSentAt: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
           whatsappLastMessage: res.previewText || res.message
         });

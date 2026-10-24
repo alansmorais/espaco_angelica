@@ -60,17 +60,45 @@ function uploadImageToDrive(base64Data, fileName, mimeType) {
 }
 
 function validateAuthorization(tokenProvided) {
-  var expectedToken = PropertiesService.getScriptProperties().getProperty("APPS_SCRIPT_TOKEN");
+  var provided = String(tokenProvided || "").trim();
+  if (!provided) return { valid: false, error: "Acesso não autorizado: token de autorização inválido ou ausente." };
 
-  if (!expectedToken || String(expectedToken).trim() === "") {
-    return { valid: false, error: "Configuração incompleta: APPS_SCRIPT_TOKEN ausente nas Propriedades do Script." };
+  var expectedToken = String(PropertiesService.getScriptProperties().getProperty("APPS_SCRIPT_TOKEN") || "").trim();
+  if (expectedToken && provided === expectedToken) return { valid: true };
+
+  try {
+    if (CacheService.getScriptCache().get("ADMIN_SESSION_" + provided) === "1") {
+      return { valid: true, session: true };
+    }
+  } catch (cacheError) {
+    console.error("Unable to validate admin session: " + cacheError);
   }
 
-  if (!tokenProvided || String(tokenProvided).trim() !== String(expectedToken).trim()) {
-    return { valid: false, error: "Acesso não autorizado: token de autorização inválido ou ausente." };
-  }
+  return {
+    valid: false,
+    error: expectedToken
+      ? "Acesso não autorizado: sessão inválida ou expirada."
+      : "Configuração incompleta: APPS_SCRIPT_TOKEN ausente nas Propriedades do Script."
+  };
+}
 
-  return { valid: true };
+function createAdminSession(password) {
+  var configuredPassword = String(PropertiesService.getScriptProperties().getProperty("ADMIN_PASSWORD") || "");
+  if (!configuredPassword) {
+    return { status: "error", success: false, message: "Configure ADMIN_PASSWORD nas Propriedades do Script do Google Apps Script antes de entrar no painel." };
+  }
+  if (!password || String(password) !== configuredPassword) {
+    return { status: "error", success: false, message: "Senha administrativa incorreta." };
+  }
+  var token = Utilities.getUuid().replace(/-/g, "") + Utilities.getUuid().replace(/-/g, "");
+  CacheService.getScriptCache().put("ADMIN_SESSION_" + token, "1", 21600);
+  return { status: "success", success: true, token: token, expiresInSeconds: 21600 };
+}
+
+function revokeAdminSession(token) {
+  var provided = String(token || "").trim();
+  if (provided) CacheService.getScriptCache().remove("ADMIN_SESSION_" + provided);
+  return { status: "success", success: true };
 }
 
 function responseJSON(obj) {
@@ -215,6 +243,54 @@ function getPublicScheduleData() {
   }
 }
 
+function getPublicAvailabilityData() {
+  var sheet = getOfficialSheet();
+  if (!sheet) return { status: "error", success: false, message: "Aba 'Agendamentos' não encontrada na planilha oficial." };
+
+  var values = sheet.getDataRange().getValues();
+  var slots = [];
+  var blockedDates = [];
+  var tz = Session.getScriptTimeZone() || "America/Sao_Paulo";
+  for (var i = 1; i < values.length; i++) {
+    var row = values[i];
+    if (!row[5]) continue;
+    var dateKey = normalizeBookingDate(row[5]);
+    var timeKey = normalizeBookingTime(row[6]);
+    var status = String(row[8] || "pendente_pix").trim();
+    if (!dateKey) continue;
+    if (status.toLowerCase() === "bloqueado" && (!timeKey || timeKey.toLowerCase() === "dia inteiro")) {
+      blockedDates.push(dateKey);
+      continue;
+    }
+    if (!row[9] && !row[1]) continue;
+    slots.push({
+      id: String(row[9] || ("apt-sheet-" + i)),
+      date: dateKey,
+      time: timeKey,
+      status: status,
+      serviceDuration: getServiceDurationMinutes(String(row[15] || ""), String(row[4] || "")) + " min"
+    });
+  }
+
+  var schedule = getPublicScheduleData();
+  if (schedule.status !== "success") {
+    return { status: "error", success: false, message: schedule.message || "Configuração da agenda indisponível." };
+  }
+  var scheduleBlocks = schedule.blocks || [];
+  scheduleBlocks.forEach(function(block) {
+    if (block && block.active !== false && block.allDay === true && block.date) blockedDates.push(String(block.date));
+  });
+  return {
+    status: "success",
+    success: true,
+    slots: slots,
+    blockedDates: Array.from(new Set(blockedDates)),
+    scheduleBlocks: scheduleBlocks,
+    weeklySchedule: schedule.weeklySchedule || null,
+    updatedAt: new Date().toISOString()
+  };
+}
+
 function validateAgainstSavedSchedule(dateKey, timeKey, durationMinutes) {
   var config = getScheduleConfigData();
   var start = timeToMinutes(timeKey);
@@ -264,6 +340,390 @@ function validateAgainstSavedSchedule(dateKey, timeKey, durationMinutes) {
   return { allowed: true };
 }
 
+function normalizeWhatsAppPhone(value) {
+  var digits = String(value || "").replace(/\D/g, "");
+  if (digits.length === 8 || digits.length === 9) digits = "5512" + digits;
+  else if (digits.length === 10 || digits.length === 11) digits = "55" + digits;
+  return { normalized: digits, valid: /^55\d{10,11}$/.test(digits) };
+}
+
+function formatWhatsAppBRL(value) {
+  return Number(value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function buildWhatsAppConfirmationText(data) {
+  var address = String(data.studioAddress || "Rua Vereador José Luiz Soares, 92 - Pontal da Cruz, São Sebastião - SP");
+  var price = String(data.servicePrice || "");
+  var deposit = data.depositAmount !== undefined && data.depositAmount !== null && data.depositAmount !== ""
+    ? "R$ " + formatWhatsAppBRL(data.depositAmount) : "";
+  var paymentLabel = data.paymentMode === "pre_pagamento_100" ? "Pré-pagamento (100%)" : "Sinal (40%)";
+  var custom = String(data.customTemplate || "").trim();
+  if (custom) {
+    return custom.replace(/{cliente}/g, String(data.clientName || ""))
+      .replace(/{servico}/g, String(data.serviceTitle || "Procedimento"))
+      .replace(/{data}/g, String(data.date || "Hoje"))
+      .replace(/{horario}/g, String(data.time || "Horário agendado"))
+      .replace(/{valor}/g, price)
+      .replace(/{endereco}/g, address)
+      .replace(/{sinal}/g, deposit);
+  }
+
+  var text = "✨ *Confirmação de Agendamento • Espaço Angélica do Carmo* ✨\n\n" +
+    "Olá, *" + String(data.clientName || "") + "*! Seu horário no nosso atelier privativo foi *CONFIRMADO* com sucesso na grade. 💅✨\n\n" +
+    "📋 *Detalhes do seu atendimento:*\n" +
+    "• *Procedimento:* " + String(data.serviceTitle || "Procedimento de Nail Design") + "\n" +
+    "• *Data:* " + String(data.date || "Hoje") + "\n" +
+    "• *Horário:* às " + String(data.time || "Horário agendado");
+  if (price) text += "\n💳 *Valor do Procedimento:* " + price;
+  if (deposit) text += "\n💰 *" + paymentLabel + ":* " + deposit + " (" + (data.depositStatus === "liquidado" ? "Confirmado via Pix" : "Aguardando validação") + ")";
+  text += "\n\n📍 *Endereço:* " + address + "\n\n" +
+    "ℹ️ *Orientações importantes:*\n" +
+    "• Pedimos a gentileza de chegar com 5 a 10 minutos de antecedência.\n" +
+    "• Mudanças de data exigem pelo menos 24 horas de antecedência, mantendo o sinal pago.\n" +
+    "• Em caso de desistência ou não comparecimento, o sinal não é reembolsado.\n\n" +
+    "Qualquer dúvida ou caso queira enviar uma foto de referência de nail art, pode responder a esta mensagem. Mal podemos esperar para cuidar de você! 💕";
+  return text;
+}
+
+function getWhatsAppStatusData() {
+  var props = PropertiesService.getScriptProperties();
+  var token = props.getProperty("WHATSAPP_API_TOKEN") || props.getProperty("WHATSAPP_TOKEN") || props.getProperty("META_WA_TOKEN");
+  var phoneId = props.getProperty("WHATSAPP_PHONE_NUMBER_ID") || props.getProperty("META_PHONE_NUMBER_ID");
+  var businessId = props.getProperty("WHATSAPP_BUSINESS_ACCOUNT_ID");
+  var version = props.getProperty("WHATSAPP_API_VERSION") || "v20.0";
+  var configured = Boolean(token && phoneId);
+  var logs = getWhatsAppLogsData();
+  return {
+    status: configured ? "configured" : "sandbox_simulation",
+    mode: configured ? "Meta WhatsApp Cloud API (via Apps Script)" : "Modo manual/simulação — configure as chaves Meta nas Propriedades do Script",
+    isConfigured: configured,
+    phoneNumberIdConfigured: Boolean(phoneId),
+    tokenConfigured: Boolean(token),
+    businessAccountIdConfigured: Boolean(businessId),
+    apiVersion: version,
+    totalLogs: logs.length
+  };
+}
+
+function getWhatsAppLogsData() {
+  var ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
+  var sheet = ss.getSheetByName("Logs WhatsApp");
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  var values = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.min(10, sheet.getLastColumn())).getValues();
+  return values.reverse().slice(0, 50).map(function(row) {
+    return {
+      id: String(row[0] || ""),
+      recipientPhone: String(row[1] || ""),
+      recipientName: String(row[2] || ""),
+      appointmentId: String(row[3] || ""),
+      serviceTitle: String(row[4] || ""),
+      dateTime: String(row[5] || ""),
+      status: String(row[6] || "failed"),
+      timestamp: row[7] instanceof Date ? row[7].toISOString() : String(row[7] || ""),
+      messageText: String(row[8] || ""),
+      error: String(row[9] || "") || undefined
+    };
+  });
+}
+
+function saveWhatsAppLog(log) {
+  var ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
+  var sheet = ss.getSheetByName("Logs WhatsApp");
+  if (!sheet) {
+    sheet = ss.insertSheet("Logs WhatsApp");
+    sheet.getRange(1, 1, 1, 10).setValues([["ID", "Telefone", "Nome", "ID Agendamento", "Serviço", "Data/Hora", "Status", "Criado em", "Mensagem", "Erro"]]);
+    sheet.setFrozenRows(1);
+  }
+  sheet.getRange(sheet.getLastRow() + 1, 1, 1, 10).setValues([[log.id, log.recipientPhone, log.recipientName, log.appointmentId || "", log.serviceTitle || "", log.dateTime || "", log.status, new Date(log.timestamp), log.messageText, log.error || ""]]);
+}
+
+function processWhatsAppConfirmation(data, forceSimulation) {
+  if (!data.clientName || !data.clientPhone) {
+    return { success: false, status: "failed", error: "Nome e telefone da cliente são obrigatórios para envio da confirmação." };
+  }
+  var phone = normalizeWhatsAppPhone(data.clientPhone);
+  if (!phone.valid) return { success: false, status: "failed", error: "Número de telefone inválido para envio via WhatsApp." };
+
+  var messageText = buildWhatsAppConfirmationText(data);
+  var fallbackUrl = "https://wa.me/" + phone.normalized + "?text=" + encodeURIComponent(messageText);
+  var isTest = forceSimulation || (String(data.appointmentId || "").indexOf("test-") === 0) ||
+    String(data.depositStatus || "") === "teste_sistema" ||
+    String(data.clientName || "").toLowerCase().indexOf("teste_sistema") >= 0;
+
+  var props = PropertiesService.getScriptProperties();
+  var apiToken = props.getProperty("WHATSAPP_API_TOKEN") || props.getProperty("WHATSAPP_TOKEN") || props.getProperty("META_WA_TOKEN");
+  var phoneNumberId = props.getProperty("WHATSAPP_PHONE_NUMBER_ID") || props.getProperty("META_PHONE_NUMBER_ID");
+  var apiVersion = props.getProperty("WHATSAPP_API_VERSION") || "v20.0";
+  var log = {
+    id: "wa-log-" + Utilities.getUuid(),
+    recipientPhone: phone.normalized,
+    recipientName: String(data.clientName),
+    appointmentId: String(data.appointmentId || ""),
+    serviceTitle: String(data.serviceTitle || ""),
+    dateTime: String(data.date || "") + " às " + String(data.time || ""),
+    status: "simulated",
+    timestamp: new Date().toISOString(),
+    messageText: messageText,
+    error: ""
+  };
+
+  if (isTest) {
+    return { success: true, status: "simulated", mode: "test_isolated", normalizedPhone: phone.normalized, previewText: messageText, fallbackUrl: fallbackUrl, message: "Teste isolado: nenhuma mensagem foi enviada nem gravada nos logs reais." };
+  }
+
+  if (apiToken && phoneNumberId) {
+    try {
+      var metaResponse = UrlFetchApp.fetch("https://graph.facebook.com/" + apiVersion + "/" + phoneNumberId + "/messages", {
+        method: "post",
+        contentType: "application/json",
+        headers: { Authorization: "Bearer " + apiToken },
+        payload: JSON.stringify({
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: phone.normalized,
+          type: "text",
+          text: { preview_url: false, body: messageText }
+        }),
+        muteHttpExceptions: true
+      });
+      var metaText = metaResponse.getContentText();
+      var metaData;
+      try { metaData = JSON.parse(metaText); } catch (parseError) { metaData = { raw: metaText }; }
+      if (metaResponse.getResponseCode() >= 200 && metaResponse.getResponseCode() < 300) {
+        log.status = "sent";
+        saveWhatsAppLog(log);
+        return { success: true, status: "sent", normalizedPhone: phone.normalized, metaResponse: metaData, message: "Mensagem enviada via WhatsApp Business API.", log: log };
+      }
+      log.status = "failed";
+      log.error = metaData && metaData.error && metaData.error.message ? metaData.error.message : "Erro retornado pela API do WhatsApp.";
+      saveWhatsAppLog(log);
+      return { success: false, status: "failed", error: log.error, normalizedPhone: phone.normalized, fallbackUrl: fallbackUrl, log: log };
+    } catch (sendError) {
+      log.status = "failed";
+      log.error = String(sendError);
+      saveWhatsAppLog(log);
+      return { success: false, status: "failed", error: "Falha de comunicação com a API do WhatsApp.", fallbackUrl: fallbackUrl, log: log };
+    }
+  }
+
+  log.status = "simulated";
+  saveWhatsAppLog(log);
+  return { success: true, status: "simulated", mode: "manual_fallback", normalizedPhone: phone.normalized, previewText: messageText, fallbackUrl: fallbackUrl, message: "WhatsApp API não configurada. A mensagem foi registrada como tentativa simulada; abra o link para enviar manualmente.", log: log };
+}
+
+function getAppSettingsData() {
+  var sheet = getOrCreateScheduleConfigSheet();
+  var values = sheet.getDataRange().getValues();
+  var settings = {};
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][0] || "").trim() !== "APP_SETTING") continue;
+    var key = String(values[i][1] || "").trim();
+    var raw = String(values[i][2] || "");
+    if (!key || !raw) continue;
+    try { settings[key] = JSON.parse(raw); } catch (parseError) {
+      console.error("Invalid APP_SETTING JSON for " + key);
+    }
+  }
+  return { status: "success", settings: settings };
+}
+
+function saveAppSetting(settingKey, value) {
+  var key = String(settingKey || "").trim();
+  var allowed = ["STUDIO_ADDRESS", "BLACKLIST", "WHATSAPP_CONFIG", "PAYMENT_CONFIG"];
+  if (allowed.indexOf(key) === -1) {
+    return { status: "error", saved: false, message: "Tipo de configuração não permitido." };
+  }
+  if (value === undefined) {
+    return { status: "error", saved: false, message: "Valor da configuração ausente." };
+  }
+  var serialized;
+  try { serialized = JSON.stringify(value); } catch (serializeError) {
+    return { status: "error", saved: false, message: "Configuração inválida para serialização." };
+  }
+  var sheet = getOrCreateScheduleConfigSheet();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    var rows = sheet.getDataRange().getValues();
+    for (var i = 1; i < rows.length; i++) {
+      if (String(rows[i][0] || "").trim() === "APP_SETTING" && String(rows[i][1] || "").trim() === key) {
+        sheet.getRange(i + 1, 1, 1, 4).setValues([["APP_SETTING", key, serialized, new Date()]]);
+        return { status: "success", saved: true, settingKey: key };
+      }
+    }
+    sheet.getRange(sheet.getLastRow() + 1, 1, 1, 4).setValues([["APP_SETTING", key, serialized, new Date()]]);
+    return { status: "success", saved: true, settingKey: key };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function getPublicStudioAddressData() {
+  var data = getAppSettingsData();
+  return { status: "success", address: data.settings && data.settings.STUDIO_ADDRESS ? data.settings.STUDIO_ADDRESS : null };
+}
+
+function normalizeClientPhoneKey(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function getOrCreateClientsSheet() {
+  var ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
+  var sheet = ss.getSheetByName("Perfis de Clientes");
+  if (!sheet) {
+    sheet = ss.insertSheet("Perfis de Clientes");
+    sheet.getRange(1, 1, 1, 4).setValues([["ID", "Telefone Normalizado", "Perfil JSON", "Atualizado em"]]);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function getClientsData() {
+  var profilesByPhone = {};
+  var clientSheet = getOrCreateClientsSheet();
+  var savedRows = clientSheet.getDataRange().getValues();
+  for (var i = 1; i < savedRows.length; i++) {
+    var savedPhone = normalizeClientPhoneKey(savedRows[i][1]);
+    var rawProfile = String(savedRows[i][2] || "");
+    if (!savedPhone || !rawProfile) continue;
+    try { profilesByPhone[savedPhone] = JSON.parse(rawProfile); } catch (parseError) {
+      console.error("Invalid client profile JSON on row " + (i + 1));
+    }
+  }
+
+  var appointmentsSheet = getOfficialSheet();
+  if (appointmentsSheet) {
+    var rows = appointmentsSheet.getDataRange().getValues();
+    var derived = {};
+    for (var r = 1; r < rows.length; r++) {
+      var row = rows[r];
+      var phone = String(row[2] || "");
+      var phoneKey = normalizeClientPhoneKey(phone);
+      var name = String(row[1] || "").trim();
+      if (!phoneKey || !name || String(row[8] || "").toLowerCase() === "bloqueado") continue;
+      var profile = derived[phoneKey];
+      if (!profile) {
+        var saved = profilesByPhone[phoneKey] || {};
+        var initials = name.split(/\s+/).map(function(part) { return part.charAt(0); }).slice(0, 2).join("").toUpperCase();
+        profile = {
+          id: saved.id || ("client-" + phoneKey),
+          name: name,
+          initials: initials,
+          phone: phone,
+          tier: saved.tier || "1ª Sessão",
+          status: saved.status || "nova",
+          lastVisit: saved.lastVisit || "",
+          lastService: "",
+          nextMaintenanceDays: Number(saved.nextMaintenanceDays || 0),
+          daysRemainingOrOverdue: String(saved.daysRemainingOrOverdue || ""),
+          isOverdue: saved.isOverdue === true,
+          ltv: Number(saved.ltv || 0),
+          ltvFormatted: String(saved.ltvFormatted || "R$ 0,00"),
+          laminaType: String(saved.laminaType || ""),
+          oiliness: String(saved.oiliness || ""),
+          allergies: String(saved.allergies || ""),
+          onycholysis: String(saved.onycholysis || ""),
+          preferredShape: String(saved.preferredShape || ""),
+          preferredColor: String(saved.preferredColor || ""),
+          products: saved.products && typeof saved.products === "object" ? saved.products : { preparer: "", baseGel: "", tensionPoint: "", topCoat: "" },
+          privateNotes: String(saved.privateNotes || ""),
+          isBlacklisted: saved.isBlacklisted === true,
+          blacklistReason: String(saved.blacklistReason || "")
+        };
+        derived[phoneKey] = profile;
+      }
+      profile.name = name;
+      profile.phone = phone;
+      profile.initials = name.split(/\s+/).map(function(part) { return part.charAt(0); }).slice(0, 2).join("").toUpperCase();
+      profile.lastService = String(row[4] || profile.lastService || "");
+      if (String(row[8] || "").toLowerCase() === "concluido") {
+        profile.lastVisit = String(row[5] || "") + (row[6] ? " às " + String(row[6]) : "");
+      }
+      profile._bookingCount = Number(profile._bookingCount || 0) + 1;
+      if (profile._bookingCount > 1 && !profilesByPhone[phoneKey]?.tier) {
+        profile.tier = "Frequente";
+        profile.status = "frequente";
+      }
+    }
+    Object.keys(derived).forEach(function(key) { profilesByPhone[key] = derived[key]; });
+  }
+
+  return { status: "success", clients: Object.keys(profilesByPhone).map(function(key) {
+    var profile = profilesByPhone[key];
+    delete profile._bookingCount;
+    return profile;
+  }) };
+}
+
+function saveClientProfile(profile) {
+  if (!profile || typeof profile !== "object" || Array.isArray(profile)) {
+    return { status: "error", saved: false, message: "Perfil de cliente inválido." };
+  }
+  var name = String(profile.name || "").trim();
+  var phone = String(profile.phone || "").trim();
+  var phoneKey = normalizeClientPhoneKey(phone);
+  var id = String(profile.id || "").trim();
+  if (!name || !phoneKey || !id) {
+    return { status: "error", saved: false, message: "Nome, telefone e ID são obrigatórios para salvar a cliente." };
+  }
+  var sheet = getOrCreateClientsSheet();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    var rows = sheet.getDataRange().getValues();
+    for (var i = 1; i < rows.length; i++) {
+      if (String(rows[i][0] || "") === id || normalizeClientPhoneKey(rows[i][1]) === phoneKey) {
+        sheet.getRange(i + 1, 1, 1, 4).setValues([[id, phoneKey, JSON.stringify(profile), new Date()]]);
+        return { status: "success", saved: true, clientId: id };
+      }
+    }
+    sheet.getRange(sheet.getLastRow() + 1, 1, 1, 4).setValues([[id, phoneKey, JSON.stringify(profile), new Date()]]);
+    return { status: "success", saved: true, clientId: id };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function getPublicPaymentConfigData() {
+  var data = getAppSettingsData();
+  var payment = data.settings && data.settings.PAYMENT_CONFIG && typeof data.settings.PAYMENT_CONFIG === "object"
+    ? data.settings.PAYMENT_CONFIG : {};
+  var config = {
+    pixKey: String(payment.pixKey || ""),
+    pixBeneficiary: String(payment.pixBeneficiary || ""),
+    depositAmount: Number(payment.depositAmount === undefined ? 40 : payment.depositAmount),
+  };
+  return {
+    status: "success",
+    configured: Boolean(config.pixKey.trim() && config.pixBeneficiary.trim()),
+    paymentConfig: config
+  };
+}
+
+function getPublicGalleryPhotosData() {
+  try {
+    var folder = DriveApp.getFolderById("1JGypjL9OqGL5i2OUrjiGMKxkWD11YuAw");
+    var files = folder.getFiles();
+    var photos = [];
+    while (files.hasNext()) {
+      var file = files.next();
+      if (file.isTrashed() || String(file.getMimeType() || "").indexOf("image/") !== 0) continue;
+      var id = file.getId();
+      photos.push({
+        id: id,
+        title: "Nail Art",
+        subtitle: "Portfólio Espaço Angélica do Carmo",
+        url: "https://drive.google.com/uc?export=view&id=" + id,
+        thumbnailUrl: "https://drive.google.com/thumbnail?id=" + id + "&sz=w800"
+      });
+    }
+    return { status: "success", photos: photos };
+  } catch (error) {
+    console.error("Public gallery read failed: " + error);
+    return { status: "error", message: "A galeria oficial do Google Drive está indisponível." };
+  }
+}
+
 function doPost(e) {
   try {
     if (!e || !e.postData || !e.postData.contents) {
@@ -274,7 +734,7 @@ function doPost(e) {
 
     // Agendamento público: usa validações de cliente, catálogo, data, horário,
     // concorrência e duplicidade abaixo. Ações administrativas continuam exigindo token.
-    var isPublicBooking = data.action === "createBooking" || data.action === "getPublicSchedule";
+    var isPublicBooking = data.action === "createBooking" || data.action === "getPublicSchedule" || data.action === "getPublicAvailability" || data.action === "getPublicStudioAddress" || data.action === "getPublicPaymentConfig" || data.action === "getPublicGalleryPhotos" || data.action === "getServices" || data.action === "createAdminSession";
     if (!isPublicBooking) {
       var tokenProvided = data.token || data.authToken || data.key || (e.parameter && e.parameter.token);
       var auth = validateAuthorization(tokenProvided);
@@ -286,6 +746,13 @@ function doPost(e) {
     // Public createBooking requests deliberately continue into the single validated
     // booking flow below. Do not persist bookings in an early shortcut that bypasses
     // official service, payment, duration, conflict and concurrency validation.
+
+    if (data.action === "createAdminSession") return responseJSON(createAdminSession(data.password));
+    if (data.action === "revokeAdminSession") return responseJSON(revokeAdminSession(data.token));
+    if (data.action === "getPublicAvailability") return responseJSON(getPublicAvailabilityData());
+    if (data.action === "getPublicStudioAddress") return responseJSON(getPublicStudioAddressData());
+    if (data.action === "getPublicPaymentConfig") return responseJSON(getPublicPaymentConfigData());
+    if (data.action === "getPublicGalleryPhotos") return responseJSON(getPublicGalleryPhotosData());
 
     if (data.action === "getPublicSchedule") {    return responseJSON(getPublicScheduleData());  }    // Persistent weekly schedule and date/time blocks.
     // These administrative actions use the authorization check above.
@@ -303,6 +770,43 @@ function doPost(e) {
 
     if (data.action === "deleteScheduleBlock") {
       return responseJSON(deleteScheduleBlock(data.blockId));
+    }
+
+    if (data.action === "getAppSettings") {
+      return responseJSON(getAppSettingsData());
+    }
+    if (data.action === "saveAppSetting") {
+      return responseJSON(saveAppSetting(data.settingKey, data.value));
+    }
+
+    if (data.action === "getEmailStatus") {
+      return responseJSON(getEmailStatusData());
+    }
+    if (data.action === "sendAdminEmail") {
+      return responseJSON(sendAdminEmailNotification(data));
+    }
+    if (data.action === "testEmailNotification") {
+      return responseJSON(sendTestEmailNotification());
+    }
+
+    if (data.action === "getWhatsAppStatus") {
+      return responseJSON({ status: "success", success: true, ...getWhatsAppStatusData() });
+    }
+    if (data.action === "getWhatsAppLogs") {
+      return responseJSON({ status: "success", success: true, logs: getWhatsAppLogsData() });
+    }
+    if (data.action === "testWhatsAppMessage") {
+      return responseJSON(processWhatsAppConfirmation(data, true));
+    }
+    if (data.action === "sendWhatsAppConfirmation") {
+      return responseJSON(processWhatsAppConfirmation(data, false));
+    }
+
+    if (data.action === "getClients") {
+      return responseJSON(getClientsData());
+    }
+    if (data.action === "saveClient") {
+      return responseJSON(saveClientProfile(data.client));
     }
 
     // 2. Leitura administrativa segura via POST (token no corpo)
@@ -557,6 +1061,31 @@ function doPost(e) {
       }
     }
 
+    if (data.action === "listDrivePhotos") {
+      var driveFolder;
+      try {
+        driveFolder = DriveApp.getFolderById("1JGypjL9OqGL5i2OUrjiGMKxkWD11YuAw");
+      } catch (folderError) {
+        return responseJSON({ status: "error", message: "Não foi possível abrir a pasta oficial de fotos no Google Drive." });
+      }
+      var driveFiles = driveFolder.getFiles();
+      var photos = [];
+      while (driveFiles.hasNext()) {
+        var driveFile = driveFiles.next();
+        if (driveFile.isTrashed() || String(driveFile.getMimeType() || "").indexOf("image/") !== 0) continue;
+        var fileId = driveFile.getId();
+        photos.push({
+          id: fileId,
+          name: driveFile.getName(),
+          url: "https://drive.google.com/uc?export=view&id=" + fileId,
+          thumbnailUrl: "https://drive.google.com/thumbnail?id=" + fileId + "&sz=w600",
+          updatedAt: driveFile.getLastUpdated().toISOString()
+        });
+      }
+      photos.sort(function(a, b) { return String(b.updatedAt).localeCompare(String(a.updatedAt)); });
+      return responseJSON({ status: "success", photos: photos, total: photos.length });
+    }
+
     if (data.action === "uploadPhoto") {
       if (!data.imageBase64) {
         return responseJSON({ status: "error", message: "Conteúdo da imagem (base64) ausente." });
@@ -807,7 +1336,7 @@ function doPost(e) {
       var matches100 = data.paymentMode === "pre_pagamento_100";
       var resolvedMode = data.paymentMode || "sinal_40";
       var serviceTitle = expectedServiceTitle;
-      var balanceNum = Math.max(0, referencePrice - depositNum);
+      var balanceNum = resolvedMode === "pre_pagamento_100" ? 0 : Math.max(0, referencePrice - depositNum);
       var amountFormatted = depositNum.toFixed(2).replace(".", ",");
       var balanceFormatted = balanceNum.toFixed(2).replace(".", ",");
       var paymentLabel = resolvedMode === "pre_pagamento_100" ? "Pré-pagamento Pix (100%)" : "Sinal Pix (40%)";
@@ -1224,13 +1753,15 @@ function doGet(e) {
  * Creates "Configuração da Agenda" on first use without changing existing tabs.
  * Rows use: Tipo | ID | Dados JSON | Atualizado em
  */
-var SCHEDULE_CONFIG_SHEET = "Configuração da Agenda";
+var SCHEDULE_CONFIG_SHEET = "Bloqueios e Disponibilidade";
+var LEGACY_SCHEDULE_CONFIG_SHEET = "Configuração da Agenda";
 
 function getOrCreateScheduleConfigSheet() {
   var ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
   var sheet = ss.getSheetByName(SCHEDULE_CONFIG_SHEET);
 
   if (!sheet) {
+    // Create the dedicated tab without modifying or deleting the legacy tab.
     sheet = ss.insertSheet(SCHEDULE_CONFIG_SHEET);
     sheet.getRange(1, 1, 1, 4).setValues([[
       "Tipo", "ID", "Dados JSON", "Atualizado em"
@@ -1241,6 +1772,19 @@ function getOrCreateScheduleConfigSheet() {
     sheet.setColumnWidth(2, 220);
     sheet.setColumnWidth(3, 500);
     sheet.setColumnWidth(4, 180);
+
+    // One-time, non-destructive migration: copy legacy rows into the new tab.
+    // The original "Configuração da Agenda" tab is deliberately left untouched.
+    var legacy = ss.getSheetByName(LEGACY_SCHEDULE_CONFIG_SHEET);
+    if (legacy && legacy.getLastRow() > 1) {
+      var legacyRows = legacy.getRange(2, 1, legacy.getLastRow() - 1, 4).getValues();
+      var validRows = legacyRows.filter(function(row) {
+        return String(row[0] || "").trim() && String(row[2] || "").trim();
+      });
+      if (validRows.length) {
+        sheet.getRange(2, 1, validRows.length, 4).setValues(validRows);
+      }
+    }
   }
 
   return sheet;
@@ -1411,5 +1955,79 @@ function deleteScheduleBlock(blockId) {
     return { status: "success", deleted: false, notFound: true, id: id };
   } finally {
     lock.releaseLock();
+  }
+}
+
+
+function getEmailStatusData() {
+  try {
+    return {
+      status: "success",
+      success: true,
+      configured: true,
+      sender: "kontakt@alansmsolutions.com",
+      recipient: "angelikm19@gmail.com",
+      remainingDailyQuota: MailApp.getRemainingDailyQuota(),
+      mode: "Google Apps Script MailApp"
+    };
+  } catch (error) {
+    return { status: "error", success: false, configured: false, message: "Autorize o serviço MailApp no projeto Apps Script: " + String(error) };
+  }
+}
+
+function sendTestEmailNotification() {
+  try {
+    var recipient = "angelikm19@gmail.com";
+    MailApp.sendEmail({
+      to: recipient,
+      subject: "[TESTE] Integração de e-mail — Espaço Angélica do Carmo",
+      body: "Este é um teste solicitado pelo painel administrativo. Nenhum agendamento ou cliente foi criado.",
+      name: "Espaço Angélica do Carmo",
+      replyTo: "kontakt@alansmsolutions.com"
+    });
+    return { status: "success", success: true, emailSent: true, recipient: recipient, message: "E-mail de teste enviado pelo Google Apps Script." };
+  } catch (error) {
+    return { status: "error", success: false, emailSent: false, message: String(error) };
+  }
+}
+
+function sendAdminEmailNotification(data) {
+  var recipient = String(data.toEmail || "").trim();
+  if (!isValidEmail(recipient)) return { status: "error", success: false, emailSent: false, message: "O e-mail de destino não é válido." };
+  var clientName = String(data.clientName || "").trim();
+  var serviceTitle = String(data.serviceTitle || "Procedimento").trim();
+  var date = String(data.date || "").trim();
+  var time = String(data.time || "").trim();
+  if (!clientName || !date || !time) return { status: "error", success: false, emailSent: false, message: "Nome da cliente, data e horário são obrigatórios." };
+
+  var subject = "Confirmação de agendamento — Espaço Angélica do Carmo";
+  var textBody = "Olá, " + clientName + "!\n\n" +
+    "Segue a confirmação do seu atendimento no Espaço Angélica do Carmo.\n\n" +
+    "Procedimento: " + serviceTitle + "\n" +
+    "Data: " + date + "\n" +
+    "Horário: " + time + "\n" +
+    (data.servicePrice ? "Valor: " + String(data.servicePrice) + "\n" : "") +
+    (data.depositAmount !== undefined ? "Sinal: R$ " + formatWhatsAppBRL(data.depositAmount) + "\n" : "") +
+    "\nEm caso de dúvidas ou necessidade de alteração, entre em contato com o atelier.\n\n" +
+    "Espaço Angélica do Carmo";
+  var htmlBody = "<div style=\"font-family:Arial,sans-serif;color:#49382e;line-height:1.6\">" +
+    "<h2>Confirmação de agendamento</h2><p>Olá, <strong>" + escapeHtml(clientName) + "</strong>!</p>" +
+    "<p>Segue a confirmação do seu atendimento no Espaço Angélica do Carmo.</p>" +
+    "<ul><li><strong>Procedimento:</strong> " + escapeHtml(serviceTitle) + "</li>" +
+    "<li><strong>Data:</strong> " + escapeHtml(date) + "</li><li><strong>Horário:</strong> " + escapeHtml(time) + "</li>" +
+    (data.servicePrice ? "<li><strong>Valor:</strong> " + escapeHtml(String(data.servicePrice)) + "</li>" : "") +
+    "</ul><p>Em caso de dúvidas ou necessidade de alteração, entre em contato com o atelier.</p></div>";
+  try {
+    MailApp.sendEmail({
+      to: recipient,
+      subject: subject,
+      body: textBody,
+      htmlBody: htmlBody,
+      name: "Espaço Angélica do Carmo",
+      replyTo: "kontakt@alansmsolutions.com"
+    });
+    return { status: "success", success: true, emailSent: true, recipient: recipient, message: "E-mail enviado pelo Google Apps Script." };
+  } catch (error) {
+    return { status: "error", success: false, emailSent: false, message: "Falha ao enviar e-mail: " + String(error) };
   }
 }

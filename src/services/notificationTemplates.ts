@@ -5,8 +5,9 @@
 
 export const DEPOSIT_RATE = 0.4;
 
-export function calculateDeposit40(servicePrice: number): number {
-  return Math.round(servicePrice * DEPOSIT_RATE * 100) / 100;
+export function calculateDeposit40(servicePrice: number, depositPercent: number = 40): number {
+  const safePercent = Number.isFinite(depositPercent) ? Math.min(100, Math.max(0, depositPercent)) : 40;
+  return Math.round(servicePrice * (safePercent / 100) * 100) / 100;
 }
 
 export function calculateFullPrepayment(servicePrice: number): number {
@@ -33,6 +34,9 @@ export interface PreBookingTemplateData {
   depositAmount: number;
   remainingBalance?: number;
   paymentMode?: 'sinal_40' | 'pre_pagamento_100';
+  pixKey?: string;
+  pixBeneficiary?: string;
+  depositPercent?: number;
 }
 
 /**
@@ -57,10 +61,14 @@ export function buildOfficialPreBookingWhatsAppMessage(data: PreBookingTemplateD
       : balance !== undefined
       ? `\nSaldo restante a pagar no atendimento: R$ ${formatBRL(balance)}`
       : '';
+  const depositPercent = Number.isFinite(data.depositPercent) ? Math.min(100, Math.max(0, Number(data.depositPercent))) : 40;
   const paymentPrompt =
     data.paymentMode === 'pre_pagamento_100'
       ? `Para confirmar, faça o PIX do pré-pagamento integral (100%) de ${signalValue}:`
-      : `Para confirmar, faça o PIX do sinal (40%) de ${signalValue}:`;
+      : `Para confirmar, faça o PIX do sinal (${depositPercent}%) de ${signalValue}:`;
+  const pixDetails = data.pixKey?.trim()
+    ? `Chave PIX: ${data.pixKey.trim()}\nTitular: ${data.pixBeneficiary?.trim() || 'Titular não informado'}`
+    : 'Chave PIX não cadastrada. Entre em contato com o atelier para confirmar os dados de pagamento.';
 
   return `Olá, ${data.clientName}! Recebemos o seu pré-agendamento na Angelica do Carmo Unhas.
 Serviço: ${data.serviceTitle}${totalLine}
@@ -68,13 +76,12 @@ Data: ${data.date}
 Horário: ${data.time}
 
 ${paymentPrompt}${balanceLine}
-Chave PIX: 12974062241
-Titular: Angelica do Carmo Costa Santos
+${pixDetails}
 
 Depois é só enviar o comprovante por aqui. Assim que conferirmos o pagamento, enviamos a confirmação do seu agendamento. 💛
 
 🤎 POLÍTICA DE AGENDAMENTO
-- Para confirmar o horário, é necessário pagar um sinal de 40% do valor do procedimento.
+- Para confirmar o horário, é necessário pagar um sinal de ${depositPercent}% do valor do procedimento.
 - O sinal garante a vaga e é descontado do valor total no dia do atendimento.
 - Em caso de desistência ou não comparecimento, o sinal não é reembolsado, pois cobre o bloqueio da vaga e os preparativos.
 - Mudanças de data exigem pelo menos 24 horas de antecedência, mantendo o sinal pago.

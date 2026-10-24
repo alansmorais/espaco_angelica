@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Appointment } from '../../types';
 import { sendAppointmentWhatsAppConfirmation } from '../../services/whatsappService';
-import { signInWithGmail, getGmailAccessToken, sendGmailConfirmation } from '../../services/gmailService';
+import { sendGmailConfirmation } from '../../services/gmailService';
 import { formatBRL } from '../../services/notificationTemplates';
 
 interface PixReconciliationTabProps {
@@ -50,7 +50,7 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
 
     try {
       const waRes = await sendAppointmentWhatsAppConfirmation(apt);
-      waSent = waRes.success;
+      waSent = waRes.status === 'sent';
       waMessage = waRes.previewText || waRes.message;
     } catch {
       waSent = false;
@@ -79,7 +79,7 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
       if (onUpdateAppointment) {
         onUpdateAppointment({
           ...apt,
-          whatsappStatus: waRes.success ? 'enviado' : 'falha',
+          whatsappStatus: waRes.status === 'sent' ? 'enviado' : waRes.status === 'simulated' ? 'simulado' : 'falha',
           whatsappSentAt: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
           whatsappLastMessage: waRes.previewText || waRes.message
         });
@@ -101,19 +101,8 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
 
     setIsSendingGmail(true);
     try {
-      let token = await getGmailAccessToken();
-      if (!token) {
-        const authRes = await signInWithGmail();
-        if (!authRes) {
-          showToast('Autenticação com Google (Gmail) cancelada.', true);
-          setIsSendingGmail(false);
-          return;
-        }
-        token = authRes.accessToken;
-      }
-
-      await sendGmailConfirmation(
-        token,
+      const result = await sendGmailConfirmation(
+        '',
         email,
         apt.clientName,
         apt.serviceTitle,
@@ -121,8 +110,9 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
         apt.time,
         apt.servicePrice,
         apt.depositAmount,
-        apt.paymentMode
+        apt.notes
       );
+      if (!result.success) throw new Error(result.message || 'O Apps Script não confirmou o envio do e-mail.');
 
       if (onUpdateAppointment) {
         onUpdateAppointment({

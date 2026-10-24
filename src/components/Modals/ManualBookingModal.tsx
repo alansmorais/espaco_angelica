@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { SERVICES_CATALOG, INITIAL_BLACKLIST } from '../../data/mockData';
-import { Appointment, Service, BlacklistEntry, RecurrenceConfig } from '../../types';
+import { Appointment, Service, BlacklistEntry, PaymentConfig, RecurrenceConfig } from '../../types';
 import { sendAppointmentWhatsAppConfirmation } from '../../services/whatsappService';
 import { calculateDeposit40, calculateFullPrepayment, formatBRL } from '../../services/notificationTemplates';
 import { submitManualBooking } from '../../services/emailNotificationService';
@@ -12,20 +11,22 @@ interface ManualBookingModalProps {
   services?: Service[];
   blacklist?: BlacklistEntry[];
   adminSessionToken?: string;
+  paymentConfig?: PaymentConfig;
 }
 
 export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
   isOpen,
   onClose,
   onSaveAppointment,
-  services = SERVICES_CATALOG,
-  blacklist = INITIAL_BLACKLIST,
-  adminSessionToken
+  services = [],
+  blacklist = [],
+  adminSessionToken,
+  paymentConfig = { pixKey: '', pixBeneficiary: '', depositAmount: 40 }
 }) => {
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [clientEmail, setClientEmail] = useState('');
-  const [selectedServiceId, setSelectedServiceId] = useState(services[0]?.id || SERVICES_CATALOG[0].id);
+  const [selectedServiceId, setSelectedServiceId] = useState(services[0]?.id || '');
   const [additionalServiceIds, setAdditionalServiceIds] = useState<string[]>([]);
   const [showAdditionalServices, setShowAdditionalServices] = useState(false);
   const [customRequest, setCustomRequest] = useState('');
@@ -63,10 +64,11 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
   const isInadimplente = Boolean(matchedBlacklist);
   const effectivePaymentMode = isInadimplente ? 'pre_pagamento_100' : paymentMode;
 
-  const serv = services.find(s => s.id === selectedServiceId) || services[0] || SERVICES_CATALOG[0];
+  const serv = services.find(s => s.id === selectedServiceId) || services[0];
+  if (!serv) return null;
   const additionalServices = services.filter(service => additionalServiceIds.includes(service.id) && service.id !== serv.id);
   const totalPrice = serv.price + additionalServices.reduce((sum, service) => sum + service.price, 0);
-  const standardDeposit = calculateDeposit40(totalPrice);
+  const standardDeposit = calculateDeposit40(totalPrice, paymentConfig.depositAmount);
   const fullPrepayment = calculateFullPrepayment(totalPrice);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -166,7 +168,7 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
       if (sendWhatsAppAuto && trimmedPhone) {
         try {
           const waRes = await sendAppointmentWhatsAppConfirmation(newApt);
-          newApt.whatsappStatus = waRes.success ? 'enviado' : 'falha';
+          newApt.whatsappStatus = waRes.status === 'sent' ? 'enviado' : waRes.status === 'simulated' ? 'simulado' : 'falha';
           newApt.whatsappSentAt = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
           newApt.whatsappLastMessage = waRes.previewText || waRes.message;
         } catch {}

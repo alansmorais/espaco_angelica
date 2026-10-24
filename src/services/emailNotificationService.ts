@@ -1,9 +1,7 @@
-import { Appointment, Service } from '../types';
+import { Appointment, Service, ClientProfile, StudioAddressConfig, BlacklistEntry, WhatsAppConfig, PaymentConfig } from '../types';
 import {
   AUTHORIZED_SENDER_EMAIL,
-  TARGET_NOTIFICATION_EMAIL,
-  getGmailAccessToken,
-  sendDirectGmailFromBrowser
+  TARGET_NOTIFICATION_EMAIL
 } from './gmailService';
 
 export { AUTHORIZED_SENDER_EMAIL, TARGET_NOTIFICATION_EMAIL };
@@ -210,46 +208,6 @@ export function setNotificationWebhookToken(token: string): void {
   }
 }
 
-export const DEFAULT_BACKEND_API_URL =
-  'https://espaco-angelica-backend-770203144889.southamerica-east1.run.app';
-
-export const BACKEND_API_URL_STORAGE_KEY = 'angelica_backend_api_url';
-
-/**
- * Obtém a URL base do backend seguro (Node server / Cloud Run) configurada.
- * Em ambiente local/staging, usa o servidor local ('') por padrão e nunca faz fallback para produção.
- */
-export function getBackendApiUrl(): string {
-  if (typeof window === 'undefined') {
-    return isLocalOrStagingFrontend() ? '' : DEFAULT_BACKEND_API_URL;
-  }
-  const explicitBackend = (
-    (import.meta as any).env?.VITE_BACKEND_API_URL ||
-    localStorage.getItem(BACKEND_API_URL_STORAGE_KEY) ||
-    ''
-  ).trim();
-  if (isLocalOrStagingFrontend()) {
-    if (!explicitBackend || explicitBackend === DEFAULT_BACKEND_API_URL) {
-      return '';
-    }
-    return explicitBackend;
-  }
-  return explicitBackend || DEFAULT_BACKEND_API_URL;
-}
-
-/**
- * Salva a URL base do backend seguro no armazenamento local.
- */
-export function setBackendApiUrl(url: string): void {
-  if (typeof window === 'undefined') return;
-  const clean = url.trim().replace(/\/$/, '');
-  if (!clean || clean === DEFAULT_BACKEND_API_URL) {
-    localStorage.removeItem(BACKEND_API_URL_STORAGE_KEY);
-  } else {
-    localStorage.setItem(BACKEND_API_URL_STORAGE_KEY, clean);
-  }
-}
-
 /**
  * Executa a comunicação segura com o Google Apps Script.
  * Usa 'text/plain' para compatibilidade CORS e lê a resposta real do script sem assumir falso positivo.
@@ -378,7 +336,11 @@ export async function testNotificationWebhook(
     isTest: true
   };
 
-  const res = await sendWebhookNotification(url, testPayload, token);
+  const sessionToken = typeof window !== 'undefined'
+    ? window.sessionStorage?.getItem('angelica_admin_session') || ''
+    : '';
+  const effectiveToken = (token || getNotificationWebhookToken() || sessionToken).trim();
+  const res = await sendWebhookNotification(url, testPayload, effectiveToken);
   return {
     success: res.success,
     message: res.message
@@ -408,8 +370,7 @@ export async function triggerNewPreBookingEmailNotification(
     };
   }
 
-  // O agendamento público fala diretamente com o Apps Script; não usa Cloud Run,
-  // Node server nem rota /api para persistir a reserva.
+  // O agendamento público grava diretamente no Google Apps Script e na planilha oficial.
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -485,18 +446,18 @@ export interface AdminSessionResult {
 
 export async function createAdminSession(password: string): Promise<AdminSessionResult> {
   try {
-    const backendBase = getBackendApiUrl();
-    const targetUrl = backendBase ? `${backendBase}/api/admin/session` : '/api/admin/session';
-    const response = await fetch(targetUrl, {
+    const url = getNotificationWebhookUrl();
+    if (!url) return { success: false, error: 'URL do Google Apps Script não configurada.' };
+    const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ password })
+      headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+      body: JSON.stringify({ action: 'createAdminSession', password })
     });
     const data = await response.json().catch(() => ({}));
-    if (response.ok && data?.success && typeof data.token === 'string' && data.token.length > 0) {
+    if (response.ok && data?.status === 'success' && typeof data.token === 'string' && data.token.length > 0) {
       return { success: true, token: data.token, statusCode: response.status };
     }
-    return { success: false, error: data?.error || `Falha no login administrativo (HTTP ${response.status}).`, statusCode: response.status };
+    return { success: false, error: data?.message || 'Falha ao autenticar no Google Apps Script.', statusCode: response.status };
   } catch (error: any) {
     return { success: false, error: error?.message || 'Falha de conexão ao autenticar o painel.' };
   }
@@ -505,11 +466,15 @@ export async function createAdminSession(password: string): Promise<AdminSession
 export async function revokeAdminSession(token: string): Promise<void> {
   if (!token) return;
   try {
-    const backendBase = getBackendApiUrl();
-    const targetUrl = backendBase ? `${backendBase}/api/admin/session` : '/api/admin/session';
-    await fetch(targetUrl, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    const url = getNotificationWebhookUrl();
+    if (!url) return;
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+      body: JSON.stringify({ action: 'revokeAdminSession', token })
+    });
   } catch {
-    // Local logout still clears the session if the server is unreachable.
+    // Logout still clears local session if Apps Script is unreachable.
   }
 }
 
@@ -524,12 +489,17 @@ export interface PublicAvailabilityResult {
 
 export async function fetchPublicAvailability(): Promise<PublicAvailabilityResult> {
   try {
-    const backendBase = getBackendApiUrl();
-    const targetUrl = backendBase ? `${backendBase}/api/public/availability` : '/api/public/availability';
-    const response = await fetch(targetUrl, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+    const endpoint = getNotificationWebhookUrl();
+    if (!endpoint) return { success: false, appointments: [], blockedDates: [], error: 'URL do Google Apps Script não configurada.' };
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+      body: JSON.stringify({ action: 'getPublicAvailability' }),
+      cache: 'no-store'
+    });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || data?.success !== true || !Array.isArray(data.slots)) {
-      return { success: false, appointments: [], blockedDates: [], error: data?.error || `Falha ao consultar disponibilidade (HTTP ${response.status}).` };
+    if (!response.ok || data?.status !== 'success' || data?.success !== true || !Array.isArray(data.slots)) {
+      return { success: false, appointments: [], blockedDates: [], error: data?.message || `Falha ao consultar disponibilidade oficial (HTTP ${response.status}).` };
     }
     const appointments: Appointment[] = data.slots.map((slot: any) => ({
       id: String(slot.id || ''),
@@ -541,15 +511,21 @@ export async function fetchPublicAvailability(): Promise<PublicAvailabilityResul
       serviceDuration: String(slot.serviceDuration || ''),
       status: String(slot.status || 'pendente_pix') as Appointment['status']
     }));
+    const blockedDates = new Set<string>((Array.isArray(data.blockedDates) ? data.blockedDates : []).map(String));
+    if (Array.isArray(data.scheduleBlocks)) {
+      data.scheduleBlocks.forEach((block: any) => {
+        if (block?.active !== false && block?.allDay === true && block?.date) blockedDates.add(String(block.date));
+      });
+    }
     return {
       success: true,
       appointments,
-      blockedDates: Array.isArray(data.blockedDates) ? data.blockedDates.map(String) : [],
+      blockedDates: Array.from(blockedDates),
       updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
       weeklySchedule: data.weeklySchedule && typeof data.weeklySchedule === 'object' ? data.weeklySchedule : null
     };
   } catch (error: any) {
-    return { success: false, appointments: [], blockedDates: [], error: error?.message || 'Falha de conexão ao consultar disponibilidade.' };
+    return { success: false, appointments: [], blockedDates: [], error: error?.message || 'Falha de conexão ao consultar disponibilidade oficial.' };
   }
 }
 
@@ -568,71 +544,24 @@ export interface FetchAppointmentsDetailedResult {
  */
 export async function fetchRemoteAppointmentsDetailed(authToken?: string): Promise<FetchAppointmentsDetailedResult> {
   try {
-    const backendBase = getBackendApiUrl();
-    const targetUrl = backendBase
-      ? `${backendBase}/api/appointments`
-      : '/api/appointments';
-
-    const token = (authToken || '').trim();
-    const headers: Record<string, string> = {
-      Accept: 'application/json'
-    };
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    const response = await fetch(targetUrl, {
-      method: 'GET',
-      headers,
-      signal: AbortSignal.timeout(12000)
+    const endpoint = getNotificationWebhookUrl();
+    if (!endpoint) return { success: false, appointments: [], error: 'URL do Google Apps Script não configurada.' };
+    const token = (authToken || (typeof window !== 'undefined' ? sessionStorage.getItem('angelica_admin_session') || '' : '')).trim();
+    if (!token) return { success: false, appointments: [], error: 'Sessão administrativa ausente. Entre novamente no painel.', statusCode: 401 };
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+      body: JSON.stringify({ action: 'getAppointments', token }),
+      cache: 'no-store'
     });
-
-    if (response.ok) {
-      const data = await response.json();
-      if (data.success && Array.isArray(data.appointments)) {
-        return {
-          success: true,
-          appointments: data.appointments as Appointment[],
-          source: data.source || 'sheets_synced',
-          total: data.total ?? data.appointments.length,
-          statusCode: 200
-        };
-      }
-      return {
-        success: false,
-        appointments: [],
-        error: data.error || 'Formato de resposta inesperado do servidor.',
-        statusCode: 200
-      };
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data?.status === 'success' && Array.isArray(data.appointments)) {
+      return { success: true, appointments: data.appointments as Appointment[], source: 'google_sheets', total: data.total ?? data.appointments.length, statusCode: response.status };
     }
-
-    if (response.status === 401) {
-      return {
-        success: false,
-        appointments: [],
-        error: 'Senha ou credencial administrativa incorreta. Acesso não autorizado.',
-        statusCode: 401
-      };
-    }
-
-    let errMsg = `Erro HTTP ${response.status} ao consultar agendamentos.`;
-    try {
-      const errJson = await response.json();
-      if (errJson?.error) errMsg = errJson.error;
-    } catch {}
-
-    return {
-      success: false,
-      appointments: [],
-      error: errMsg,
-      statusCode: response.status
-    };
+    const unauthorized = response.status === 401 || /não autorizado|sessão inválida|token de autorização/i.test(String(data?.message || ''));
+    return { success: false, appointments: [], error: data?.message || `Falha ao consultar agendamentos oficiais (HTTP ${response.status}).`, statusCode: unauthorized ? 401 : response.status };
   } catch (err: any) {
-    return {
-      success: false,
-      appointments: [],
-      error: `Falha de rede ao conectar com o servidor: ${err.message || 'Servidor indisponível'}`
-    };
+    return { success: false, appointments: [], error: `Falha ao conectar ao Google Apps Script: ${err.message || 'serviço indisponível'}` };
   }
 }
 
@@ -647,52 +576,24 @@ export async function deleteRemoteAppointment(
   authToken?: string
 ): Promise<DeleteAppointmentResult> {
   try {
-    const backendBase = getBackendApiUrl();
-    const targetUrl = backendBase
-      ? `${backendBase}/api/appointments/${encodeURIComponent(appointmentId)}`
-      : `/api/appointments/${encodeURIComponent(appointmentId)}`;
-    const token = (authToken || '').trim();
-    const headers: Record<string, string> = {
-      Accept: 'application/json'
-    };
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-
-    const response = await fetch(targetUrl, {
-      method: 'DELETE',
-      headers
+    const endpoint = getNotificationWebhookUrl();
+    const token = (authToken || (typeof window !== 'undefined' ? sessionStorage.getItem('angelica_admin_session') || '' : '')).trim();
+    if (!endpoint || !token) return { success: false, error: 'URL do Apps Script ou sessão administrativa ausente.' };
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+      body: JSON.stringify({ action: 'deleteAppointment', appointmentId, token })
     });
-    let data: any;
-    try {
-      data = await response.json();
-    } catch {
-      return {
-        success: false,
-        error: 'Resposta inválida do servidor ao excluir o agendamento.',
-        statusCode: response.status
-      };
-    }
-
-    if (response.ok && data?.success) {
-      return { success: true, statusCode: response.status };
-    }
-    return {
-      success: false,
-      error: data?.error || `Erro HTTP ${response.status} ao excluir agendamento.`,
-      statusCode: response.status
-    };
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data?.status === 'success' && (data.deleted === true || data.notFound === true)) return { success: true, statusCode: response.status };
+    return { success: false, error: data?.message || `Falha ao excluir agendamento (HTTP ${response.status}).`, statusCode: response.status };
   } catch (err: any) {
-    return {
-      success: false,
-      error: `Falha de rede ao excluir agendamento: ${err.message || 'servidor indisponível'}.`
-    };
+    return { success: false, error: err?.message || 'Falha de conexão ao excluir agendamento.' };
   }
 }
 
 /**
- * Busca agendamentos centralizados persistidos no backend seguro (Cloud Run / Google Sheets)
- * para exibição no painel administrativo compartilhado.
+ * Busca agendamentos diretamente do Google Apps Script e da planilha oficial.
  */
 export async function fetchRemoteAppointments(authToken?: string): Promise<Appointment[]> {
   const result = await fetchRemoteAppointmentsDetailed(authToken);
@@ -716,96 +617,31 @@ export async function submitBlockSchedule(
   authToken?: string
 ): Promise<BlockScheduleResult> {
   try {
-    const backendBase = getBackendApiUrl();
-    const targetUrl = backendBase
-      ? `${backendBase}/api/appointments/block`
-      : '/api/appointments/block';
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
-    };
-
-    const token =
-      (authToken || '').trim() ||
-      (typeof window !== 'undefined' ? sessionStorage.getItem('angelica_admin_session') || '' : '');
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-      headers['X-Admin-Token'] = token;
-    }
-
-    const response = await fetch(targetUrl, {
+    const endpoint = getNotificationWebhookUrl();
+    const token = (authToken || (typeof window !== 'undefined' ? sessionStorage.getItem('angelica_admin_session') || '' : '')).trim();
+    if (!endpoint || !token) return { success: false, persisted: false, error: 'URL do Apps Script ou sessão administrativa ausente.' };
+    const response = await fetch(endpoint, {
       method: 'POST',
-      headers,
+      headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
       body: JSON.stringify({
-        appointmentId: blockApt.id,
-        date: blockApt.date,
-        time: blockApt.time,
-        reason: blockApt.blockReason || blockApt.serviceTitle,
-        notes: blockApt.notes,
+        action: 'blockSchedule', token, appointmentId: blockApt.id, date: blockApt.date, time: blockApt.time,
+        blockReason: blockApt.blockReason || blockApt.serviceTitle, notes: blockApt.notes,
         clientName: blockApt.clientName || 'Protocolo Ateliê'
       })
     });
-
-    if (response.ok) {
-      const data = await response.json();
-      if (data.success && data.persisted === true) {
-        return {
-          success: true,
-          persisted: true,
-          appointmentId: blockApt.id,
-          message: data.message || 'Bloqueio de data registrado e persistido com sucesso.'
-        };
-      }
-      return {
-        success: false,
-        persisted: false,
-        appointmentId: blockApt.id,
-        error: data.error || data.message || 'O servidor não confirmou a gravação do bloqueio.'
-      };
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data?.status === 'success' && data.persisted === true) {
+      return { success: true, persisted: true, appointmentId: blockApt.id, message: data.message || 'Bloqueio gravado na planilha oficial.' };
     }
-
-    let errorMsg = `Erro HTTP ${response.status} ao registrar bloqueio.`;
-    try {
-      const errJson = await response.json();
-      if (errJson?.error) errorMsg = errJson.error;
-    } catch {}
-
-    return {
-      success: false,
-      persisted: false,
-      appointmentId: blockApt.id,
-      error: errorMsg
-    };
+    return { success: false, persisted: false, appointmentId: blockApt.id, error: data?.message || `Falha ao gravar bloqueio (HTTP ${response.status}).` };
   } catch (err: any) {
-    return {
-      success: false,
-      persisted: false,
-      appointmentId: blockApt.id,
-      error: `Falha de rede ao conectar com o servidor: ${err.message || 'Servidor indisponível'}`
-    };
+    return { success: false, persisted: false, appointmentId: blockApt.id, error: err?.message || 'Falha de conexão ao gravar bloqueio.' };
   }
 }
 
-/**
- * Consulta as datas bloqueadas diretamente do backend público (sem expor PII de clientes).
- */
 export async function fetchRemoteBlockedDates(): Promise<string[]> {
-  try {
-    const backendBase = getBackendApiUrl();
-    const targetUrl = backendBase
-      ? `${backendBase}/api/appointments/blocked-dates`
-      : '/api/appointments/blocked-dates';
-    const res = await fetch(targetUrl);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success && Array.isArray(data.blockedDates)) {
-        return data.blockedDates as string[];
-      }
-    }
-    return [];
-  } catch {
-    return [];
-  }
+  const result = await fetchPublicAvailability();
+  return result.success ? result.blockedDates : [];
 }
 
 export interface UpdateAppointmentResult {
@@ -821,61 +657,24 @@ export async function updateRemoteAppointment(
   authToken?: string
 ): Promise<UpdateAppointmentResult> {
   try {
-    const backendBase = getBackendApiUrl();
-    const targetUrl = backendBase
-      ? `${backendBase}/api/appointments/${encodeURIComponent(appointment.id)}`
-      : `/api/appointments/${encodeURIComponent(appointment.id)}`;
-    const token = (authToken || '').trim();
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Accept: 'application/json'
-    };
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-
-    const response = await fetch(targetUrl, {
-      method: 'PUT',
-      headers,
-      body: JSON.stringify(appointment)
+    const endpoint = getNotificationWebhookUrl();
+    const token = (authToken || (typeof window !== 'undefined' ? sessionStorage.getItem('angelica_admin_session') || '' : '')).trim();
+    if (!endpoint || !token) return { success: false, persisted: false, error: 'URL do Apps Script ou sessão administrativa ausente.' };
+    const { id, ...fields } = appointment;
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+      body: JSON.stringify({ action: 'updateAppointment', appointmentId: id, ...fields, token })
     });
-
-    let data: any;
-    try {
-      data = await response.json();
-    } catch {
-      return {
-        success: false,
-        persisted: false,
-        error: 'Resposta inválida do servidor ao atualizar o agendamento.',
-        statusCode: response.status
-      };
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data?.status === 'success' && data?.persisted === true) {
+      return { success: true, persisted: true, appointment: appointment as Appointment, statusCode: response.status };
     }
-
-    if (response.ok && data?.success && data?.persisted) {
-      return {
-        success: true,
-        persisted: true,
-        appointment: data.appointment,
-        statusCode: response.status
-      };
-    }
-
-    return {
-      success: false,
-      persisted: false,
-      error: data?.error || `Erro HTTP ${response.status} ao atualizar agendamento.`,
-      statusCode: response.status
-    };
+    return { success: false, persisted: false, error: data?.message || `Falha ao atualizar agendamento (HTTP ${response.status}).`, statusCode: response.status };
   } catch (err: any) {
-    return {
-      success: false,
-      persisted: false,
-      error: `Falha de rede ao atualizar agendamento: ${err.message || 'servidor indisponível'}.`
-    };
+    return { success: false, persisted: false, error: err?.message || 'Falha de conexão ao atualizar agendamento.' };
   }
 }
-
 
 export interface SavedScheduleBlock {
   id: string;
@@ -894,15 +693,15 @@ export interface RemoteScheduleConfig {
   error?: string;
 }
 
-async function callScheduleAction(action: string, extra: Record<string, unknown> = {}): Promise<any> {
+async function callScheduleAction(action: string, extra: Record<string, unknown> = {}, authToken?: string): Promise<any> {
   const url = getNotificationWebhookUrl();
-  const token = getNotificationWebhookToken().trim();
+  const token = (authToken || getNotificationWebhookToken()).trim();
   if (!url) throw new Error('URL do Google Apps Script não configurada.');
-  if (!token) throw new Error('Token do Apps Script não configurado no painel administrativo.');
+  if (!token) throw new Error('Sessão/token administrativo do Apps Script não configurado.');
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
-    body: JSON.stringify({ action, token, ...extra })
+    body: JSON.stringify({ action, ...extra, token })
   });
   const data = await response.json().catch(() => null);
   if (!response.ok || !data || data.status !== 'success') {
@@ -911,9 +710,9 @@ async function callScheduleAction(action: string, extra: Record<string, unknown>
   return data;
 }
 
-export async function fetchRemoteScheduleConfig(): Promise<RemoteScheduleConfig> {
+export async function fetchRemoteScheduleConfig(authToken?: string): Promise<RemoteScheduleConfig> {
   try {
-    const data = await callScheduleAction('getScheduleConfig');
+    const data = await callScheduleAction('getScheduleConfig', {}, authToken);
     return {
       success: true,
       weeklySchedule: data.weeklySchedule && typeof data.weeklySchedule === 'object' ? data.weeklySchedule : null,
@@ -925,10 +724,11 @@ export async function fetchRemoteScheduleConfig(): Promise<RemoteScheduleConfig>
 }
 
 export async function saveRemoteWeeklySchedule(
-  weeklySchedule: Record<string, unknown>
+  weeklySchedule: Record<string, unknown>,
+  authToken?: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const data = await callScheduleAction('saveWeeklySchedule', { weeklySchedule });
+    const data = await callScheduleAction('saveWeeklySchedule', { weeklySchedule }, authToken);
     return data.saved === true
       ? { success: true }
       : { success: false, error: 'Apps Script não confirmou a gravação da agenda semanal.' };
@@ -938,10 +738,11 @@ export async function saveRemoteWeeklySchedule(
 }
 
 export async function saveRemoteScheduleBlock(
-  block: SavedScheduleBlock
+  block: SavedScheduleBlock,
+  authToken?: string
 ): Promise<{ success: boolean; block?: SavedScheduleBlock; error?: string }> {
   try {
-    const data = await callScheduleAction('saveScheduleBlock', { block });
+    const data = await callScheduleAction('saveScheduleBlock', { block }, authToken);
     return data.saved === true
       ? { success: true, block: data.block }
       : { success: false, error: 'Apps Script não confirmou a gravação do bloqueio.' };
@@ -951,10 +752,11 @@ export async function saveRemoteScheduleBlock(
 }
 
 export async function deleteRemoteScheduleBlock(
-  blockId: string
+  blockId: string,
+  authToken?: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const data = await callScheduleAction('deleteScheduleBlock', { blockId });
+    const data = await callScheduleAction('deleteScheduleBlock', { blockId }, authToken);
     return data.deleted === true || data.notFound === true
       ? { success: true }
       : { success: false, error: 'Apps Script não confirmou a exclusão do bloqueio.' };
@@ -963,24 +765,121 @@ export async function deleteRemoteScheduleBlock(
   }
 }
 
-export async function fetchRemoteServices(): Promise<Service[]> {
+export interface RemoteAppSettingsResult {
+  success: boolean;
+  settings?: Record<string, unknown>;
+  error?: string;
+}
+
+export async function fetchRemoteAppSettings(authToken?: string): Promise<RemoteAppSettingsResult> {
+  try {
+    const data = await callScheduleAction('getAppSettings', {}, authToken);
+    return { success: true, settings: data.settings && typeof data.settings === 'object' ? data.settings : {} };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Falha ao ler configurações da planilha oficial.' };
+  }
+}
+
+export async function saveRemoteAppSetting(
+  settingKey: 'STUDIO_ADDRESS' | 'BLACKLIST' | 'WHATSAPP_CONFIG' | 'PAYMENT_CONFIG',
+  value: StudioAddressConfig | BlacklistEntry[] | WhatsAppConfig | PaymentConfig | Record<string, unknown>,
+  authToken?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const data = await callScheduleAction('saveAppSetting', { settingKey, value }, authToken);
+    return data.saved === true
+      ? { success: true }
+      : { success: false, error: data.message || 'Apps Script não confirmou a gravação da configuração.' };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Falha ao salvar configuração na planilha oficial.' };
+  }
+}
+
+export async function fetchPublicStudioAddress(): Promise<{ success: boolean; address?: StudioAddressConfig | null; error?: string }> {
   try {
     const endpoint = getNotificationWebhookUrl();
-    if (!endpoint) return [];
+    if (!endpoint) return { success: false, error: 'URL do Google Apps Script não configurada.' };
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
-      body: JSON.stringify({ action: 'getServices' })
+      body: JSON.stringify({ action: 'getPublicStudioAddress' }),
+      cache: 'no-store'
     });
-    if (!response.ok) return [];
-    const data = await response.json();
-    if (data?.status === 'success' && Array.isArray(data.services)) {
-      return data.services as Service[];
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.status !== 'success') {
+      return { success: false, error: data?.message || 'Não foi possível carregar o endereço oficial.' };
     }
-    return [];
-  } catch {
-    return [];
+    return { success: true, address: data.address && typeof data.address === 'object' ? data.address as StudioAddressConfig : null };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Falha ao carregar o endereço oficial.' };
   }
+}
+
+export async function fetchPublicPaymentConfig(): Promise<{ success: boolean; configured: boolean; paymentConfig?: PaymentConfig; error?: string }> {
+  try {
+    const endpoint = getNotificationWebhookUrl();
+    if (!endpoint) return { success: false, configured: false, error: 'URL do Google Apps Script não configurada.' };
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+      body: JSON.stringify({ action: 'getPublicPaymentConfig' }),
+      cache: 'no-store'
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.status !== 'success' || !data.paymentConfig) {
+      return { success: false, configured: false, error: data?.message || 'Configuração de Pix indisponível.' };
+    }
+    const config = data.paymentConfig;
+    return {
+      success: true,
+      configured: data.configured === true,
+      paymentConfig: {
+        pixKey: String(config.pixKey || ''),
+        pixBeneficiary: String(config.pixBeneficiary || ''),
+        depositAmount: Number(config.depositAmount ?? 40),
+      }
+    };
+  } catch (error: any) {
+    return { success: false, configured: false, error: error?.message || 'Falha ao ler configuração de Pix da planilha.' };
+  }
+}
+
+export async function fetchRemoteClients(authToken?: string): Promise<{ success: boolean; clients: ClientProfile[]; error?: string }> {
+  try {
+    const data = await callScheduleAction('getClients', {}, authToken);
+    return { success: true, clients: Array.isArray(data.clients) ? data.clients as ClientProfile[] : [] };
+  } catch (error: any) {
+    return { success: false, clients: [], error: error?.message || 'Falha ao ler clientes da planilha oficial.' };
+  }
+}
+
+export async function saveRemoteClient(
+  client: ClientProfile,
+  authToken?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const data = await callScheduleAction('saveClient', { client }, authToken);
+    return data.saved === true
+      ? { success: true }
+      : { success: false, error: data.message || 'Apps Script não confirmou a gravação da cliente.' };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Falha ao salvar perfil na planilha oficial.' };
+  }
+}
+
+export async function fetchRemoteServices(): Promise<Service[]> {
+  const endpoint = getNotificationWebhookUrl();
+  if (!endpoint) throw new Error('URL do Google Apps Script não configurada.');
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+    body: JSON.stringify({ action: 'getServices' })
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data || data.status !== 'success' || !Array.isArray(data.services)) {
+    throw new Error(data?.message || 'Não foi possível ler o catálogo oficial da aba Serviços.');
+  }
+  return data.services as Service[];
 }
 
 export async function saveRemoteService(
@@ -988,37 +887,22 @@ export async function saveRemoteService(
   authToken?: string
 ): Promise<{ success: boolean; saved?: boolean; error?: string; service?: Service }> {
   try {
-    const backendBase = getBackendApiUrl();
-    const targetUrl = backendBase ? `${backendBase}/api/services` : '/api/services';
-    const token = (authToken || '').trim();
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Accept: 'application/json'
-    };
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-
-    const response = await fetch(targetUrl, {
+    const endpoint = getNotificationWebhookUrl();
+    const token = (authToken || getNotificationWebhookToken()).trim();
+    if (!endpoint) return { success: false, error: 'URL do Google Apps Script não configurada.' };
+    if (!token) return { success: false, error: 'Token administrativo do Apps Script não configurado. Configure-o nas definições do painel.' };
+    const response = await fetch(endpoint, {
       method: 'POST',
-      headers,
-      body: JSON.stringify(service)
+      headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+      body: JSON.stringify({ action: 'saveService', token, ...service })
     });
-
-    let data: any;
-    try {
-      data = await response.json();
-    } catch {
-      return { success: false, error: 'Resposta inválida do servidor ao salvar procedimento.' };
+    const data = await response.json().catch(() => null);
+    if (!response.ok || data?.status !== 'success' || data?.saved !== true) {
+      return { success: false, error: data?.message || 'A planilha oficial não confirmou a gravação do serviço.' };
     }
-
-    if (response.ok && data?.success) {
-      return { success: true, saved: true, service: data.service || service };
-    }
-
-    return { success: false, error: data?.error || `Erro HTTP ${response.status} ao salvar procedimento.` };
+    return { success: true, saved: true, service };
   } catch (err: any) {
-    return { success: false, error: `Falha de conexão: ${err.message || 'servidor indisponível'}.` };
+    return { success: false, error: `Falha ao salvar na planilha oficial: ${err.message || 'erro de conexão'}.` };
   }
 }
 
@@ -1026,38 +910,17 @@ export async function deleteRemoteService(
   serviceId: string,
   authToken?: string
 ): Promise<{ success: boolean; deleted?: boolean; error?: string }> {
+  // Never delete catalog rows. Retire the service by setting active=false in the official sheet.
   try {
-    const backendBase = getBackendApiUrl();
-    const targetUrl = backendBase
-      ? `${backendBase}/api/services/${encodeURIComponent(serviceId)}`
-      : `/api/services/${encodeURIComponent(serviceId)}`;
-    const token = (authToken || '').trim();
-    const headers: Record<string, string> = {
-      Accept: 'application/json'
-    };
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-
-    const response = await fetch(targetUrl, {
-      method: 'DELETE',
-      headers
-    });
-
-    let data: any;
-    try {
-      data = await response.json();
-    } catch {
-      return { success: false, error: 'Resposta inválida do servidor ao excluir procedimento.' };
-    }
-
-    if (response.ok && data?.success) {
-      return { success: true, deleted: true };
-    }
-
-    return { success: false, error: data?.error || `Erro HTTP ${response.status} ao excluir procedimento.` };
+    const services = await fetchRemoteServices();
+    const service = services.find(item => item.id === serviceId);
+    if (!service) return { success: false, error: 'Serviço não encontrado na planilha oficial; nenhum dado foi alterado.' };
+    const result = await saveRemoteService({ ...service, active: false }, authToken);
+    return result.success
+      ? { success: true, deleted: true }
+      : { success: false, error: result.error };
   } catch (err: any) {
-    return { success: false, error: `Falha de rede: ${err.message || 'servidor indisponível'}.` };
+    return { success: false, error: err?.message || 'Falha ao desativar serviço na planilha oficial.' };
   }
 }
 
@@ -1070,9 +933,9 @@ export interface DrivePhoto {
 }
 
 /** Lista fotos da pasta oficial via Apps Script, protegendo a ação com o token administrativo configurado. */
-export async function listDrivePhotos(): Promise<{ success: boolean; photos?: DrivePhoto[]; error?: string }> {
+export async function listDrivePhotos(authToken?: string): Promise<{ success: boolean; photos?: DrivePhoto[]; error?: string }> {
   const endpoint = getNotificationWebhookUrl();
-  const token = getNotificationWebhookToken();
+  const token = (authToken || (typeof window !== 'undefined' ? sessionStorage.getItem('angelica_admin_session') || '' : '') || getNotificationWebhookToken()).trim();
   if (!endpoint) return { success: false, error: 'Configure o URL do Google Apps Script nas definições antes de selecionar fotos.' };
   if (!token) return { success: false, error: 'Token administrativo do Google Apps Script não configurado.' };
   try {
@@ -1091,67 +954,72 @@ export async function listDrivePhotos(): Promise<{ success: boolean; photos?: Dr
   }
 }
 
+export interface PublicGalleryPhoto {
+  id: string;
+  title: string;
+  subtitle: string;
+  url: string;
+  thumbnailUrl: string;
+}
+
+export async function fetchPublicGalleryPhotos(): Promise<{ success: boolean; photos: PublicGalleryPhoto[]; error?: string }> {
+  try {
+    const endpoint = getNotificationWebhookUrl();
+    if (!endpoint) return { success: false, photos: [], error: 'URL do Google Apps Script não configurada.' };
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+      body: JSON.stringify({ action: 'getPublicGalleryPhotos' }),
+      cache: 'no-store'
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.status !== 'success' || !Array.isArray(data.photos)) {
+      return { success: false, photos: [], error: data?.message || 'Galeria oficial indisponível.' };
+    }
+    return {
+      success: true,
+      photos: data.photos.map((photo: any) => ({
+        id: String(photo.id || ''),
+        title: String(photo.title || 'Criação'),
+        subtitle: String(photo.subtitle || 'Portfólio Espaço Angélica do Carmo'),
+        url: String(photo.url || ''),
+        thumbnailUrl: String(photo.thumbnailUrl || photo.url || '')
+      })).filter((photo: PublicGalleryPhoto) => photo.id && photo.url)
+    };
+  } catch (error: any) {
+    return { success: false, photos: [], error: error?.message || 'Falha ao carregar fotos do Google Drive.' };
+  }
+}
+
 export async function uploadServicePhoto(
   file: File,
   authToken?: string
 ): Promise<{ success: boolean; url?: string; error?: string }> {
+  const validMimes = ['image/jpeg', 'image/png', 'image/webp'];
+  if (!validMimes.includes(file.type)) {
+    return { success: false, error: 'Formato não suportado. Por favor utilize JPEG, PNG ou WebP.' };
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    return { success: false, error: 'A imagem deve ter no máximo 5MB.' };
+  }
+  const token = (authToken || (typeof window !== 'undefined' ? sessionStorage.getItem('angelica_admin_session') || '' : '') || getNotificationWebhookToken()).trim();
+  if (!token) return { success: false, error: 'Sessão administrativa do Google Apps Script não configurada.' };
   try {
-    const validMimes = ['image/jpeg', 'image/png', 'image/webp'];
-    if (!validMimes.includes(file.type)) {
-      return {
-        success: false,
-        error: 'Formato não suportado. Por favor utilize JPEG, PNG ou WebP.'
-      };
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      return {
-        success: false,
-        error: 'A imagem deve ter no máximo 5MB.'
-      };
-    }
-
-    const base64 = await new Promise<string>((resolve, reject) => {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Não foi possível ler o arquivo de imagem.'));
       reader.readAsDataURL(file);
     });
-
-    const backendBase = getBackendApiUrl();
-    const targetUrl = backendBase ? `${backendBase}/api/upload-photo` : '/api/upload-photo';
-    const token = (authToken || '').trim();
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Accept: 'application/json'
-    };
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-
-    const response = await fetch(targetUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        imageBase64: base64,
-        fileName: file.name,
-        mimeType: file.type
-      })
-    });
-
-    let data: any;
-    try {
-      data = await response.json();
-    } catch {
-      return { success: false, error: 'Resposta inválida do servidor ao enviar foto.' };
-    }
-
-    if (response.ok && data?.success && data?.url) {
-      return { success: true, url: data.url };
-    }
-
-    return { success: false, error: data?.error || `Erro HTTP ${response.status} ao processar foto.` };
+    const imageBase64 = dataUrl.includes(',') ? dataUrl.slice(dataUrl.indexOf(',') + 1) : dataUrl;
+    const data = await callScheduleAction('uploadPhoto', {
+      imageBase64,
+      fileName: file.name,
+      mimeType: file.type
+    }, token);
+    if (typeof data.url === 'string' && data.url) return { success: true, url: data.url };
+    return { success: false, error: data.message || 'O Apps Script não confirmou o upload para o Google Drive.' };
   } catch (err: any) {
-    return { success: false, error: `Falha no upload: ${err.message || 'servidor indisponível'}.` };
+    return { success: false, error: err?.message || 'Falha ao enviar a foto para o Google Drive.' };
   }
 }

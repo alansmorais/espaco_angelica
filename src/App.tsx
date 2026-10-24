@@ -6,11 +6,6 @@
 import React, { useState, useEffect } from 'react';
 import {
   SERVICES_CATALOG,
-  INITIAL_TODAY_APPOINTMENTS,
-  INITIAL_CLIENTS,
-  INITIAL_TIME_SLOTS,
-  INITIAL_DAY_SCHEDULES,
-  INITIAL_BLACKLIST,
   STUDIO_ADDRESS
 } from './data/mockData';
 import {
@@ -21,7 +16,8 @@ import {
   DayScheduleConfig,
   BlacklistEntry,
   StudioAddressConfig,
-  WhatsAppConfig
+  WhatsAppConfig,
+  PaymentConfig
 } from './types';
 import { sendAppointmentWhatsAppConfirmation } from './services/whatsappService';
 import { playDiscreteAdminNotificationSound, registerUserInteraction } from './services/soundNotificationService';
@@ -41,6 +37,12 @@ import {
   revokeAdminSession,
   fetchRemoteScheduleConfig,
   saveRemoteWeeklySchedule,
+  fetchRemoteAppSettings,
+  saveRemoteAppSetting,
+  fetchRemoteClients,
+  saveRemoteClient,
+  fetchPublicStudioAddress,
+  fetchPublicPaymentConfig,
   saveRemoteScheduleBlock,
   deleteRemoteScheduleBlock
 } from './services/emailNotificationService';
@@ -208,14 +210,7 @@ export default function App() {
   const [adminSearch, setAdminSearch] = useState<string>('');
 
   // 1 & 2: Services State (Shared between Public Catalog & Admin Price/Photo Manager)
-  const [services, setServices] = useState<Service[]>(() => {
-    try {
-      const saved = localStorage.getItem('angelica_services');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return SERVICES_CATALOG;
-    }
-  });
+  const [services, setServices] = useState<Service[]>([]);
 
   const activeServices = services.filter(s => s.active !== false);
   const [publicAvailability, setPublicAvailability] = useState<Appointment[]>([]);
@@ -227,42 +222,26 @@ export default function App() {
   );
 
   // 4: Operating Hours & Time Slots State (Add, Edit, Delete, Block)
-  const [timeSlots, setTimeSlots] = useState<TimeSlotConfig[]>(() => {
-    try {
-      const saved = localStorage.getItem('angelica_timeslots');
-      return saved ? JSON.parse(saved) : INITIAL_TIME_SLOTS;
-    } catch {
-      return INITIAL_TIME_SLOTS;
-    }
-  });
-  const [daySchedules, setDaySchedules] = useState<DayScheduleConfig[]>(() => {
-    try {
-      const saved = localStorage.getItem('angelica_dayschedules');
-      return saved ? JSON.parse(saved) : INITIAL_DAY_SCHEDULES;
-    } catch {
-      return INITIAL_DAY_SCHEDULES;
-    }
-  });
+  const [timeSlots, setTimeSlots] = useState<TimeSlotConfig[]>([]);
+  // Empty, closed weekday structure is UI scaffolding only; actual opening hours come from Sheets.
+  const [daySchedules, setDaySchedules] = useState<DayScheduleConfig[]>([
+    { dayKey: 'seg', dayLabel: 'Segunda-feira', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'ter', dayLabel: 'Terça-feira', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'qua', dayLabel: 'Quarta-feira', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'qui', dayLabel: 'Quinta-feira', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'sex', dayLabel: 'Sexta-feira', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'sab', dayLabel: 'Sábado', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'dom', dayLabel: 'Domingo', isOpen: false, openTime: '', closeTime: '' }
+  ]);
 
   // 6: Inadimplentes Blacklist State (Requires 100% Pre-payment via Pix)
-  const [blacklist, setBlacklist] = useState<BlacklistEntry[]>(() => {
-    try {
-      const saved = localStorage.getItem('angelica_blacklist');
-      return saved ? JSON.parse(saved) : INITIAL_BLACKLIST;
-    } catch {
-      return INITIAL_BLACKLIST;
-    }
-  });
+  const [blacklist, setBlacklist] = useState<BlacklistEntry[]>([]);
 
   // 3: Studio Address State (Rua Vereador José Luiz Soares, 92 - Pontal da Cruz, São Sebastião - SP)
-  const [studioAddress, setStudioAddress] = useState<StudioAddressConfig>(() => {
-    try {
-      const saved = localStorage.getItem('angelica_address');
-      return saved ? JSON.parse(saved) : STUDIO_ADDRESS;
-    } catch {
-      return STUDIO_ADDRESS;
-    }
-  });
+  const [studioAddress, setStudioAddress] = useState<StudioAddressConfig>(STUDIO_ADDRESS);
+  const [paymentConfig, setPaymentConfig] = useState<PaymentConfig>({ pixKey: '', pixBeneficiary: '', depositAmount: 40 });
+  const [paymentConfigLoaded, setPaymentConfigLoaded] = useState(false);
+  const [paymentConfigConfigured, setPaymentConfigConfigured] = useState(false);
 
   // Appointments & Clients State (Real data only, default empty)
   const [appointments, setAppointments] = useState<Appointment[]>(() => {
@@ -274,19 +253,12 @@ export default function App() {
     }
   });
 
-  const [clients, setClients] = useState<ClientProfile[]>(() => {
-    try {
-      const saved = localStorage.getItem('angelica_clients');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [clients, setClients] = useState<ClientProfile[]>([]);
 
   useEffect(() => {
     if (appMode !== 'admin') return;
     let active = true;
-    void fetchRemoteScheduleConfig().then(result => {
+    void fetchRemoteScheduleConfig(adminSessionToken).then(result => {
       if (!active || !result.success || !result.weeklySchedule) return;
       const weekly = result.weeklySchedule;
       const dayMap: Record<string, string> = { seg: 'monday', ter: 'tuesday', qua: 'wednesday', qui: 'thursday', sex: 'friday', sab: 'saturday', dom: 'sunday' };
@@ -299,6 +271,103 @@ export default function App() {
     return () => { active = false; };
   }, [appMode]);
 
+  useEffect(() => {
+    let active = true;
+    void fetchPublicPaymentConfig().then(result => {
+      if (!active) return;
+      if (result.success && result.paymentConfig) {
+        setPaymentConfig(result.paymentConfig);
+        setPaymentConfigConfigured(result.configured);
+      } else {
+        setPaymentConfigConfigured(false);
+      }
+      setPaymentConfigLoaded(true);
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void fetchPublicStudioAddress().then(result => {
+      if (active && result.success && result.address) setStudioAddress(result.address);
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (appMode !== 'admin' || !adminSessionToken) return;
+    let active = true;
+    const syncClients = async () => {
+      const result = await fetchRemoteClients(adminSessionToken);
+      if (active && result.success) setClients(result.clients);
+      else if (active && !result.success) console.error('[Official clients] Read failed:', result.error);
+    };
+    void syncClients();
+    const interval = setInterval(() => { void syncClients(); }, 30000);
+    return () => { active = false; clearInterval(interval); };
+  }, [appMode, adminSessionToken]);
+
+  useEffect(() => {
+    if (appMode !== 'admin' || !adminSessionToken) return;
+    let active = true;
+    void fetchRemoteAppSettings(adminSessionToken).then(result => {
+      if (!active || !result.success || !result.settings) return;
+      const settings = result.settings;
+      if (Array.isArray(settings.BLACKLIST)) setBlacklist(settings.BLACKLIST as BlacklistEntry[]);
+      if (settings.STUDIO_ADDRESS && typeof settings.STUDIO_ADDRESS === 'object') setStudioAddress(settings.STUDIO_ADDRESS as StudioAddressConfig);
+      if (settings.WHATSAPP_CONFIG && typeof settings.WHATSAPP_CONFIG === 'object') setWhatsappConfig(settings.WHATSAPP_CONFIG as WhatsAppConfig);
+    }).catch(error => console.error('[Official app settings] Read failed:', error));
+    return () => { active = false; };
+  }, [appMode, adminSessionToken]);
+
+  const handleUpdateBlacklist = async (next: BlacklistEntry[]) => {
+    const result = await saveRemoteAppSetting('BLACKLIST', next, adminSessionToken);
+    if (!result.success) {
+      window.alert('Não foi possível salvar a lista de bloqueio na planilha oficial. ' + (result.error || ''));
+      return;
+    }
+    setBlacklist(next);
+  };
+
+  const handleUpdateStudioAddress = async (next: StudioAddressConfig): Promise<boolean> => {
+    const result = await saveRemoteAppSetting('STUDIO_ADDRESS', next, adminSessionToken);
+    if (!result.success) {
+      window.alert('Não foi possível salvar o endereço na planilha oficial. ' + (result.error || ''));
+      return false;
+    }
+    setStudioAddress(next);
+    return true;
+  };
+
+  const handleUpdatePaymentConfig = async (next: PaymentConfig): Promise<boolean> => {
+    if (!next.pixKey.trim() || !next.pixBeneficiary.trim()) {
+      window.alert('Informe a chave Pix oficial e o nome do favorecido antes de salvar.');
+      return false;
+    }
+    if (!Number.isFinite(next.depositAmount) || next.depositAmount <= 0 || next.depositAmount > 100) {
+      window.alert('O percentual do sinal deve ser maior que 0 e menor ou igual a 100.');
+      return false;
+    }
+    const result = await saveRemoteAppSetting('PAYMENT_CONFIG', next, adminSessionToken);
+    if (!result.success) {
+      window.alert('Não foi possível salvar as regras de Pix na planilha oficial. ' + (result.error || ''));
+      return false;
+    }
+    setPaymentConfig(next);
+    setPaymentConfigConfigured(Boolean(next.pixKey.trim() && next.pixBeneficiary.trim()));
+    return true;
+  };
+
+  const handleUpdateWhatsappConfig = async (next: WhatsAppConfig): Promise<boolean> => {
+    const result = await saveRemoteAppSetting('WHATSAPP_CONFIG', next, adminSessionToken);
+    if (!result.success) {
+      window.alert('Não foi possível salvar as configurações do WhatsApp na planilha oficial. ' + (result.error || ''));
+      return false;
+    }
+    setWhatsappConfig(next);
+    return true;
+  };
+
   const persistWeeklySchedule = async (nextDays: DayScheduleConfig[], nextSlots: TimeSlotConfig[]): Promise<boolean> => {
     const dayMap: Record<string, string> = { seg: 'monday', ter: 'tuesday', qua: 'wednesday', qui: 'thursday', sex: 'friday', sab: 'saturday', dom: 'sunday' };
     const weeklySchedule: Record<string, unknown> = { slots: nextSlots.map(slot => ({ ...slot })) };
@@ -306,7 +375,7 @@ export default function App() {
       const key = dayMap[day.dayKey];
       if (key) weeklySchedule[key] = { open: day.isOpen, openTime: day.openTime, closeTime: day.closeTime };
     });
-    const result = await saveRemoteWeeklySchedule(weeklySchedule);
+    const result = await saveRemoteWeeklySchedule(weeklySchedule, adminSessionToken);
     if (!result.success) {
       window.alert('Não foi possível salvar a agenda na planilha oficial. Nenhuma alteração local foi aplicada. ' + (result.error || ''));
       return false;
@@ -348,48 +417,13 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Save to localStorage whenever states change
-  useEffect(() => {
-    try {
-      localStorage.setItem('angelica_services', JSON.stringify(services));
-    } catch {}
-  }, [services]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('angelica_timeslots', JSON.stringify(timeSlots));
-    } catch {}
-  }, [timeSlots]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('angelica_dayschedules', JSON.stringify(daySchedules));
-    } catch {}
-  }, [daySchedules]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('angelica_blacklist', JSON.stringify(blacklist));
-    } catch {}
-  }, [blacklist]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('angelica_address', JSON.stringify(studioAddress));
-    } catch {}
-  }, [studioAddress]);
+  // Official service catalogue is always reloaded from Google Sheets; do not cache it as a source of truth.
 
   useEffect(() => {
     try {
       localStorage.setItem('angelica_appointments', JSON.stringify(appointments));
     } catch {}
   }, [appointments]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('angelica_clients', JSON.stringify(clients));
-    } catch {}
-  }, [clients]);
 
   // Centralized Appointments Synchronization (Cloud Run / Sheets)
   useEffect(() => {
@@ -521,22 +555,24 @@ export default function App() {
     const syncServices = async () => {
       try {
         const remoteServices = await fetchRemoteServices();
-        if (!isMounted || !Array.isArray(remoteServices) || remoteServices.length === 0) return;
+        if (!isMounted) return;
         setServices(remoteServices);
-      } catch {}
+        if (remoteServices.length > 0) {
+          setSelectedService(current => remoteServices.find(service => service.id === current.id) || remoteServices[0]);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setServices([]);
+          setPublicAvailabilityError(error instanceof Error ? error.message : 'Não foi possível carregar o catálogo oficial.');
+        }
+        console.error('[Official service catalogue] Read failed:', error);
+      }
     };
     syncServices();
   }, []);
 
   // WhatsApp Business API Config State
-  const [whatsappConfig, setWhatsappConfig] = useState<WhatsAppConfig>(() => {
-    try {
-      const saved = localStorage.getItem('angelica_whatsapp_config');
-      return saved ? JSON.parse(saved) : { autoSendOnConfirm: true };
-    } catch {
-      return { autoSendOnConfirm: true };
-    }
-  });
+  const [whatsappConfig, setWhatsappConfig] = useState<WhatsAppConfig>({ autoSendOnConfirm: false });
 
   const [waGlobalToast, setWaGlobalToast] = useState<{
     message: string;
@@ -545,12 +581,6 @@ export default function App() {
     success: boolean;
     fallbackUrl?: string;
   } | null>(null);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('angelica_whatsapp_config', JSON.stringify(whatsappConfig));
-    } catch {}
-  }, [whatsappConfig]);
 
   // Admin Real-time Pre-Booking Notification Toast State
   const [adminNewBookingToast, setAdminNewBookingToast] = useState<{
@@ -679,58 +709,7 @@ export default function App() {
     setAppointments(prev => [newApt, ...prev]);
     notifyNewPreBooking(newApt);
 
-    // Automatically register or update client profile
-    setClients(prev => {
-      const normalizedPhone = newApt.clientPhone.replace(/\D/g, '');
-      const existingIndex = prev.findIndex(c => c.phone.replace(/\D/g, '') === normalizedPhone);
-      if (existingIndex >= 0) {
-        const updated = [...prev];
-        updated[existingIndex] = {
-          ...updated[existingIndex],
-          lastVisit: `${newApt.date} às ${newApt.time}`,
-          lastService: newApt.serviceTitle
-        };
-        return updated;
-      }
 
-      const initials = newApt.clientName
-        .split(' ')
-        .map(n => n[0])
-        .slice(0, 2)
-        .join('')
-        .toUpperCase();
-
-      const newClientProfile: ClientProfile = {
-        id: `client-${Date.now()}`,
-        name: newApt.clientName,
-        initials,
-        phone: newApt.clientPhone,
-        tier: '1ª Sessão',
-        status: 'nova',
-        lastVisit: `${newApt.date} às ${newApt.time}`,
-        lastService: newApt.serviceTitle,
-        nextMaintenanceDays: 21,
-        daysRemainingOrOverdue: '21 dias rest.',
-        isOverdue: false,
-        ltv: newApt.depositAmount,
-        ltvFormatted: `R$ ${formatBRL(newApt.depositAmount)}`,
-        laminaType: newApt.nailCondition || 'Natural',
-        oiliness: 'Média',
-        allergies: 'Nenhuma informada',
-        onycholysis: 'Lâmina íntegra',
-        preferredShape: 'Almond Clássica',
-        preferredColor: 'Tons Nude / Translúcidos',
-        products: {
-          preparer: 'Desidratador Max + Primer Sem Ácido',
-          baseGel: 'Fiber Base Gel Haute Pink',
-          tensionPoint: 'Gel Construtor Hard Classic',
-          topCoat: 'Diamond Brilho Espelhado'
-        },
-        privateNotes: newApt.notes || 'Cliente cadastrada via agendamento online.'
-      };
-
-      return [newClientProfile, ...prev];
-    });
   };
 
   const handleUpdateAppointment = async (updated: Appointment) => {
@@ -768,7 +747,7 @@ export default function App() {
         );
         const withWa: Appointment = {
           ...updated,
-          whatsappStatus: res.success ? 'enviado' : 'falha',
+          whatsappStatus: res.status === 'sent' ? 'enviado' : res.status === 'simulated' ? 'simulado' : 'falha',
           whatsappSentAt: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
           whatsappLastMessage: res.previewText || res.message
         };
@@ -777,7 +756,7 @@ export default function App() {
           message: res.message,
           clientName: updated.clientName,
           clientPhone: updated.clientPhone,
-          success: res.success,
+          success: res.status === 'sent',
           fallbackUrl: res.fallbackUrl
         });
         setTimeout(() => setWaGlobalToast(null), 6000);
@@ -815,8 +794,13 @@ export default function App() {
     if (archiveCount !== null) setLocalOnlyCount(archiveCount);
   };
 
-  const handleUpdateClient = (updated: ClientProfile) => {
-    setClients(prev => prev.map(c => (c.id === updated.id ? updated : c)));
+  const handleUpdateClient = async (updated: ClientProfile) => {
+    const result = await saveRemoteClient(updated, adminSessionToken);
+    if (!result.success) {
+      window.alert('Não foi possível salvar o perfil da cliente na planilha oficial. ' + (result.error || ''));
+      return;
+    }
+    setClients(prev => prev.map(c => (c.id === updated.id || c.phone.replace(/\D/g, '') === updated.phone.replace(/\D/g, '') ? updated : c)));
   };
 
   const handleManualBookingSave = async (newApt: Appointment) => {
@@ -826,61 +810,12 @@ export default function App() {
       return exists ? prev.map(a => (a.id === newApt.id ? newApt : a)) : [newApt, ...prev];
     });
 
-    // 2. Registra ou atualiza perfil da cliente no CRM do ateliê
-    setClients(prev => {
-      const normalizedPhone = newApt.clientPhone.replace(/\D/g, '');
-      const existingIndex = prev.findIndex(c => c.phone.replace(/\D/g, '') === normalizedPhone);
-      if (existingIndex >= 0) {
-        const updated = [...prev];
-        updated[existingIndex] = {
-          ...updated[existingIndex],
-          lastVisit: `${newApt.date} às ${newApt.time}`,
-          lastService: newApt.serviceTitle
-        };
-        return updated;
-      }
-
-      const initials = newApt.clientName
-        .split(' ')
-        .map(n => n[0])
-        .slice(0, 2)
-        .join('')
-        .toUpperCase();
-
-      const newClientProfile: ClientProfile = {
-        id: `client-${Date.now()}`,
-        name: newApt.clientName,
-        initials,
-        phone: newApt.clientPhone,
-        tier: '1ª Sessão',
-        status: 'nova',
-        lastVisit: `${newApt.date} às ${newApt.time}`,
-        lastService: newApt.serviceTitle,
-        nextMaintenanceDays: 21,
-        daysRemainingOrOverdue: '21 dias rest.',
-        isOverdue: false,
-        ltv: newApt.depositAmount,
-        ltvFormatted: `R$ ${formatBRL(newApt.depositAmount)}`,
-        laminaType: newApt.nailCondition || 'Natural',
-        oiliness: 'Média',
-        allergies: 'Nenhuma informada',
-        onycholysis: 'Lâmina íntegra',
-        preferredShape: 'Almond Clássica',
-        preferredColor: 'Tons Nude / Translúcidos',
-        products: {
-          preparer: 'Desidratador Max + Primer Sem Ácido',
-          baseGel: 'Fiber Base Gel Haute Pink',
-          tensionPoint: 'Gel Construtor Hard Classic',
-          topCoat: 'Diamond Brilho Espelhado'
-        },
-        privateNotes: newApt.notes || 'Cliente cadastrada via agendamento manual administrativo.'
-      };
-
-      return [newClientProfile, ...prev];
-    });
+    // Client profiles are read from the official Clientes sheet after the booking is saved.
 
     // 3. Re-sincroniza imediatamente com a planilha oficial do Google Sheets (fonte da verdade)
     await refreshRemoteAppointments();
+    const clientsResult = await fetchRemoteClients(adminSessionToken);
+    if (clientsResult.success) setClients(clientsResult.clients);
 
     if (newApt.whatsappStatus === 'enviado' || newApt.whatsappStatus === 'simulado') {
       setWaGlobalToast({
@@ -893,8 +828,13 @@ export default function App() {
     }
   };
 
-  const handleNewClientSave = (newClient: ClientProfile) => {
-    setClients(prev => [newClient, ...prev]);
+  const handleNewClientSave = async (newClient: ClientProfile) => {
+    const result = await saveRemoteClient(newClient, adminSessionToken);
+    if (!result.success) {
+      window.alert('Não foi possível cadastrar a cliente na planilha oficial. ' + (result.error || ''));
+      return;
+    }
+    setClients(prev => [newClient, ...prev.filter(client => client.id !== newClient.id && client.phone.replace(/\D/g, '') !== newClient.phone.replace(/\D/g, ''))]);
   };
 
   const handleBlockConfirm = async (data: BlockScheduleData): Promise<{ success: boolean; error?: string }> => {
@@ -922,13 +862,13 @@ export default function App() {
       : dmy ? `${dmy[3]}-${dmy[2]}-${dmy[1]}` : String(data.date);
     const intervalMatch = String(data.timeSpan).match(/(\d{1,2}:\d{2})\s*(?:às|as|-)\s*(\d{1,2}:\d{2})/i);
     const scheduleBlock = { id: blockApt.id, date: normalizedDate, allDay: isAllDay, startTime: intervalMatch?.[1], endTime: intervalMatch?.[2], reason: data.reason, active: true };
-    const savedScheduleBlock = await saveRemoteScheduleBlock(scheduleBlock);
+    const savedScheduleBlock = await saveRemoteScheduleBlock(scheduleBlock, adminSessionToken);
     if (!savedScheduleBlock.success) return { success: false, error: savedScheduleBlock.error || 'Não foi possível persistir o bloqueio na configuração da agenda.' };
 
     // Preserve the existing appointment block for the calendar and legacy conflict checks.
     const result = await submitBlockSchedule(blockApt, adminSessionToken);
     if (!result.success || !result.persisted) {
-      await deleteRemoteScheduleBlock(scheduleBlock.id);
+      await deleteRemoteScheduleBlock(scheduleBlock.id, adminSessionToken);
       return { success: false, error: result.error || 'O servidor não confirmou a gravação do bloqueio no armazenamento oficial.' };
     }
     if (!result.success || !result.persisted) {
@@ -1037,13 +977,14 @@ export default function App() {
             />
 
             {/* Public booking is unavailable until the real service catalogue loads; never show a mock service as bookable. */}
-            {activeServices.length > 0 && publicAvailabilityLoaded ? (
+            {activeServices.length > 0 && publicAvailabilityLoaded && paymentConfigLoaded && paymentConfigConfigured ? (
               <BookingWizard
                 selectedService={activeServices.find(s => s.id === selectedService?.id) || activeServices[0]}
                 onBookingConfirmed={handleBookingConfirmed}
                 timeSlots={timeSlots}
                 blacklist={blacklist}
                 studioAddress={studioAddress}
+                paymentConfig={paymentConfig}
                 services={activeServices}
                 onSelectService={handleSelectService}
                 appointments={publicAvailability}
@@ -1053,7 +994,7 @@ export default function App() {
             ) : (
               <section id="wizard-agendamento" className="mx-auto my-12 max-w-3xl rounded-2xl border border-[#E8D9B5] bg-white p-8 text-center">
                 <h2 className="font-syne text-xl font-bold text-[#49382E]">Agenda temporariamente indisponível</h2>
-                <p className="mt-2 text-sm text-[#786C63]">{!publicAvailabilityLoaded ? (publicAvailabilityError || 'Carregando a disponibilidade oficial da agenda…') : 'Não foi possível carregar o catálogo oficial de serviços. Nenhum serviço de demonstração será exibido. Tente novamente em instantes ou entre em contato com o espaço.'}</p>
+                <p className="mt-2 text-sm text-[#786C63]">{!publicAvailabilityLoaded ? (publicAvailabilityError || 'Carregando a disponibilidade oficial da agenda…') : !paymentConfigLoaded ? 'Carregando a configuração oficial de pagamento…' : !paymentConfigConfigured ? 'Os dados oficiais de Pix ainda não foram cadastrados na planilha. O agendamento está temporariamente indisponível para evitar instruções de pagamento incorretas.' : 'Não foi possível carregar o catálogo oficial de serviços. Nenhum serviço de demonstração será exibido. Tente novamente em instantes ou entre em contato com o espaço.'}</p>
               </section>
             )}
 
@@ -1386,16 +1327,18 @@ export default function App() {
 
               {adminTab === 'configuracoes' && (
                 <SettingsTab
+                   adminSessionToken={adminSessionToken}
                   timeSlots={timeSlots}
                   onUpdateTimeSlots={handleUpdateTimeSlots}
                   daySchedules={daySchedules}
                   onUpdateDaySchedules={handleUpdateDaySchedules}
                   blacklist={blacklist}
-                  onUpdateBlacklist={setBlacklist}
+                  onUpdateBlacklist={handleUpdateBlacklist}
                   studioAddress={studioAddress}
-                  onUpdateStudioAddress={setStudioAddress}
+                  onUpdateStudioAddress={handleUpdateStudioAddress}
+                  onUpdatePaymentConfig={handleUpdatePaymentConfig}
                   whatsappConfig={whatsappConfig}
-                  onUpdateWhatsappConfig={setWhatsappConfig}
+                  onUpdateWhatsappConfig={handleUpdateWhatsappConfig}
                 />
               )}
             </main>
@@ -1429,6 +1372,7 @@ export default function App() {
         services={services}
         blacklist={blacklist}
         adminSessionToken={adminSessionToken}
+        paymentConfig={paymentConfig}
       />
 
       <BlockScheduleModal

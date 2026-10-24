@@ -15,10 +15,10 @@ export const NewClientModal: React.FC<NewClientModalProps> = ({
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [tier, setTier] = useState<'VIP Club' | 'Frequente' | 'Atrasada' | '1ª Sessão'>('1ª Sessão');
-  const [preferredShape, setPreferredShape] = useState('Almond Clássica');
-  const [laminaType, setLaminaType] = useState('Normal / Saudável');
-  const [oiliness, setOiliness] = useState('Média');
-  const [allergies, setAllergies] = useState('Nenhuma');
+  const [preferredShape, setPreferredShape] = useState('');
+  const [laminaType, setLaminaType] = useState('');
+  const [oiliness, setOiliness] = useState('');
+  const [allergies, setAllergies] = useState('');
   const [notes, setNotes] = useState('');
 
   if (!isOpen) return null;
@@ -26,6 +26,10 @@ export const NewClientModal: React.FC<NewClientModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+    if (!phone.trim() || phone.replace(/\D/g, '').length < 8) {
+      window.alert('Informe o telefone/WhatsApp real da cliente para salvar o perfil.');
+      return;
+    }
 
     const initials = name
       .split(' ')
@@ -38,33 +42,29 @@ export const NewClientModal: React.FC<NewClientModalProps> = ({
       id: `client-${Date.now()}`,
       name: name.trim(),
       initials,
-      phone: phone || '+55 (31) 99999-0000',
+      phone: phone.trim(),
       tier,
       status: 'nova',
-      lastVisit: 'Hoje (Cadastro Inicial)',
-      lastService: 'Primeira Sessão • Anamnese',
-      nextMaintenanceDays: 25,
-      daysRemainingOrOverdue: 'Em dia (25 dias rest.)',
+      lastVisit: '',
+      lastService: '',
+      nextMaintenanceDays: 0,
+      daysRemainingOrOverdue: '',
       isOverdue: false,
-      ltv: 220,
-      ltvFormatted: 'R$ 220',
+      ltv: 0,
+      ltvFormatted: 'R$ 0,00',
       laminaType,
       oiliness,
       allergies,
-      onycholysis: 'Lâmina íntegra',
+      onycholysis: '',
       preferredShape,
-      preferredColor: 'Tons Nude / Translúcidos',
+      preferredColor: '',
       products: {
-        preparer: 'Desidratador Max + Primer Sem Ácido Cuccio',
-        baseGel: 'Fiber Base Gel Haute Pink Vòlia',
-        tensionPoint: 'Gel Construtor Hard Classic',
-        topCoat: 'Diamond Brilho Espelhado Ultra Selante'
+        preparer: '',
+        baseGel: '',
+        tensionPoint: '',
+        topCoat: ''
       },
-      privateNotes: notes || 'Cliente cadastrada via painel do atelier.',
-      photos: {
-        before: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCx_rEi_UhKA9-_uSnYwn0DfAJJQGz1LAw9T0NiTwid1EcmTr8f-tq6mW-a_GjskCwZ4-n_GQbcC4HPGiyaWJO2olSrLrGpmWrdFzTAHOAm8dm9zA_4fjkJC1FqiMZ9y84aisY_vGPkECzbRweafqz8uMA5owDJOv8abwHPQZChg8naDuEjAZ4JjNIhgvlyePEbCEvg40zfxerSf8ZR8_lp3aU7ijrhhj0aJkCCATCqyTKQ5RkOTBJlmQ',
-        after: 'https://lh3.googleusercontent.com/aida-public/AB6AXuB9fu0-mSu5SLLQ4IXmP9Bdj_OUpz9cYqHfb8-5FH66xGvUmGD3G1dGHcD4tEDEu5J9TBdV24sQo_dyO0Cwfxy7BxncI52OB9yMOX16yeLXNQJSwNpymDarzg2OWTDcrqY1pDYlAUSGtdJWx8NscnxW4ntg24wFotJLcABhZjHnYZmhexTS44aYMxoCScYcZGgHzjRqIEbLpGkgbK7rf_6mDlWhV6kZkL8gm9_dw2oZZLbfdbM9Dh_SHQ'
-      }
+      privateNotes: notes,
     };
 
     onSaveClient(newClient);

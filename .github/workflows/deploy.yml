@@ -23,8 +23,6 @@ jobs:
         run: npm ci
 
       - name: Build Project
-        env:
-          VITE_BACKEND_API_URL: https://espaco-angelica-backend-770203144889.southamerica-east1.run.app
         run: npm run build
 
       - name: Deploy to GitHub Pages

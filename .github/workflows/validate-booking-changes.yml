@@ -24,6 +24,4 @@ jobs:
       - name: Booking and payment tests
         run: npm test
       - name: Production build
-        env:
-          VITE_BACKEND_API_URL: https://espaco-angelica-backend-770203144889.southamerica-east1.run.app
         run: npm run build

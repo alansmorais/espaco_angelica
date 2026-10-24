@@ -67,6 +67,12 @@ export interface Appointment {
   gmailSentAt?: string;
 }
 
+export interface PaymentConfig {
+  pixKey: string;
+  pixBeneficiary: string;
+  depositAmount: number;
+}
+
 export interface WhatsAppConfig {
   autoSendOnConfirm: boolean;
   customTemplate?: string;

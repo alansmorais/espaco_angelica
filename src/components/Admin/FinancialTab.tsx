@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { SERVICES_CATALOG, SERVICE_PHOTO_PRESETS } from '../../data/mockData';
 import { Service, ServiceCategory, Appointment } from '../../types';
 import { uploadServicePhoto, listDrivePhotos, DrivePhoto } from '../../services/emailNotificationService';
 
@@ -70,7 +69,7 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
   appointments = [],
   adminSessionToken
 }) => {
-  const [internalServices, setInternalServices] = useState<Service[]>(SERVICES_CATALOG);
+  const [internalServices, setInternalServices] = useState<Service[]>([]);
   const services = propServices || internalServices;
 
   // Real KPI calculations from genuine appointments
@@ -152,7 +151,7 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
     setFormBadge('');
     setFormDescription('');
     setFormNote('Inclui cutilagem combinada e hidratação');
-    setFormImageUrl(SERVICE_PHOTO_PRESETS[0]?.url || '');
+    setFormImageUrl('');
     setFormSpecs('Acabamento anatômico, Cutilagem combinada');
     setFormActive(true);
     setFormError(null);
@@ -239,7 +238,7 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
     setIsDrivePickerOpen(true);
     setIsLoadingDrivePhotos(true);
     setDrivePhotoError(null);
-    const result = await listDrivePhotos();
+    const result = await listDrivePhotos(adminSessionToken);
     if (result.success) setDrivePhotos(result.photos || []);
     else setDrivePhotoError(result.error || 'Não foi possível carregar as fotos.');
     setIsLoadingDrivePhotos(false);
@@ -290,7 +289,7 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
           badge: formBadge.trim() || undefined,
           description: formDescription.trim(),
           note: formNote.trim(),
-          imageUrl: formImageUrl.trim() || SERVICE_PHOTO_PRESETS[0]?.url || '',
+          imageUrl: formImageUrl.trim(),
           specs: specsArray,
           active: formActive
         };
@@ -312,7 +311,7 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
           badge: formBadge.trim() || undefined,
           description: formDescription.trim(),
           note: formNote.trim(),
-          imageUrl: formImageUrl.trim() || SERVICE_PHOTO_PRESETS[0]?.url || '',
+          imageUrl: formImageUrl.trim(),
           specs: specsArray,
           active: formActive
         };
@@ -772,7 +771,7 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
                 <span className="block text-[#49382E] font-semibold">Fotografia do Procedimento</span>
                 <div className="flex items-center gap-4">
                   <div className="w-16 h-16 rounded-xl overflow-hidden bg-[#F7EFEA] shrink-0 border border-[#E8D9B5] relative">
-                    <img src={formImageUrl || SERVICE_PHOTO_PRESETS[0]?.url} alt="Preview" className="w-full h-full object-cover" />
+                    {formImageUrl ? <img src={formImageUrl} alt="Pré-visualização da foto do Drive" className="w-full h-full object-cover" /> : <div className="w-full h-full flex flex-col items-center justify-center text-[#A89A8C] gap-2"><span className="material-symbols-outlined text-3xl">add_photo_alternate</span><span className="text-[10px]">Selecione uma foto do Drive</span></div>}
                     {isUploadingPhoto && (
                       <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                         <span className="material-symbols-outlined text-white text-[20px] animate-spin">progress_activity</span>
@@ -823,26 +822,7 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
                   </div>
                 </div>
 
-                {/* Preset Galley Picker */}
-                <div>
-                  <span className="block text-[11px] text-[#D4AF37] font-bold mb-1.5">
-                    Ou selecione um preset da galeria do ateliê:
-                  </span>
-                  <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
-                    {SERVICE_PHOTO_PRESETS.map((preset, idx) => (
-                      <div
-                        key={idx}
-                        onClick={() => setFormImageUrl(preset.url)}
-                        title={preset.title}
-                        className={`aspect-square rounded-lg overflow-hidden border-2 cursor-pointer transition-all hover:scale-105 ${
-                          formImageUrl === preset.url ? 'border-[#D4AF37] ring-2 ring-[#D4AF37]' : 'border-[#E8D9B5] opacity-70 hover:opacity-100'
-                        }`}
-                      >
-                        <img src={preset.url} alt={preset.title} className="w-full h-full object-cover" />
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                <p className="text-[11px] text-[#786C63]">As imagens do catálogo devem ser escolhidas na pasta oficial do Google Drive. Nenhuma foto de demonstração será usada como substituta.</p>
               </div>
 
               {/* Service Info Inputs */}

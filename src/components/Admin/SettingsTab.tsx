@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { STUDIO_ADDRESS } from '../../data/mockData';
-import { TimeSlotConfig, DayScheduleConfig, BlacklistEntry, StudioAddressConfig, WhatsAppConfig } from '../../types';
+import { TimeSlotConfig, DayScheduleConfig, BlacklistEntry, StudioAddressConfig, WhatsAppConfig, PaymentConfig } from '../../types';
 import { checkWhatsAppStatus, testWhatsAppMessage, fetchWhatsAppLogs, WhatsAppStatus } from '../../services/whatsappService';
 import {
   DEFAULT_APPS_SCRIPT_WEBHOOK_URL,
@@ -8,19 +7,15 @@ import {
   setNotificationWebhookUrl,
   getNotificationWebhookToken,
   setNotificationWebhookToken,
-  testNotificationWebhook,
-  getBackendApiUrl,
-  setBackendApiUrl
+  testNotificationWebhook
 } from '../../services/emailNotificationService';
 import {
   AUTHORIZED_SENDER_EMAIL,
   TARGET_NOTIFICATION_EMAIL,
-  signInWithGmail,
-  logoutGmail,
-  getConnectedSenderEmail,
   sendDirectGmailFromBrowser
 } from '../../services/gmailService';
 import { CODE_GS_TEMPLATE } from '../../data/codeGsTemplate';
+import { fetchRemoteAppSettings, saveRemoteAppSetting } from '../../services/emailNotificationService';
 
 interface SettingsTabProps {
   timeSlots?: TimeSlotConfig[];
@@ -30,9 +25,11 @@ interface SettingsTabProps {
   blacklist?: BlacklistEntry[];
   onUpdateBlacklist?: (entries: BlacklistEntry[]) => void;
   studioAddress?: StudioAddressConfig;
-  onUpdateStudioAddress?: (addr: StudioAddressConfig) => void;
+  onUpdateStudioAddress?: (addr: StudioAddressConfig) => Promise<boolean> | void;
   whatsappConfig?: WhatsAppConfig;
-  onUpdateWhatsappConfig?: (config: WhatsAppConfig) => void;
+  onUpdateWhatsappConfig?: (config: WhatsAppConfig) => Promise<boolean> | void;
+  adminSessionToken?: string;
+  onUpdatePaymentConfig?: (config: PaymentConfig) => Promise<boolean> | void;
 }
 
 export const SettingsTab: React.FC<SettingsTabProps> = ({
@@ -45,34 +42,26 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   studioAddress: propStudioAddress,
   onUpdateStudioAddress,
   whatsappConfig: propWhatsappConfig,
-  onUpdateWhatsappConfig
+  onUpdateWhatsappConfig,
+  adminSessionToken = '',
+  onUpdatePaymentConfig
 }) => {
   // Local fallbacks if not wired in App
-  const [internalSlots, setInternalSlots] = useState<TimeSlotConfig[]>([
-    { id: 'slot-1', time: '09:00', status: 'disponivel', active: true },
-    { id: 'slot-2', time: '10:30', status: 'disponivel', active: true },
-    { id: 'slot-3', time: '11:30', status: 'disponivel', active: true },
-    { id: 'slot-4', time: '13:00', status: 'bloqueado', note: 'Almoço & Descanso', active: true },
-    { id: 'slot-5', time: '14:00', status: 'disponivel', active: true },
-    { id: 'slot-6', time: '15:30', status: 'disponivel', active: true },
-    { id: 'slot-7', time: '16:30', status: 'bloqueado', note: 'Autoclave & Higienização', active: true },
-    { id: 'slot-8', time: '18:00', status: 'disponivel', active: true },
-    { id: 'slot-9', time: '19:30', status: 'disponivel', active: true }
-  ]);
-
+  // Fallbacks are empty/closed only; real hours and slots must come from the sheet.
+  const [internalSlots, setInternalSlots] = useState<TimeSlotConfig[]>([]);
   const [internalDays, setInternalDays] = useState<DayScheduleConfig[]>([
-    { dayKey: 'ter', dayLabel: 'Terça-feira', isOpen: true, openTime: '09:00', closeTime: '19:30' },
-    { dayKey: 'qua', dayLabel: 'Quarta-feira', isOpen: true, openTime: '09:00', closeTime: '19:30' },
-    { dayKey: 'qui', dayLabel: 'Quinta-feira', isOpen: true, openTime: '09:00', closeTime: '19:30' },
-    { dayKey: 'sex', dayLabel: 'Sexta-feira', isOpen: true, openTime: '09:00', closeTime: '20:00' },
-    { dayKey: 'sab', dayLabel: 'Sábado', isOpen: true, openTime: '08:30', closeTime: '18:00' },
-    { dayKey: 'dom', dayLabel: 'Domingo', isOpen: false, openTime: '00:00', closeTime: '00:00' },
-    { dayKey: 'seg', dayLabel: 'Segunda-feira', isOpen: false, openTime: '00:00', closeTime: '00:00' }
+    { dayKey: 'seg', dayLabel: 'Segunda-feira', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'ter', dayLabel: 'Terça-feira', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'qua', dayLabel: 'Quarta-feira', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'qui', dayLabel: 'Quinta-feira', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'sex', dayLabel: 'Sexta-feira', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'sab', dayLabel: 'Sábado', isOpen: false, openTime: '', closeTime: '' },
+    { dayKey: 'dom', dayLabel: 'Domingo', isOpen: false, openTime: '', closeTime: '' }
   ]);
 
   const [internalBlacklist, setInternalBlacklist] = useState<BlacklistEntry[]>([]);
 
-  const [internalAddress, setInternalAddress] = useState<StudioAddressConfig>(STUDIO_ADDRESS);
+  const [internalAddress, setInternalAddress] = useState<StudioAddressConfig>({ street: '', number: '', neighborhood: '', city: '', state: '', fullAddress: '', mapsUrl: '', wazeUrl: '' });
 
   const slots = propTimeSlots || internalSlots;
   const days = propDaySchedules || internalDays;
@@ -95,10 +84,9 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   };
 
   // State for Pix & Settings
-  const [pixKey, setPixKey] = useState('+5512974062241');
-  const [pixBeneficiary, setPixBeneficiary] = useState('Angelica do Carmo E. Silva ME');
+  const [pixKey, setPixKey] = useState('');
+  const [pixBeneficiary, setPixBeneficiary] = useState('');
   const [depositAmount, setDepositAmount] = useState('40');
-  const [prepayDiscount, setPrepayDiscount] = useState('5');
   const [savedSuccess, setSavedSuccess] = useState<string | null>(null);
 
   // Time Slot Management UI State
@@ -119,15 +107,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
   // WhatsApp Business API State
   const [waStatus, setWaStatus] = useState<WhatsAppStatus | null>(null);
-  const [waConfig, setWaConfig] = useState<WhatsAppConfig>(() => {
-    if (propWhatsappConfig) return propWhatsappConfig;
-    try {
-      const saved = localStorage.getItem('angelica_whatsapp_config');
-      return saved ? JSON.parse(saved) : { autoSendOnConfirm: true };
-    } catch {
-      return { autoSendOnConfirm: true };
-    }
-  });
+  const [waConfig, setWaConfig] = useState<WhatsAppConfig>(() => propWhatsappConfig || { autoSendOnConfirm: false });
   const [waTemplate, setWaTemplate] = useState<string>(() => {
     return waConfig.customTemplate || `✨ *Confirmação de Agendamento • Espaço Angélica do Carmo* ✨
 
@@ -163,72 +143,90 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
   const [webhookFeedback, setWebhookFeedback] = useState<{ message: string; success: boolean } | null>(null);
   const [showScriptDetails, setShowScriptDetails] = useState<boolean>(false);
 
-  // Gmail OAuth Remetente no Navegador (kontakt@alansmsolutions.com)
-  const [gmailConnectedUser, setGmailConnectedUser] = useState<string | null>(() => getConnectedSenderEmail());
-  const [isSigningInGmail, setIsSigningInGmail] = useState<boolean>(false);
+  // Email is sent by Apps Script MailApp; no Firebase Auth or browser OAuth session.
   const [isTestingDirectGmail, setIsTestingDirectGmail] = useState<boolean>(false);
   const [gmailOAuthFeedback, setGmailOAuthFeedback] = useState<{ message: string; success: boolean } | null>(null);
-
-  const handleConnectGmailOAuth = async () => {
-    setIsSigningInGmail(true);
-    setGmailOAuthFeedback(null);
-    try {
-      const res = await signInWithGmail();
-      if (res) {
-        setGmailConnectedUser(res.userEmail);
-        if (res.isAuthorizedSender) {
-          setGmailOAuthFeedback({
-            success: true,
-            message: `Conta autorizada conectada com sucesso: ${res.userEmail}!`
-          });
-        } else {
-          setGmailOAuthFeedback({
-            success: false,
-            message: `Atenção: A conta conectada foi ${res.userEmail}. O remetente oficial autorizado é ${AUTHORIZED_SENDER_EMAIL}.`
-          });
-        }
-      }
-    } catch (err: any) {
-      setGmailOAuthFeedback({
-        success: false,
-        message: err.message || 'Erro ao conectar conta Google via OAuth.'
-      });
-    } finally {
-      setIsSigningInGmail(false);
-    }
-  };
-
-  const handleDisconnectGmailOAuth = async () => {
-    await logoutGmail();
-    setGmailConnectedUser(null);
-    setGmailOAuthFeedback(null);
-    notify('Sessão do Gmail desconectada do navegador.');
-  };
 
   const handleTestDirectGmail = async () => {
     setIsTestingDirectGmail(true);
     setGmailOAuthFeedback(null);
     try {
       const res = await sendDirectGmailFromBrowser({
-        clientName: 'Cliente Teste (Sistema)',
-        clientPhone: '(12) 97406-2241',
-        clientEmail: 'angelikm19@gmail.com',
-        serviceTitle: 'Teste Direto Gmail API',
-        date: 'Hoje',
+        clientName: 'Teste de integração',
+        clientPhone: '',
+        clientEmail: TARGET_NOTIFICATION_EMAIL,
+        serviceTitle: 'Teste de envio pelo Apps Script',
+        date: 'Teste',
         time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-        depositAmount: 88,
+        depositAmount: 0,
+        status: 'teste_sistema',
         appointmentId: `test-${Date.now()}`,
-        notes: `Disparo de verificação direta pelo navegador via Gmail API (${AUTHORIZED_SENDER_EMAIL} -> ${TARGET_NOTIFICATION_EMAIL}).`
+        notes: `Teste de envio solicitado no painel. Remetente esperado: ${AUTHORIZED_SENDER_EMAIL}.`
       });
       setGmailOAuthFeedback({ success: res.success, message: res.message });
     } catch (err: any) {
-      setGmailOAuthFeedback({
-        success: false,
-        message: err.message || 'Falha no disparo direto via Gmail API.'
-      });
+      setGmailOAuthFeedback({ success: false, message: err.message || 'Falha no teste de e-mail via Apps Script.' });
     } finally {
       setIsTestingDirectGmail(false);
     }
+  };
+
+  useEffect(() => {
+    setAddressText(address.fullAddress || '');
+  }, [address.fullAddress]);
+
+  useEffect(() => {
+    if (!adminSessionToken) return;
+    let active = true;
+    void fetchRemoteAppSettings(adminSessionToken).then(result => {
+      if (!active || !result.success || !result.settings) return;
+      const payment = result.settings.PAYMENT_CONFIG as Record<string, unknown> | undefined;
+      if (payment) {
+        setPixKey(String(payment.pixKey || ''));
+        setPixBeneficiary(String(payment.pixBeneficiary || ''));
+        setDepositAmount(String(payment.depositAmount ?? '40'));
+      }
+    });
+    return () => { active = false; };
+  }, [adminSessionToken]);
+
+  useEffect(() => {
+    if (!propWhatsappConfig) return;
+    setWaConfig(propWhatsappConfig);
+    if (propWhatsappConfig.customTemplate) setWaTemplate(propWhatsappConfig.customTemplate);
+  }, [propWhatsappConfig]);
+
+  const handleSaveStudioAddress = async () => {
+    const nextAddress = { ...address, fullAddress: addressText.trim() };
+    if (!nextAddress.fullAddress) {
+      notify('Informe o endereço oficial antes de salvar.');
+      return;
+    }
+    if (onUpdateStudioAddress) {
+      const saved = await onUpdateStudioAddress(nextAddress);
+      if (saved === false) return;
+    }
+    setInternalAddress(nextAddress);
+    notify('Endereço salvo na planilha oficial.');
+  };
+
+  const handleSavePixSettings = async () => {
+    const nextConfig: PaymentConfig = {
+      pixKey: pixKey.trim(),
+      pixBeneficiary: pixBeneficiary.trim(),
+      depositAmount: Number(depositAmount || 40),
+    };
+    if (onUpdatePaymentConfig) {
+      const saved = await onUpdatePaymentConfig(nextConfig);
+      if (saved === false) return;
+    } else {
+      const result = await saveRemoteAppSetting('PAYMENT_CONFIG', nextConfig, adminSessionToken);
+      if (!result.success) {
+        notify('Não foi possível salvar as regras de Pix na planilha oficial: ' + (result.error || ''));
+        return;
+      }
+    }
+    notify('Regras de Pix salvas na planilha oficial.');
   };
 
   const handleSaveWebhook = (e: React.FormEvent) => {
@@ -255,81 +253,14 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
     }
   };
 
-  // Backend Seguro Server-Side Proxy State
-  const [backendUrlInput, setBackendUrlInput] = useState<string>(() => getBackendApiUrl());
-  const [backendStatus, setBackendStatus] = useState<{
-    status?: string;
-    mode?: string;
-    configured?: boolean;
-    webhookUrlConfigured?: boolean;
-    tokenConfigured?: boolean;
-  } | null>(null);
-  const [isCheckingBackend, setIsCheckingBackend] = useState<boolean>(false);
-  const [backendFeedback, setBackendFeedback] = useState<{ message: string; success: boolean } | null>(null);
-
-  const handleSaveBackend = (e: React.FormEvent) => {
-    e.preventDefault();
-    setBackendApiUrl(backendUrlInput);
-    notify('Configuração do Backend Seguro salva!');
-    handleCheckBackend(backendUrlInput);
-  };
-
-  const handleCheckBackend = async (urlOverride?: string) => {
-    setIsCheckingBackend(true);
-    setBackendFeedback(null);
-    try {
-      const base = (urlOverride !== undefined ? urlOverride : backendUrlInput).trim().replace(/\/$/, '');
-      const endpoint = base ? `${base}/api/notifications/status` : '/api/notifications/status';
-      const res = await fetch(endpoint);
-      if (res.ok) {
-        const data = await res.json();
-        setBackendStatus(data);
-        if (data.tokenConfigured) {
-          setBackendFeedback({
-            success: true,
-            message: 'Backend seguro ativo! APPS_SCRIPT_TOKEN configurado no servidor (secrets mantidos 100% server-side).'
-          });
-        } else {
-          setBackendFeedback({
-            success: false,
-            message: 'Backend conectado, mas a variável APPS_SCRIPT_TOKEN ainda não foi definida no arquivo .env do servidor.'
-          });
-        }
-      } else {
-        setBackendFeedback({
-          success: false,
-          message: `HTTP ${res.status} ao conectar com o endpoint de status do backend.`
-        });
-      }
-    } catch (err: any) {
-      setBackendFeedback({
-        success: false,
-        message: `Não foi possível conectar ao backend local (${err.message || 'servidor offline'}). Se o site estiver no GitHub Pages, informe a URL do seu backend Node / Cloud Run.`
-      });
-    } finally {
-      setIsCheckingBackend(false);
-    }
-  };
-
-  useEffect(() => {
-    checkWhatsAppStatus().then(setWaStatus);
-    fetchWhatsAppLogs().then(setWaLogs);
-    handleCheckBackend();
-  }, []);
-
-  const handleSaveWaConfig = () => {
-    const updated: WhatsAppConfig = {
-      ...waConfig,
-      customTemplate: waTemplate
-    };
-    setWaConfig(updated);
+  const handleSaveWaConfig = async () => {
+    const updated: WhatsAppConfig = { ...waConfig, customTemplate: waTemplate };
     if (onUpdateWhatsappConfig) {
-      onUpdateWhatsappConfig(updated);
+      const saved = await onUpdateWhatsappConfig(updated);
+      if (saved === false) return;
     }
-    try {
-      localStorage.setItem('angelica_whatsapp_config', JSON.stringify(updated));
-    } catch {}
-    notify('Parâmetros da API do WhatsApp Business salvos!');
+    setWaConfig(updated);
+    notify('Configurações do WhatsApp salvas na planilha oficial.');
   };
 
   const handleTestWhatsApp = async (e: React.FormEvent) => {
@@ -826,6 +757,12 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
             />
           </div>
 
+          <div className="flex justify-end pt-1">
+            <button type="button" onClick={() => { void handleSaveStudioAddress(); }} className="px-5 py-2.5 rounded-full bg-[#D4AF37] text-[#3C2F00] font-jakarta text-xs font-bold hover:bg-[#E5C158] transition-all cursor-pointer">
+              Salvar endereço na planilha
+            </button>
+          </div>
+
           <div className="flex flex-wrap items-center gap-3 pt-1">
             <a
               href={address.mapsUrl}
@@ -892,23 +829,15 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
               className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:border-[#D4AF37] outline-none"
             />
           </div>
-          <div>
-            <label className="block text-[#49382E] font-semibold mb-1">
-              Desconto VIP p/ Pré-pagamento Total 100% (%)
-            </label>
-            <input
-              type="number"
-              value={prepayDiscount}
-              onChange={e => setPrepayDiscount(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:border-[#D4AF37] outline-none"
-            />
+          <div className="flex items-center text-xs text-[#786C63]">
+            O pré-pagamento integral é de 100% do preço oficial, sem desconto.
           </div>
         </div>
 
         <div className="flex justify-end pt-3 border-t border-[#E8D9B5]">
           <button
             type="button"
-            onClick={() => notify('Configurações de Pix e parâmetros salvas com sucesso!')}
+            onClick={() => { void handleSavePixSettings(); }}
             className="px-6 py-2.5 rounded-full bg-[#D4AF37] text-[#3C2F00] font-jakarta text-xs font-bold hover:bg-[#E5C158] transition-all cursor-pointer shadow-md"
           >
             Salvar Regras de Pix
@@ -975,10 +904,10 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
             </span>
             <div className="font-jakarta text-xs font-bold text-[#49382E] flex items-center gap-1.5">
               <span className="material-symbols-outlined text-[16px] text-[#D4AF37]">badge</span>
-              <span>{waStatus?.phoneNumberIdConfigured ? 'ID Vinculado no Servidor' : 'Injetável via .env'}</span>
+              <span>{waStatus?.phoneNumberIdConfigured ? 'ID configurado no Apps Script' : 'Configurar nas Propriedades do Script'}</span>
             </div>
             <p className="text-[11px] text-[#786C63]">
-              Variável: <code className="text-[#D4AF37] font-mono">WHATSAPP_PHONE_NUMBER_ID</code>
+              Propriedade do Apps Script: <code className="text-[#D4AF37] font-mono">WHATSAPP_PHONE_NUMBER_ID</code>
             </p>
           </div>
 
@@ -988,10 +917,10 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
             </span>
             <div className="font-jakarta text-xs font-bold text-[#49382E] flex items-center gap-1.5">
               <span className="material-symbols-outlined text-[16px] text-[#D4AF37]">key</span>
-              <span>{waStatus?.tokenConfigured ? 'Token Meta Autenticado' : 'Injetável via .env'}</span>
+              <span>{waStatus?.tokenConfigured ? 'Token Meta configurado no Apps Script' : 'Configurar nas Propriedades do Script'}</span>
             </div>
             <p className="text-[11px] text-[#786C63]">
-              Variável: <code className="text-[#D4AF37] font-mono">WHATSAPP_API_TOKEN</code>
+              Propriedade do Apps Script: <code className="text-[#D4AF37] font-mono">WHATSAPP_API_TOKEN</code>
             </p>
           </div>
         </div>
@@ -1347,85 +1276,7 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
           </div>
         </div>
 
-        {/* MÓDULO 1: Backend Seguro Server-Side Proxy (Secrets Mantidos no Servidor) */}
-        <div className="p-5 rounded-2xl bg-[#FFFFFF] border-2 border-[#D4AF37] space-y-4 font-jakarta text-xs shadow-xs">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-[#D4AF37] text-[22px]">shield_person</span>
-                <h4 className="font-syne text-sm font-bold text-[#49382E]">
-                  Opção 1: Backend Seguro Server-Side Proxy (Secrets no Servidor)
-                </h4>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                  backendStatus?.tokenConfigured
-                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                    : 'bg-amber-100 text-amber-800 border border-amber-300'
-                }`}>
-                  {backendStatus?.tokenConfigured ? 'Ativo & Autenticado' : 'Pendente de APPS_SCRIPT_TOKEN'}
-                </span>
-              </div>
-              <p className="text-[#786C63] mt-1 leading-relaxed">
-                As reservas salvas no site são transmitidas ao backend Node (<code>server.ts</code>), que injeta a chave <strong>APPS_SCRIPT_TOKEN</strong> diretamente no servidor antes de despachar ao Google Apps Script. <strong>Nenhum segredo ou token é exposto no navegador da cliente.</strong>
-              </p>
-            </div>
-          </div>
-
-          <form onSubmit={handleSaveBackend} className="space-y-3">
-            <div>
-              <label className="block text-[#49382E] font-semibold mb-1">
-                URL Base do Backend Seguro (Node / Express / Cloud Run)
-              </label>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="url"
-                  placeholder="Deixe em branco para usar o mesmo host (/api/notifications/new-booking)"
-                  value={backendUrlInput}
-                  onChange={e => setBackendUrlInput(e.target.value)}
-                  className="flex-1 px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-xs min-h-[44px]"
-                />
-                <button
-                  type="submit"
-                  className="px-6 py-2.5 rounded-xl bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95 whitespace-nowrap min-h-[44px]"
-                >
-                  Salvar URL Backend
-                </button>
-              </div>
-              <p className="text-[11px] text-[#786C63] mt-1">
-                Ao rodar com <code>npm run dev</code> ou no servidor próprio, deixe em branco. Se o site estiver no GitHub Pages com backend separado na nuvem, informe a URL do backend.
-              </p>
-            </div>
-          </form>
-
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            <button
-              type="button"
-              disabled={isCheckingBackend}
-              onClick={() => handleCheckBackend()}
-              className="px-4 py-2.5 rounded-xl bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-jakarta text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 min-h-[44px]"
-            >
-              <span className="material-symbols-outlined text-[18px]">
-                {isCheckingBackend ? 'sync' : 'network_check'}
-              </span>
-              <span>{isCheckingBackend ? 'Verificando Backend...' : 'Verificar Status do Backend'}</span>
-            </button>
-
-            {backendFeedback && (
-              <div
-                className={`p-3 rounded-xl text-xs flex items-center gap-2 flex-1 ${
-                  backendFeedback.success
-                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                    : 'bg-amber-50 text-amber-900 border border-amber-200'
-                }`}
-              >
-                <span className="material-symbols-outlined text-[18px]">
-                  {backendFeedback.success ? 'verified_user' : 'info'}
-                </span>
-                <span>{backendFeedback.message}</span>
-              </div>
-            )}
-          </div>
-        </div>
-
+        {/* A persistência oficial é feita diretamente pelo Google Apps Script e Google Sheets. */}
         {/* MÓDULO 2: Envio Autônomo 24/7 via Webhook Apps Script na conta do Remetente */}
         <div className="p-5 rounded-2xl bg-[#FDFBF9] border border-[#E8D9B5] space-y-4 font-jakarta text-xs">
           <div className="flex items-start justify-between gap-3">
@@ -1553,90 +1404,36 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
           )}
         </div>
 
-        {/* MÓDULO 3: Envio Direto via Gmail OAuth no Navegador */}
+        {/* MÓDULO 3: Envio de e-mail via Google Apps Script MailApp */}
         <div className="p-5 rounded-2xl bg-[#FFFFFF] border border-[#E8D9B5] space-y-4 font-jakarta text-xs">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-emerald-600 text-[20px]">web</span>
-                <h4 className="font-syne text-sm font-bold text-[#49382E]">
-                  Opção 3: Envio Direto via Gmail OAuth no Navegador
-                </h4>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                  gmailConnectedUser ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-stone-100 text-stone-600 border border-stone-200'
-                }`}>
-                  {gmailConnectedUser ? 'Sessão Ativa' : 'Desconectado'}
-                </span>
-              </div>
+          <div className="flex items-start gap-3">
+            <span className="material-symbols-outlined text-emerald-600 text-[22px]">forward_to_inbox</span>
+            <div className="flex-1">
+              <h4 className="font-syne text-sm font-bold text-[#49382E]">Envio de e-mail via Google Apps Script</h4>
               <p className="text-[#786C63] mt-1 leading-relaxed">
-                Utiliza a Gmail API autorizada diretamente a partir do seu navegador através do Firebase Auth.
+                O Apps Script envia confirmações usando a conta autorizada <strong>{AUTHORIZED_SENDER_EMAIL}</strong>.
+                Não é necessário Firebase Auth nem manter uma sessão Gmail aberta no navegador.
               </p>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              {gmailConnectedUser ? (
-                <button
-                  type="button"
-                  onClick={handleDisconnectGmailOAuth}
-                  className="px-4 py-2 rounded-xl bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 font-bold transition-colors cursor-pointer"
-                >
-                  Desconectar Sessão
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={isSigningInGmail}
-                  onClick={handleConnectGmailOAuth}
-                  className="px-4 py-2 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-                >
-                  <span className="material-symbols-outlined text-[16px]">login</span>
-                  <span>{isSigningInGmail ? 'Conectando...' : `Conectar ${AUTHORIZED_SENDER_EMAIL}`}</span>
-                </button>
-              )}
+              <p className="text-[#786C63] mt-1">Destino do teste: <strong>{TARGET_NOTIFICATION_EMAIL}</strong>.</p>
             </div>
           </div>
-
-          {/* Banner de Esclarecimento Transparente (Requisito 4) */}
-          <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 space-y-1 text-[11px] leading-relaxed">
-            <div className="flex items-center gap-1.5 font-bold">
-              <span className="material-symbols-outlined text-amber-700 text-[18px]">info</span>
-              <span>Funcionamento no Navegador vs. Painel Fechado:</span>
-            </div>
-            <p>
-              Esta integração OAuth utiliza o token de sessão do seu navegador. O envio direto pela Gmail API <strong>só ocorre enquanto o painel administrativo estiver aberto com esta sessão ativa</strong>. Quando o painel estiver fechado ou se a cliente agendar de outro aparelho, o envio automático autônomo é delegado à <strong>Opção 1 (Webhook Apps Script)</strong>.
-            </p>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <button
+              type="button"
+              disabled={isTestingDirectGmail}
+              onClick={handleTestDirectGmail}
+              className="px-4 py-2.5 rounded-xl bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-jakarta text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 min-h-[44px]"
+            >
+              <span className="material-symbols-outlined text-[18px]">{isTestingDirectGmail ? 'sync' : 'forward_to_inbox'}</span>
+              <span>{isTestingDirectGmail ? 'Enviando teste...' : 'Testar envio de e-mail'}</span>
+            </button>
+            {gmailOAuthFeedback && (
+              <div className={`p-3 rounded-xl text-xs flex items-center gap-2 flex-1 ${gmailOAuthFeedback.success ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+                <span className="material-symbols-outlined text-[18px]">{gmailOAuthFeedback.success ? 'check_circle' : 'error'}</span>
+                <span>{gmailOAuthFeedback.message}</span>
+              </div>
+            )}
           </div>
-
-          {gmailConnectedUser && (
-            <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-              <button
-                type="button"
-                disabled={isTestingDirectGmail}
-                onClick={handleTestDirectGmail}
-                className="px-4 py-2.5 rounded-xl bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-jakarta text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 min-h-[44px]"
-              >
-                <span className="material-symbols-outlined text-[18px]">
-                  {isTestingDirectGmail ? 'sync' : 'forward_to_inbox'}
-                </span>
-                <span>{isTestingDirectGmail ? 'Disparando...' : 'Testar Envio Direto via Gmail API'}</span>
-              </button>
-
-              {gmailOAuthFeedback && (
-                <div
-                  className={`p-3 rounded-xl text-xs flex items-center gap-2 flex-1 ${
-                    gmailOAuthFeedback.success
-                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                      : 'bg-red-50 text-red-800 border border-red-200'
-                  }`}
-                >
-                  <span className="material-symbols-outlined text-[18px]">
-                    {gmailOAuthFeedback.success ? 'check_circle' : 'error'}
-                  </span>
-                  <span>{gmailOAuthFeedback.message}</span>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
 
@@ -1651,20 +1448,20 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
               Segurança &amp; Senha do Painel Administrativo
             </h3>
             <p className="font-jakarta text-xs text-[#786C63]">
-              Altere a senha de acesso restrito ao painel de gestão do ateliê
+              A senha administrativa é validada diretamente pelo Google Apps Script
             </p>
           </div>
         </div>
 
         <div className="p-4 rounded-xl bg-[#FDFBF9] border border-[#E8D9B5] space-y-2 text-xs text-[#786C63] leading-relaxed max-w-xl">
           <p className="font-semibold text-[#49382E]">
-            Autenticação Segura no Servidor (Cloud Run / Node):
+            Autenticação segura pelo Google Apps Script:
           </p>
           <p>
-            A autorização de acesso a este painel e à listagem de agendamentos é verificada de forma centralizada pelo servidor backend através da variável de ambiente <code className="text-[#49382E] font-mono bg-stone-100 px-1.5 py-0.5 rounded">ADMIN_PASSWORD</code> ou <code className="text-[#49382E] font-mono bg-stone-100 px-1.5 py-0.5 rounded">ADMIN_TOKEN</code>.
+            O acesso ao painel é validado pelo Apps Script. Configure <code className="text-[#49382E] font-mono bg-stone-100 px-1.5 py-0.5 rounded">ADMIN_PASSWORD</code> em Google Apps Script → Configurações do projeto → Propriedades do script.
           </p>
           <p>
-            Nenhuma credencial mestra ou senha fixa é salva no código público ou no <code className="font-mono">localStorage</code> do navegador. Para alterar a senha do painel, configure a variável <code className="font-mono">ADMIN_PASSWORD</code> nas variáveis de ambiente do Cloud Run.
+            A senha não é incluída no código público nem no armazenamento do navegador. As credenciais opcionais do WhatsApp também devem ser guardadas nas Propriedades do Script, nunca no frontend.
           </p>
         </div>
       </div>
