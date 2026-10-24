@@ -1252,7 +1252,7 @@ export default function App() {
                   onSelectAppointmentForReview={_name => {
                     setAdminTab('gestao-clientes');
                   }}
-                  todayAppointments={appointments}
+                  appointments={appointments}
                 />
               )}
 
