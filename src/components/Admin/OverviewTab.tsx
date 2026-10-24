@@ -8,13 +8,15 @@ interface OverviewTabProps {
   onNavigateToTab: (tab: any) => void;
   onSelectAppointmentForReview: (clientName: string) => void;
   todayAppointments: Appointment[];
+  allAppointments: Appointment[];
 }
 
 export const OverviewTab: React.FC<OverviewTabProps> = ({
   onOpenManualBooking,
   onNavigateToTab,
   onSelectAppointmentForReview,
-  todayAppointments
+  todayAppointments,
+  allAppointments
 }) => {
   // Real dynamic metrics calculated from actual appointments
   const confirmedAppointments = todayAppointments.filter(
@@ -92,7 +94,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
       </div>
 
-      <OverviewCalendar appointments={todayAppointments} onOpenAgenda={() => onNavigateToTab('agenda-bloqueios')} />
+      <OverviewCalendar appointments={allAppointments} onOpenAgenda={() => onNavigateToTab('agenda-bloqueios')} />
 
       {/* 4 KPIs Cards (Calculated from Real Data) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
