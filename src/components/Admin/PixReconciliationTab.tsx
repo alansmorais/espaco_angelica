@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Appointment } from '../../types';
 import { sendAppointmentWhatsAppConfirmation } from '../../services/whatsappService';
-import { signInWithGmail, getGmailAccessToken, sendGmailConfirmation } from '../../services/gmailService';
+import { sendGmailConfirmation } from '../../services/gmailService';
 import { formatBRL } from '../../services/notificationTemplates';
 
 interface PixReconciliationTabProps {
@@ -101,19 +101,8 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
 
     setIsSendingGmail(true);
     try {
-      let token = await getGmailAccessToken();
-      if (!token) {
-        const authRes = await signInWithGmail();
-        if (!authRes) {
-          showToast('Autenticação com Google (Gmail) cancelada.', true);
-          setIsSendingGmail(false);
-          return;
-        }
-        token = authRes.accessToken;
-      }
-
-      await sendGmailConfirmation(
-        token,
+      const result = await sendGmailConfirmation(
+        '',
         email,
         apt.clientName,
         apt.serviceTitle,
@@ -121,8 +110,9 @@ export const PixReconciliationTab: React.FC<PixReconciliationTabProps> = ({
         apt.time,
         apt.servicePrice,
         apt.depositAmount,
-        apt.paymentMode
+        apt.notes
       );
+      if (!result.success) throw new Error(result.message || 'O Apps Script não confirmou o envio do e-mail.');
 
       if (onUpdateAppointment) {
         onUpdateAppointment({
