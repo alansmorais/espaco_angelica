@@ -224,6 +224,24 @@ function doPost(e) {
     // booking flow below. Do not persist bookings in an early shortcut that bypasses
     // official service, payment, duration, conflict and concurrency validation.
 
+    // Persistent weekly schedule and date/time blocks.
+    // These administrative actions use the authorization check above.
+    if (data.action === "getScheduleConfig") {
+      return responseJSON(getScheduleConfigData());
+    }
+
+    if (data.action === "saveWeeklySchedule") {
+      return responseJSON(saveWeeklyScheduleConfig(data.weeklySchedule));
+    }
+
+    if (data.action === "saveScheduleBlock") {
+      return responseJSON(saveScheduleBlock(data.block));
+    }
+
+    if (data.action === "deleteScheduleBlock") {
+      return responseJSON(deleteScheduleBlock(data.blockId));
+    }
+
     // 2. Leitura administrativa segura via POST (token no corpo)
     if (data.action === "getAppointments") {
       return fetchAppointmentsFromSheet();
@@ -1121,5 +1139,200 @@ function doGet(e) {
     return fetchAppointmentsFromSheet();
   } catch (err) {
     return responseJSON({ status: "error", message: err.toString() });
+  }
+}
+
+/**
+ * Persistent schedule configuration.
+ * Creates "Configuração da Agenda" on first use without changing existing tabs.
+ * Rows use: Tipo | ID | Dados JSON | Atualizado em
+ */
+var SCHEDULE_CONFIG_SHEET = "Configuração da Agenda";
+
+function getOrCreateScheduleConfigSheet() {
+  var ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(SCHEDULE_CONFIG_SHEET);
+
+  if (!sheet) {
+    sheet = ss.insertSheet(SCHEDULE_CONFIG_SHEET);
+    sheet.getRange(1, 1, 1, 4).setValues([[
+      "Tipo", "ID", "Dados JSON", "Atualizado em"
+    ]]);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, 4).setFontWeight("bold");
+    sheet.setColumnWidth(1, 160);
+    sheet.setColumnWidth(2, 220);
+    sheet.setColumnWidth(3, 500);
+    sheet.setColumnWidth(4, 180);
+  }
+
+  return sheet;
+}
+
+function getScheduleConfigData() {
+  var sheet = getOrCreateScheduleConfigSheet();
+  var values = sheet.getDataRange().getValues();
+  var weeklySchedule = null;
+  var blocks = [];
+
+  for (var i = 1; i < values.length; i++) {
+    var type = String(values[i][0] || "").trim();
+    var id = String(values[i][1] || "").trim();
+    var raw = String(values[i][2] || "");
+    if (!type || !raw) continue;
+
+    var parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      console.error("Invalid schedule JSON on row " + (i + 1));
+      continue;
+    }
+
+    if (type === "WEEKLY_SCHEDULE") weeklySchedule = parsed;
+    if (type === "BLOCK" && id) blocks.push(parsed);
+  }
+
+  return {
+    status: "success",
+    weeklySchedule: weeklySchedule,
+    blocks: blocks
+  };
+}
+
+function saveWeeklyScheduleConfig(schedule) {
+  if (!schedule || typeof schedule !== "object" || Array.isArray(schedule)) {
+    throw new Error("Envie uma configuração semanal válida.");
+  }
+
+  var allowedDays = [
+    "monday", "tuesday", "wednesday", "thursday",
+    "friday", "saturday", "sunday"
+  ];
+
+  allowedDays.forEach(function(day) {
+    var config = schedule[day];
+    if (config === undefined) return;
+    if (!config || typeof config !== "object" || Array.isArray(config)) {
+      throw new Error("Configuração inválida para " + day + ".");
+    }
+
+    if (config.open === true) {
+      if (!isValidBookingTime(String(config.openTime || "")) ||
+          !isValidBookingTime(String(config.closeTime || ""))) {
+        throw new Error("Horários inválidos para " + day + ".");
+      }
+      if (timeToMinutes(config.closeTime) <= timeToMinutes(config.openTime)) {
+        throw new Error("O encerramento deve ser posterior à abertura em " + day + ".");
+      }
+    }
+  });
+
+  var sheet = getOrCreateScheduleConfigSheet();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+
+  try {
+    var values = sheet.getDataRange().getValues();
+    var foundRow = -1;
+    for (var i = 1; i < values.length; i++) {
+      if (String(values[i][0]) === "WEEKLY_SCHEDULE") {
+        foundRow = i + 1;
+        break;
+      }
+    }
+
+    var row = ["WEEKLY_SCHEDULE", "weekly", JSON.stringify(schedule), new Date()];
+    if (foundRow > 0) {
+      sheet.getRange(foundRow, 1, 1, 4).setValues([row]);
+    } else {
+      sheet.appendRow(row);
+    }
+
+    return { status: "success", saved: true, weeklySchedule: schedule };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function saveScheduleBlock(block) {
+  if (!block || typeof block !== "object" || Array.isArray(block)) {
+    throw new Error("Envie um bloqueio válido.");
+  }
+
+  var date = String(block.date || "").trim();
+  var id = String(block.id || "").trim();
+  var allDay = block.allDay === true;
+  var startTime = String(block.startTime || "").trim();
+  var endTime = String(block.endTime || "").trim();
+
+  if (!isValidBookingDateKey(date)) {
+    throw new Error("Data do bloqueio inválida. Use AAAA-MM-DD.");
+  }
+  if (!id) id = Utilities.getUuid();
+
+  if (!allDay) {
+    if (!isValidBookingTime(startTime) ||
+        !isValidBookingTime(endTime) ||
+        timeToMinutes(endTime) <= timeToMinutes(startTime)) {
+      throw new Error("Intervalo de horas inválido.");
+    }
+  }
+
+  var record = {
+    id: id,
+    date: date,
+    allDay: allDay,
+    startTime: allDay ? "" : startTime,
+    endTime: allDay ? "" : endTime,
+    reason: String(block.reason || "").trim(),
+    active: block.active !== false,
+    updatedAt: new Date().toISOString()
+  };
+
+  var sheet = getOrCreateScheduleConfigSheet();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+
+  try {
+    var values = sheet.getDataRange().getValues();
+    for (var i = 1; i < values.length; i++) {
+      if (String(values[i][0]) === "BLOCK" &&
+          String(values[i][1]) === id) {
+        sheet.getRange(i + 1, 1, 1, 4).setValues([[
+          "BLOCK", id, JSON.stringify(record), new Date()
+        ]]);
+        return { status: "success", saved: true, block: record };
+      }
+    }
+
+    sheet.appendRow(["BLOCK", id, JSON.stringify(record), new Date()]);
+    return { status: "success", saved: true, block: record };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function deleteScheduleBlock(blockId) {
+  var id = String(blockId || "").trim();
+  if (!id) throw new Error("ID do bloqueio obrigatório.");
+
+  var sheet = getOrCreateScheduleConfigSheet();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+
+  try {
+    var values = sheet.getDataRange().getValues();
+    for (var i = values.length - 1; i >= 1; i--) {
+      if (String(values[i][0]) === "BLOCK" &&
+          String(values[i][1]) === id) {
+        sheet.deleteRow(i + 1);
+        return { status: "success", deleted: true, id: id };
+      }
+    }
+
+    return { status: "success", deleted: false, notFound: true, id: id };
+  } finally {
+    lock.releaseLock();
   }
 }
