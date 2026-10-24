@@ -1224,13 +1224,15 @@ function doGet(e) {
  * Creates "Configuração da Agenda" on first use without changing existing tabs.
  * Rows use: Tipo | ID | Dados JSON | Atualizado em
  */
-var SCHEDULE_CONFIG_SHEET = "Configuração da Agenda";
+var SCHEDULE_CONFIG_SHEET = "Bloqueios e Disponibilidade";
+var LEGACY_SCHEDULE_CONFIG_SHEET = "Configuração da Agenda";
 
 function getOrCreateScheduleConfigSheet() {
   var ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
   var sheet = ss.getSheetByName(SCHEDULE_CONFIG_SHEET);
 
   if (!sheet) {
+    // Create the dedicated tab without modifying or deleting the legacy tab.
     sheet = ss.insertSheet(SCHEDULE_CONFIG_SHEET);
     sheet.getRange(1, 1, 1, 4).setValues([[
       "Tipo", "ID", "Dados JSON", "Atualizado em"
@@ -1241,6 +1243,19 @@ function getOrCreateScheduleConfigSheet() {
     sheet.setColumnWidth(2, 220);
     sheet.setColumnWidth(3, 500);
     sheet.setColumnWidth(4, 180);
+
+    // One-time, non-destructive migration: copy legacy rows into the new tab.
+    // The original "Configuração da Agenda" tab is deliberately left untouched.
+    var legacy = ss.getSheetByName(LEGACY_SCHEDULE_CONFIG_SHEET);
+    if (legacy && legacy.getLastRow() > 1) {
+      var legacyRows = legacy.getRange(2, 1, legacy.getLastRow() - 1, 4).getValues();
+      var validRows = legacyRows.filter(function(row) {
+        return String(row[0] || "").trim() && String(row[2] || "").trim();
+      });
+      if (validRows.length) {
+        sheet.getRange(2, 1, validRows.length, 4).setValues(validRows);
+      }
+    }
   }
 
   return sheet;
