@@ -558,6 +558,11 @@ function saveAppSetting(settingKey, value) {
   }
 }
 
+function getPublicStudioAddressData() {
+  var data = getAppSettingsData();
+  return { status: "success", address: data.settings && data.settings.STUDIO_ADDRESS ? data.settings.STUDIO_ADDRESS : null };
+}
+
 function doPost(e) {
   try {
     if (!e || !e.postData || !e.postData.contents) {
@@ -568,7 +573,7 @@ function doPost(e) {
 
     // Agendamento público: usa validações de cliente, catálogo, data, horário,
     // concorrência e duplicidade abaixo. Ações administrativas continuam exigindo token.
-    var isPublicBooking = data.action === "createBooking" || data.action === "getPublicSchedule" || data.action === "getPublicAvailability" || data.action === "getServices" || data.action === "createAdminSession";
+    var isPublicBooking = data.action === "createBooking" || data.action === "getPublicSchedule" || data.action === "getPublicAvailability" || data.action === "getPublicStudioAddress" || data.action === "getServices" || data.action === "createAdminSession";
     if (!isPublicBooking) {
       var tokenProvided = data.token || data.authToken || data.key || (e.parameter && e.parameter.token);
       var auth = validateAuthorization(tokenProvided);
@@ -584,6 +589,7 @@ function doPost(e) {
     if (data.action === "createAdminSession") return responseJSON(createAdminSession(data.password));
     if (data.action === "revokeAdminSession") return responseJSON(revokeAdminSession(data.token));
     if (data.action === "getPublicAvailability") return responseJSON(getPublicAvailabilityData());
+    if (data.action === "getPublicStudioAddress") return responseJSON(getPublicStudioAddressData());
 
     if (data.action === "getPublicSchedule") {    return responseJSON(getPublicScheduleData());  }    // Persistent weekly schedule and date/time blocks.
     // These administrative actions use the authorization check above.
