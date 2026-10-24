@@ -55,6 +55,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   });
   const [selectedTime, setSelectedTime] = useState<string>('11:30');
   const [additionalServiceIds, setAdditionalServiceIds] = useState<string[]>([]);
+  const [showAdditionalServices, setShowAdditionalServices] = useState(false);
   const [customRequest, setCustomRequest] = useState<string>('');
   const [appointmentLocation, setAppointmentLocation] = useState<'salon' | 'home'>('salon');
   const [homeAddress, setHomeAddress] = useState<string>('');
@@ -888,7 +889,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                       value={selectedService.id}
                       onChange={e => {
                         const match = services.find(s => s.id === e.target.value);
-                        if (match) onSelectService(match);
+                        if (match) { onSelectService(match); setAdditionalServiceIds([]); setShowAdditionalServices(false); }
                       }}
                       className="w-full px-3 py-2 rounded-lg bg-[#FDFBF9] text-base sm:text-xs text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] min-h-[44px]"
                     >
@@ -903,17 +904,22 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
               </div>
 
               <div className="py-4 border-b border-[#E8D9B5] space-y-3">
-                <h4 className="font-syne font-semibold text-sm text-[#49382E]">Adicionar serviços</h4>
-                <div className="space-y-2">
-                  {services.filter(service => service.id !== selectedService.id).map(service => (
-                    <label key={service.id} className="flex items-center gap-2 text-xs text-[#49382E]">
-                      <input type="checkbox" checked={additionalServiceIds.includes(service.id)}
-                        onChange={event => setAdditionalServiceIds(current => event.target.checked ? [...current, service.id] : current.filter(id => id !== service.id))}
-                        className="accent-[#D4AF37]" />
-                      <span className="flex-1">{service.title}</span>
-                      <span className="font-semibold">+ {service.priceFormatted}</span>
-                    </label>
-                  ))}
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="font-syne font-semibold text-sm text-[#49382E]">Serviços adicionais</h4>
+                  <button type="button" onClick={() => setShowAdditionalServices(true)} className="rounded-full border border-[#D4AF37] px-3 py-2 text-xs font-bold text-[#49382E]">
+                    {additionalServiceIds.length ? `Revisar (${additionalServiceIds.length})` : 'Ver opções'}
+                  </button>
+                </div>
+                <p className="text-[10px] text-[#786C63]">Complementos relevantes para o procedimento principal. Preços atuais mantidos.</p>
+                {additionalServices.map(service => <div key={service.id} className="flex justify-between gap-2 text-xs"><span>{service.title}</span><span className="font-semibold">{service.priceFormatted}</span></div>)}
+                {showAdditionalServices && <div className="fixed inset-0 z-[70] bg-[#49382E]/50 backdrop-blur-sm flex items-center justify-center p-4">
+                  <div role="dialog" aria-modal="true" aria-label="Serviços adicionais" className="w-full max-w-md max-h-[80vh] overflow-y-auto rounded-2xl bg-white border border-[#E8D9B5] p-5 shadow-2xl">
+                    <div className="flex items-center justify-between gap-3 mb-3"><h4 className="font-bold text-sm text-[#49382E]">Complementos para {selectedService.title}</h4><button type="button" onClick={() => setShowAdditionalServices(false)} className="rounded-full border border-[#E8D9B5] px-3 py-2">Fechar</button></div>
+                    <p className="text-xs text-[#786C63] mb-3">Os valores são os já cadastrados. Pedidos personalizados sem preço cadastrado não alteram o total automaticamente.</p>
+                    {services.filter(service => service.id !== selectedService.id && service.category === 'nailart' && ['alongamento', 'blindagem'].includes(selectedService.category)).map(service => <label key={service.id} className="flex items-start gap-2 py-3 border-b border-[#E8D9B5] text-xs"><input type="checkbox" checked={additionalServiceIds.includes(service.id)} onChange={event => setAdditionalServiceIds(current => event.target.checked ? Array.from(new Set([...current, service.id])) : current.filter(id => id !== service.id)} className="accent-[#D4AF37]" /><span className="flex-1"><span className="block font-semibold">{service.title}</span><span className="block text-[#786C63]">{service.description}</span></span><span className="font-semibold whitespace-nowrap">{service.priceFormatted}</span></label>)}
+                    {!(['alongamento', 'blindagem'].includes(selectedService.category)) && <p className="text-xs text-[#786C63] py-3">Não há complementos cadastrados para este procedimento. Registre pedidos especiais abaixo, sem alterar o preço automaticamente.</p>}
+                    <button type="button" onClick={() => setShowAdditionalServices(false)} className="mt-4 w-full rounded-full bg-[#D4AF37] px-4 py-3 font-bold text-[#49382E]">Confirmar seleção</button>
+                  </div>
                 </div>
                 <label className="block text-xs font-semibold text-[#49382E]">Pedido personalizado (opcional)
                   <textarea value={customRequest} onChange={event => setCustomRequest(event.target.value)}
