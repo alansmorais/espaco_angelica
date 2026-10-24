@@ -192,6 +192,20 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
     if (propWhatsappConfig.customTemplate) setWaTemplate(propWhatsappConfig.customTemplate);
   }, [propWhatsappConfig]);
 
+  const handleSaveStudioAddress = async () => {
+    const nextAddress = { ...address, fullAddress: addressText.trim() };
+    if (!nextAddress.fullAddress) {
+      notify('Informe o endereço oficial antes de salvar.');
+      return;
+    }
+    if (onUpdateStudioAddress) {
+      const saved = await onUpdateStudioAddress(nextAddress);
+      if (saved === false) return;
+    }
+    setInternalAddress(nextAddress);
+    notify('Endereço salvo na planilha oficial.');
+  };
+
   const handleSavePixSettings = async () => {
     const nextConfig: PaymentConfig = {
       pixKey: pixKey.trim(),
@@ -737,6 +751,12 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
               }}
               className="w-full px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] focus:border-[#D4AF37] font-medium outline-none"
             />
+          </div>
+
+          <div className="flex justify-end pt-1">
+            <button type="button" onClick={() => { void handleSaveStudioAddress(); }} className="px-5 py-2.5 rounded-full bg-[#D4AF37] text-[#3C2F00] font-jakarta text-xs font-bold hover:bg-[#E5C158] transition-all cursor-pointer">
+              Salvar endereço na planilha
+            </button>
           </div>
 
           <div className="flex flex-wrap items-center gap-3 pt-1">
