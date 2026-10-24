@@ -434,7 +434,7 @@ function saveWhatsAppLog(log) {
     sheet.getRange(1, 1, 1, 10).setValues([["ID", "Telefone", "Nome", "ID Agendamento", "Serviço", "Data/Hora", "Status", "Criado em", "Mensagem", "Erro"]]);
     sheet.setFrozenRows(1);
   }
-  sheet.appendRow([log.id, log.recipientPhone, log.recipientName, log.appointmentId || "", log.serviceTitle || "", log.dateTime || "", log.status, new Date(log.timestamp), log.messageText, log.error || ""]);
+  sheet.getRange(sheet.getLastRow() + 1, 1, 1, 10).setValues([[log.id, log.recipientPhone, log.recipientName, log.appointmentId || "", log.serviceTitle || "", log.dateTime || "", log.status, new Date(log.timestamp), log.messageText, log.error || ""]]);
 }
 
 function processWhatsAppConfirmation(data, forceSimulation) {
