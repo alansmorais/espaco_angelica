@@ -9,8 +9,6 @@ import {
   getNotificationWebhookToken,
   setNotificationWebhookToken,
   testNotificationWebhook,
-  getBackendApiUrl,
-  setBackendApiUrl
 } from '../../services/emailNotificationService';
 import {
   AUTHORIZED_SENDER_EMAIL,
@@ -255,66 +253,9 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
     }
   };
 
-  // Backend Seguro Server-Side Proxy State
-  const [backendUrlInput, setBackendUrlInput] = useState<string>(() => getBackendApiUrl());
-  const [backendStatus, setBackendStatus] = useState<{
-    status?: string;
-    mode?: string;
-    configured?: boolean;
-    webhookUrlConfigured?: boolean;
-    tokenConfigured?: boolean;
-  } | null>(null);
-  const [isCheckingBackend, setIsCheckingBackend] = useState<boolean>(false);
-  const [backendFeedback, setBackendFeedback] = useState<{ message: string; success: boolean } | null>(null);
-
-  const handleSaveBackend = (e: React.FormEvent) => {
-    e.preventDefault();
-    setBackendApiUrl(backendUrlInput);
-    notify('Configuração do Backend Seguro salva!');
-    handleCheckBackend(backendUrlInput);
-  };
-
-  const handleCheckBackend = async (urlOverride?: string) => {
-    setIsCheckingBackend(true);
-    setBackendFeedback(null);
-    try {
-      const base = (urlOverride !== undefined ? urlOverride : backendUrlInput).trim().replace(/\/$/, '');
-      const endpoint = base ? `${base}/api/notifications/status` : '/api/notifications/status';
-      const res = await fetch(endpoint);
-      if (res.ok) {
-        const data = await res.json();
-        setBackendStatus(data);
-        if (data.tokenConfigured) {
-          setBackendFeedback({
-            success: true,
-            message: 'Backend seguro ativo! APPS_SCRIPT_TOKEN configurado no servidor (secrets mantidos 100% server-side).'
-          });
-        } else {
-          setBackendFeedback({
-            success: false,
-            message: 'Backend conectado, mas a variável APPS_SCRIPT_TOKEN ainda não foi definida no arquivo .env do servidor.'
-          });
-        }
-      } else {
-        setBackendFeedback({
-          success: false,
-          message: `HTTP ${res.status} ao conectar com o endpoint de status do backend.`
-        });
-      }
-    } catch (err: any) {
-      setBackendFeedback({
-        success: false,
-        message: `Não foi possível conectar ao backend local (${err.message || 'servidor offline'}). Se o site estiver no GitHub Pages, informe a URL do seu backend Node / Cloud Run.`
-      });
-    } finally {
-      setIsCheckingBackend(false);
-    }
-  };
-
   useEffect(() => {
     checkWhatsAppStatus().then(setWaStatus);
     fetchWhatsAppLogs().then(setWaLogs);
-    handleCheckBackend();
   }, []);
 
   const handleSaveWaConfig = () => {
@@ -1347,85 +1288,7 @@ Qualquer dúvida, pode responder a esta mensagem. Mal podemos esperar para cuida
           </div>
         </div>
 
-        {/* MÓDULO 1: Backend Seguro Server-Side Proxy (Secrets Mantidos no Servidor) */}
-        <div className="p-5 rounded-2xl bg-[#FFFFFF] border-2 border-[#D4AF37] space-y-4 font-jakarta text-xs shadow-xs">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-[#D4AF37] text-[22px]">shield_person</span>
-                <h4 className="font-syne text-sm font-bold text-[#49382E]">
-                  Opção 1: Backend Seguro Server-Side Proxy (Secrets no Servidor)
-                </h4>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                  backendStatus?.tokenConfigured
-                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                    : 'bg-amber-100 text-amber-800 border border-amber-300'
-                }`}>
-                  {backendStatus?.tokenConfigured ? 'Ativo & Autenticado' : 'Pendente de APPS_SCRIPT_TOKEN'}
-                </span>
-              </div>
-              <p className="text-[#786C63] mt-1 leading-relaxed">
-                As reservas salvas no site são transmitidas ao backend Node (<code>server.ts</code>), que injeta a chave <strong>APPS_SCRIPT_TOKEN</strong> diretamente no servidor antes de despachar ao Google Apps Script. <strong>Nenhum segredo ou token é exposto no navegador da cliente.</strong>
-              </p>
-            </div>
-          </div>
-
-          <form onSubmit={handleSaveBackend} className="space-y-3">
-            <div>
-              <label className="block text-[#49382E] font-semibold mb-1">
-                URL Base do Backend Seguro (Node / Express / Cloud Run)
-              </label>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="url"
-                  placeholder="Deixe em branco para usar o mesmo host (/api/notifications/new-booking)"
-                  value={backendUrlInput}
-                  onChange={e => setBackendUrlInput(e.target.value)}
-                  className="flex-1 px-4 py-2.5 rounded-xl bg-[#FDFBF9] text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] text-xs min-h-[44px]"
-                />
-                <button
-                  type="submit"
-                  className="px-6 py-2.5 rounded-xl bg-[#D4AF37] hover:bg-[#E5C158] text-[#3C2F00] font-jakarta text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95 whitespace-nowrap min-h-[44px]"
-                >
-                  Salvar URL Backend
-                </button>
-              </div>
-              <p className="text-[11px] text-[#786C63] mt-1">
-                Ao rodar com <code>npm run dev</code> ou no servidor próprio, deixe em branco. Se o site estiver no GitHub Pages com backend separado na nuvem, informe a URL do backend.
-              </p>
-            </div>
-          </form>
-
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            <button
-              type="button"
-              disabled={isCheckingBackend}
-              onClick={() => handleCheckBackend()}
-              className="px-4 py-2.5 rounded-xl bg-[#F7EFEA] hover:bg-[#E8D3C7] text-[#49382E] font-jakarta text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 min-h-[44px]"
-            >
-              <span className="material-symbols-outlined text-[18px]">
-                {isCheckingBackend ? 'sync' : 'network_check'}
-              </span>
-              <span>{isCheckingBackend ? 'Verificando Backend...' : 'Verificar Status do Backend'}</span>
-            </button>
-
-            {backendFeedback && (
-              <div
-                className={`p-3 rounded-xl text-xs flex items-center gap-2 flex-1 ${
-                  backendFeedback.success
-                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                    : 'bg-amber-50 text-amber-900 border border-amber-200'
-                }`}
-              >
-                <span className="material-symbols-outlined text-[18px]">
-                  {backendFeedback.success ? 'verified_user' : 'info'}
-                </span>
-                <span>{backendFeedback.message}</span>
-              </div>
-            )}
-          </div>
-        </div>
-
+        {/* A persistência de dados usa diretamente Google Apps Script e Google Sheets. */}
         {/* MÓDULO 2: Envio Autônomo 24/7 via Webhook Apps Script na conta do Remetente */}
         <div className="p-5 rounded-2xl bg-[#FDFBF9] border border-[#E8D9B5] space-y-4 font-jakarta text-xs">
           <div className="flex items-start justify-between gap-3">
