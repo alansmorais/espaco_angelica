@@ -1048,6 +1048,7 @@ export default function App() {
                 onSelectService={handleSelectService}
                 appointments={publicAvailability}
                 blockedDates={publicBlockedDates}
+                daySchedules={daySchedules}
               />
             ) : (
               <section id="wizard-agendamento" className="mx-auto my-12 max-w-3xl rounded-2xl border border-[#E8D9B5] bg-white p-8 text-center">
