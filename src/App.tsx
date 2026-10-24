@@ -6,7 +6,6 @@
 import React, { useState, useEffect } from 'react';
 import {
   SERVICES_CATALOG,
-  INITIAL_TODAY_APPOINTMENTS,
   STUDIO_ADDRESS
 } from './data/mockData';
 import {
