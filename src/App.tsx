@@ -208,14 +208,9 @@ export default function App() {
   const [adminSearch, setAdminSearch] = useState<string>('');
 
   // 1 & 2: Services State (Shared between Public Catalog & Admin Price/Photo Manager)
-  const [services, setServices] = useState<Service[]>(() => {
-    try {
-      const saved = localStorage.getItem('angelica_services');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return SERVICES_CATALOG;
-    }
-  });
+  // Official service catalogue is loaded from Google Sheets through Apps Script.
+  // Never use browser storage or bundled sample data as a fallback for real services.
+  const [services, setServices] = useState<Service[]>([]);
 
   const activeServices = services.filter(s => s.active !== false);
   const [publicAvailability, setPublicAvailability] = useState<Appointment[]>([]);
@@ -347,13 +342,6 @@ export default function App() {
   // Intentionally run only once on page load to validate the stored session.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Save to localStorage whenever states change
-  useEffect(() => {
-    try {
-      localStorage.setItem('angelica_services', JSON.stringify(services));
-    } catch {}
-  }, [services]);
 
   useEffect(() => {
     try {
@@ -521,8 +509,14 @@ export default function App() {
     const syncServices = async () => {
       try {
         const remoteServices = await fetchRemoteServices();
-        if (!isMounted || !Array.isArray(remoteServices) || remoteServices.length === 0) return;
+        if (!isMounted || !Array.isArray(remoteServices)) return;
+        // An empty/missing official catalogue stays empty; never silently restore sample/local data.
         setServices(remoteServices);
+        if (remoteServices.length > 0) {
+          setSelectedService(current =>
+            remoteServices.find(service => service.id === current.id) || remoteServices[0]
+          );
+        }
       } catch {}
     };
     syncServices();
