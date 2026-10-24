@@ -1251,7 +1251,16 @@ export default function App() {
                   onSelectAppointmentForReview={_name => {
                     setAdminTab('gestao-clientes');
                   }}
-                  todayAppointments={appointments}
+                  todayAppointments={appointments.filter(a => {
+                    if (a.status === 'cancelado' || a.status === 'bloqueado') return false;
+                    const value = String(a.date || '').trim();
+                    const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                    const br = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+                    const dateKey = iso ? `${iso[1]}-${iso[2]}-${iso[3]}` : br ? `${br[3]}-${br[2]}-${br[1]}` : '';
+                    const todayKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+                    return dateKey === todayKey;
+                  })}
+                  allAppointments={appointments}
                 />
               )}
 
