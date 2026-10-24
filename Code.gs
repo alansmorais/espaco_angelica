@@ -835,7 +835,7 @@ function doPost(e) {
         var existingTimeText = String(existing[i][6] || '').trim();
         var existingBlockRange = existingStatus === 'bloqueado' ? bookingTimeRange(existingTimeText) : null;
         var allDayBlocked = existingStatus === 'bloqueado' && !existingBlockRange;
-        var existingStartMinutes = bookingClockMinutes(existingTimeText);
+        var existingStartMinutes = existingBlockRange ? existingBlockRange.start : bookingClockMinutes(existingTimeText);
         var existingEndMinutes = existingBlockRange
           ? existingBlockRange.end
           : (existingStartMinutes === null ? null : existingStartMinutes + bookingServiceDurationMinutes(existing[i][15]));
