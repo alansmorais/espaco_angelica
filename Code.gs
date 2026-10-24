@@ -529,7 +529,7 @@ function getAppSettingsData() {
 
 function saveAppSetting(settingKey, value) {
   var key = String(settingKey || "").trim();
-  var allowed = ["STUDIO_ADDRESS", "BLACKLIST", "WHATSAPP_CONFIG"];
+  var allowed = ["STUDIO_ADDRESS", "BLACKLIST", "WHATSAPP_CONFIG", "PAYMENT_CONFIG"];
   if (allowed.indexOf(key) === -1) {
     return { status: "error", saved: false, message: "Tipo de configuração não permitido." };
   }
