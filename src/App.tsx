@@ -1257,7 +1257,9 @@ export default function App() {
                     const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
                     const br = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
                     const dateKey = iso ? `${iso[1]}-${iso[2]}-${iso[3]}` : br ? `${br[3]}-${br[2]}-${br[1]}` : '';
-                    const todayKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+                    const todayParts = new Intl.DateTimeFormat('en', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+                    const todayValues = Object.fromEntries(todayParts.map(part => [part.type, part.value]));
+                    const todayKey = `${todayValues.year}-${todayValues.month}-${todayValues.day}`;
                     return dateKey === todayKey;
                   })}
                   allAppointments={appointments}
