@@ -279,7 +279,7 @@ export default function App() {
   useEffect(() => {
     if (appMode !== 'admin') return;
     let active = true;
-    void fetchRemoteScheduleConfig().then(result => {
+    void fetchRemoteScheduleConfig(adminSessionToken).then(result => {
       if (!active || !result.success || !result.weeklySchedule) return;
       const weekly = result.weeklySchedule;
       const dayMap: Record<string, string> = { seg: 'monday', ter: 'tuesday', qua: 'wednesday', qui: 'thursday', sex: 'friday', sab: 'saturday', dom: 'sunday' };
@@ -299,7 +299,7 @@ export default function App() {
       const key = dayMap[day.dayKey];
       if (key) weeklySchedule[key] = { open: day.isOpen, openTime: day.openTime, closeTime: day.closeTime };
     });
-    const result = await saveRemoteWeeklySchedule(weeklySchedule);
+    const result = await saveRemoteWeeklySchedule(weeklySchedule, adminSessionToken);
     if (!result.success) {
       window.alert('Não foi possível salvar a agenda na planilha oficial. Nenhuma alteração local foi aplicada. ' + (result.error || ''));
       return false;
@@ -919,13 +919,13 @@ export default function App() {
       : dmy ? `${dmy[3]}-${dmy[2]}-${dmy[1]}` : String(data.date);
     const intervalMatch = String(data.timeSpan).match(/(\d{1,2}:\d{2})\s*(?:às|as|-)\s*(\d{1,2}:\d{2})/i);
     const scheduleBlock = { id: blockApt.id, date: normalizedDate, allDay: isAllDay, startTime: intervalMatch?.[1], endTime: intervalMatch?.[2], reason: data.reason, active: true };
-    const savedScheduleBlock = await saveRemoteScheduleBlock(scheduleBlock);
+    const savedScheduleBlock = await saveRemoteScheduleBlock(scheduleBlock, adminSessionToken);
     if (!savedScheduleBlock.success) return { success: false, error: savedScheduleBlock.error || 'Não foi possível persistir o bloqueio na configuração da agenda.' };
 
     // Preserve the existing appointment block for the calendar and legacy conflict checks.
     const result = await submitBlockSchedule(blockApt, adminSessionToken);
     if (!result.success || !result.persisted) {
-      await deleteRemoteScheduleBlock(scheduleBlock.id);
+      await deleteRemoteScheduleBlock(scheduleBlock.id, adminSessionToken);
       return { success: false, error: result.error || 'O servidor não confirmou a gravação do bloqueio no armazenamento oficial.' };
     }
     if (!result.success || !result.persisted) {
