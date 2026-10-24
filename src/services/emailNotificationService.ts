@@ -988,37 +988,15 @@ export async function saveRemoteService(
   authToken?: string
 ): Promise<{ success: boolean; saved?: boolean; error?: string; service?: Service }> {
   try {
-    const backendBase = getBackendApiUrl();
-    const targetUrl = backendBase ? `${backendBase}/api/services` : '/api/services';
-    const token = (authToken || '').trim();
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Accept: 'application/json'
-    };
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
+    const token = (authToken || getNotificationWebhookToken()).trim();
+    if (!token) return { success: false, error: 'Token administrativo do Google Apps Script não configurado.' };
+    const data = await callScheduleAction('saveService', { ...service, token });
+    if (data.saved === true) {
+      return { success: true, saved: true, service };
     }
-
-    const response = await fetch(targetUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(service)
-    });
-
-    let data: any;
-    try {
-      data = await response.json();
-    } catch {
-      return { success: false, error: 'Resposta inválida do servidor ao salvar procedimento.' };
-    }
-
-    if (response.ok && data?.success) {
-      return { success: true, saved: true, service: data.service || service };
-    }
-
-    return { success: false, error: data?.error || `Erro HTTP ${response.status} ao salvar procedimento.` };
+    return { success: false, error: data.message || 'O Apps Script não confirmou a gravação do serviço na planilha.' };
   } catch (err: any) {
-    return { success: false, error: `Falha de conexão: ${err.message || 'servidor indisponível'}.` };
+    return { success: false, error: err?.message || 'Falha ao salvar serviço na planilha oficial.' };
   }
 }
 
@@ -1027,37 +1005,15 @@ export async function deleteRemoteService(
   authToken?: string
 ): Promise<{ success: boolean; deleted?: boolean; error?: string }> {
   try {
-    const backendBase = getBackendApiUrl();
-    const targetUrl = backendBase
-      ? `${backendBase}/api/services/${encodeURIComponent(serviceId)}`
-      : `/api/services/${encodeURIComponent(serviceId)}`;
-    const token = (authToken || '').trim();
-    const headers: Record<string, string> = {
-      Accept: 'application/json'
-    };
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-
-    const response = await fetch(targetUrl, {
-      method: 'DELETE',
-      headers
-    });
-
-    let data: any;
-    try {
-      data = await response.json();
-    } catch {
-      return { success: false, error: 'Resposta inválida do servidor ao excluir procedimento.' };
-    }
-
-    if (response.ok && data?.success) {
+    const token = (authToken || getNotificationWebhookToken()).trim();
+    if (!token) return { success: false, error: 'Token administrativo do Google Apps Script não configurado.' };
+    const data = await callScheduleAction('deleteService', { id: serviceId, token });
+    if (data.deleted === true || data.notFound === true) {
       return { success: true, deleted: true };
     }
-
-    return { success: false, error: data?.error || `Erro HTTP ${response.status} ao excluir procedimento.` };
+    return { success: false, error: data.message || 'O Apps Script não confirmou a exclusão do serviço.' };
   } catch (err: any) {
-    return { success: false, error: `Falha de rede: ${err.message || 'servidor indisponível'}.` };
+    return { success: false, error: err?.message || 'Falha ao excluir serviço da planilha oficial.' };
   }
 }
 
@@ -1091,67 +1047,40 @@ export async function listDrivePhotos(): Promise<{ success: boolean; photos?: Dr
   }
 }
 
+undefined
+
 export async function uploadServicePhoto(
   file: File,
   authToken?: string
 ): Promise<{ success: boolean; url?: string; error?: string }> {
+  const validMimes = ['image/jpeg', 'image/png', 'image/webp'];
+  if (!validMimes.includes(file.type)) {
+    return { success: false, error: 'Formato não suportado. Por favor utilize JPEG, PNG ou WebP.' };
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    return { success: false, error: 'A imagem deve ter no máximo 5MB.' };
+  }
+
+  const token = (authToken || getNotificationWebhookToken()).trim();
+  if (!token) return { success: false, error: 'Token administrativo do Google Apps Script não configurado.' };
+
   try {
-    const validMimes = ['image/jpeg', 'image/png', 'image/webp'];
-    if (!validMimes.includes(file.type)) {
-      return {
-        success: false,
-        error: 'Formato não suportado. Por favor utilize JPEG, PNG ou WebP.'
-      };
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      return {
-        success: false,
-        error: 'A imagem deve ter no máximo 5MB.'
-      };
-    }
-
-    const base64 = await new Promise<string>((resolve, reject) => {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Não foi possível ler o arquivo de imagem.'));
       reader.readAsDataURL(file);
     });
-
-    const backendBase = getBackendApiUrl();
-    const targetUrl = backendBase ? `${backendBase}/api/upload-photo` : '/api/upload-photo';
-    const token = (authToken || '').trim();
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Accept: 'application/json'
-    };
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-
-    const response = await fetch(targetUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        imageBase64: base64,
-        fileName: file.name,
-        mimeType: file.type
-      })
+    const imageBase64 = dataUrl.includes(',') ? dataUrl.slice(dataUrl.indexOf(',') + 1) : dataUrl;
+    const data = await callScheduleAction('uploadPhoto', {
+      token,
+      imageBase64,
+      fileName: file.name,
+      mimeType: file.type
     });
-
-    let data: any;
-    try {
-      data = await response.json();
-    } catch {
-      return { success: false, error: 'Resposta inválida do servidor ao enviar foto.' };
-    }
-
-    if (response.ok && data?.success && data?.url) {
-      return { success: true, url: data.url };
-    }
-
-    return { success: false, error: data?.error || `Erro HTTP ${response.status} ao processar foto.` };
+    if (typeof data.url === 'string' && data.url) return { success: true, url: data.url };
+    return { success: false, error: data.message || 'O Apps Script não confirmou o upload da foto para o Google Drive.' };
   } catch (err: any) {
-    return { success: false, error: `Falha no upload: ${err.message || 'servidor indisponível'}.` };
+    return { success: false, error: err?.message || 'Falha ao enviar a foto para o Google Drive.' };
   }
 }
