@@ -220,72 +220,9 @@ function doPost(e) {
       }
     }
 
-    // Gravação de agendamento público/manual na aba oficial sem limpar, recriar ou
-    // reordenar linhas existentes. IDs repetidos não geram uma segunda linha.
-    if (data.action === "createBooking") {
-      var bookingId = String(data.appointmentId || "").trim();
-      if (!bookingId || !/^(apt|test|e2e)-[a-zA-Z0-9_-]{1,64}$/.test(bookingId)) {
-        return responseJSON({ status: "error", persisted: false, message: "ID do agendamento inválido." });
-      }
-      if (data.isTest === true || bookingId.indexOf("test-") === 0 ||
-          String(data.status || "").toLowerCase() === "teste_sistema") {
-        return responseJSON({ status: "error", persisted: false, message: "Agendamento de teste não pode ser gravado na planilha oficial." });
-      }
-      var requiredName = String(data.clientName || "").trim();
-      var requiredPhone = String(data.clientPhone || "").trim();
-      var requiredService = String(data.serviceTitle || "").trim();
-      var requiredDate = String(data.date || "").trim();
-      var requiredTime = String(data.time || "").trim();
-      if (!requiredName || !requiredPhone || !requiredService || !requiredDate || !requiredTime) {
-        return responseJSON({ status: "error", persisted: false, message: "Preencha nome, telefone, procedimento, data e horário." });
-      }
-      var bookingLock = LockService.getScriptLock();
-      try { bookingLock.waitLock(15000); }
-      catch (bookingLockErr) {
-        return responseJSON({ status: "error", persisted: false, message: "Tempo limite ao aguardar a gravação do agendamento." });
-      }
-      try {
-        var bookingSheet = getOfficialSheet();
-        if (!bookingSheet) {
-          return responseJSON({ status: "error", persisted: false, message: "Aba oficial 'Agendamentos' não encontrada. Nenhuma alteração foi feita." });
-        }
-        var existingBookingRows = bookingSheet.getDataRange().getValues();
-        for (var br = 1; br < existingBookingRows.length; br++) {
-          if (String(existingBookingRows[br][9] || "").trim() === bookingId) {
-            return responseJSON({ status: "success", persisted: true, duplicate: true, appointmentId: bookingId, message: "Este agendamento já existe na planilha; nenhuma linha duplicada foi criada." });
-          }
-        }
-        var bookingNotes = String(data.notes || "").trim();
-        if (data.recurrence) bookingNotes += (bookingNotes ? "\\n" : "") + "Recorrência: " + String(data.recurrence.frequencyLabel || "") + "; sessões: " + String(data.recurrence.totalSessions || "");
-        if (data.customRequest) bookingNotes += (bookingNotes ? "\\n" : "") + "Pedido personalizado: " + String(data.customRequest).trim();
-        var bookingRow = [
-          new Date(),
-          requiredName,
-          requiredPhone,
-          String(data.clientEmail || "").trim(),
-          requiredService,
-          requiredDate,
-          requiredTime,
-          Number(data.depositAmount || 0),
-          String(data.status || "pendente_pix"),
-          bookingId,
-          bookingNotes,
-          String(data.appointmentLocation || "salon"),
-          String(data.homeAddress || "").trim(),
-          JSON.stringify(Array.isArray(data.additionalServiceIds) ? data.additionalServiceIds : []),
-          String(data.customRequest || "").trim(),
-          String(data.serviceId || "").trim()
-        ];
-        bookingSheet.appendRow(bookingRow);
-        SpreadsheetApp.flush();
-        return responseJSON({ status: "success", persisted: true, duplicate: false, appointmentId: bookingId, message: "Agendamento gravado na planilha oficial." });
-      } catch (bookingErr) {
-        console.error("createBooking persistence failed: " + bookingErr);
-        return responseJSON({ status: "error", persisted: false, message: "Não foi possível gravar o agendamento na planilha oficial: " + String(bookingErr.message || bookingErr) });
-      } finally {
-        bookingLock.releaseLock();
-      }
-    }
+    // Public createBooking requests deliberately continue into the single validated
+    // booking flow below. Do not persist bookings in an early shortcut that bypasses
+    // official service, payment, duration, conflict and concurrency validation.
 
     // 2. Leitura administrativa segura via POST (token no corpo)
     if (data.action === "getAppointments") {
