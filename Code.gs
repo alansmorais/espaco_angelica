@@ -130,6 +130,49 @@ function isValidEmail(email) {
   return re.test(trimmed);
 }
 
+function timeToMinutes(value) {
+  var match = String(value || "").trim().match(/^(\\d{1,2}):(\\d{2})$/);
+  if (!match) return null;
+  var hours = Number(match[1]), minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+function parseDurationMinutes(value) {
+  var text = String(value || "").toLowerCase();
+  var hours = text.match(/(\\d+)\\s*h/);
+  var minutes = text.match(/(\\d+)\\s*(?:min|m\\b)/);
+  var total = (hours ? Number(hours[1]) * 60 : 0) + (minutes ? Number(minutes[1]) : 0);
+  return total > 0 ? total : 30;
+}
+
+function getServiceDurationMinutes(serviceId, serviceTitle) {
+  try {
+    var sheet = getServicesSheet();
+    if (!sheet) return 30;
+    var rows = sheet.getDataRange().getValues();
+    for (var i = 1; i < rows.length; i++) {
+      var idMatches = serviceId && String(rows[i][0] || "").trim() === String(serviceId).trim();
+      var titleMatches = serviceTitle && String(rows[i][1] || "").trim().toLowerCase() === String(serviceTitle).trim().toLowerCase();
+      if (idMatches || titleMatches) return parseDurationMinutes(rows[i][5]);
+    }
+  } catch (e) {
+    console.error("Unable to read service duration: " + e);
+  }
+  return 30;
+}
+
+function intervalsOverlap(startA, endA, startB, endB) {
+  return startA < endB && startB < endA;
+}
+
+function parseBlockInterval(value) {
+  var match = String(value || "").trim().match(/^(\\d{1,2}:\\d{2})\\s*(?:às|as|-)\\s*(\\d{1,2}:\\d{2})$/i);
+  if (!match) return null;
+  var start = timeToMinutes(match[1]), end = timeToMinutes(match[2]);
+  return start !== null && end !== null && end > start ? { start: start, end: end } : null;
+}
+
 function doPost(e) {
   try {
     if (!e || !e.postData || !e.postData.contents) {
@@ -787,21 +830,32 @@ function doPost(e) {
         }
         var existingStatus = String(existing[i][8] || 'pendente_pix').toLowerCase();
         var existingDateKey = normalizeBookingDate(existing[i][5]);
-        var existingTimeKey = normalizeBookingTime(existing[i][6]);
-        var sameRequestedSlot = requestedDateKey === existingDateKey && requestedTimeKey === existingTimeKey;
-        var allDayBlocked = existingStatus === 'bloqueado' &&
-          requestedDateKey === existingDateKey &&
-          ['dia inteiro', 'dia todo', 'all day'].indexOf(String(existing[i][6] || '').trim().toLowerCase()) !== -1;
-        var slotBlocked = existingStatus === 'bloqueado' && sameRequestedSlot;
-        var activeBookingConflict = sameRequestedSlot &&
-          ['cancelado', 'teste_sistema', 'bloqueado'].indexOf(existingStatus) === -1;
+        var existingTimeRaw = String(existing[i][6] || '').trim();
+        var existingTimeKey = normalizeBookingTime(existingTimeRaw);
+        var sameDate = requestedDateKey === existingDateKey;
+        var requestedStart = timeToMinutes(requestedTimeKey);
+        var requestedEnd = requestedStart + getServiceDurationMinutes(data.serviceId, serviceTitle);
+        var allDayBlocked = existingStatus === 'bloqueado' && sameDate &&
+          ['dia inteiro', 'dia todo', 'all day'].indexOf(existingTimeRaw.toLowerCase()) !== -1;
+        var blockInterval = existingStatus === 'bloqueado' && sameDate ? parseBlockInterval(existingTimeRaw) : null;
+        var slotBlocked = Boolean(blockInterval && intervalsOverlap(requestedStart, requestedEnd, blockInterval.start, blockInterval.end));
+        var activeBookingConflict = false;
+        if (sameDate && ['cancelado', 'teste_sistema', 'bloqueado'].indexOf(existingStatus) === -1) {
+          var existingStart = timeToMinutes(existingTimeKey);
+          if (existingStart !== null) {
+            var existingDuration = getServiceDurationMinutes(existing[i][15], String(existing[i][4] || ''));
+            activeBookingConflict = intervalsOverlap(requestedStart, requestedEnd, existingStart, existingStart + existingDuration);
+          }
+        }
         if (allDayBlocked || slotBlocked || activeBookingConflict) {
           return responseJSON({
             status: "error",
             conflict: true,
             message: allDayBlocked
               ? "Esta data está bloqueada para atendimentos. Escolha outro dia."
-              : "Este horário acabou de ser reservado ou bloqueado. Escolha outro horário."
+              : slotBlocked
+                ? "Este intervalo está bloqueado. Escolha outro horário."
+                : "Este horário se sobrepõe a outro atendimento. Escolha outro horário."
           });
         }
       }
