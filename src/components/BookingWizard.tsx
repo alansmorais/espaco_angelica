@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Service, Appointment, TimeSlotConfig, BlacklistEntry, StudioAddressConfig, RecurrenceConfig } from '../types';
+import { Service, Appointment, TimeSlotConfig, BlacklistEntry, StudioAddressConfig, RecurrenceConfig, DayScheduleConfig } from '../types';
 import { INITIAL_TIME_SLOTS, INITIAL_BLACKLIST, STUDIO_ADDRESS } from '../data/mockData';
 import {
   buildOfficialWhatsAppUrl,
@@ -21,6 +21,7 @@ interface BookingWizardProps {
   onSelectService?: (service: Service) => void;
   appointments?: Appointment[];
   blockedDates?: string[];
+  daySchedules?: DayScheduleConfig[];
 }
 
 export const BookingWizard: React.FC<BookingWizardProps> = ({
@@ -32,7 +33,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   services = [],
   onSelectService,
   appointments = [],
-  blockedDates = []
+  blockedDates = [],
+  daySchedules
 }) => {
   // Booking dates must follow the studio's timezone, not the customer's device timezone.
   // This avoids showing yesterday/tomorrow when the customer is outside Brazil.
@@ -55,6 +57,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   });
   const [selectedTime, setSelectedTime] = useState<string>('11:30');
   const [additionalServiceIds, setAdditionalServiceIds] = useState<string[]>([]);
+  const [showAdditionalServices, setShowAdditionalServices] = useState(false);
   const [customRequest, setCustomRequest] = useState<string>('');
   const [appointmentLocation, setAppointmentLocation] = useState<'salon' | 'home'>('salon');
   const [homeAddress, setHomeAddress] = useState<string>('');
@@ -92,14 +95,61 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   const isInadimplente = Boolean(matchedBlacklist);
   const effectivePaymentMode = isInadimplente ? 'pre_pagamento_100' : paymentMode;
 
+  const isAllDayBlock = (value: string) => ['dia inteiro', 'dia todo', 'all day'].includes(String(value || '').trim().toLowerCase());
   const isDateBlocked = (dateStr: string): boolean => {
-    if (blockedDates.length > 0 && blockedDates.some(bd => areDatesEqual(bd, dateStr))) {
-      return true;
+    if (blockedDates.some(bd => areDatesEqual(bd, dateStr))) return true;
+    if (daySchedules && daySchedules.length > 0) {
+      const date = new Date(`${dateStr}T12:00:00`);
+      const keys = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
+      const dayConfig = daySchedules.find(day => day.dayKey === keys[date.getDay()]);
+      if (dayConfig && !dayConfig.isOpen) return true;
     }
-    if (appointments.length > 0) {
-      return appointments.some(a => a.status === 'bloqueado' && areDatesEqual(a.date, dateStr));
+    return appointments.some(a => a.status === 'bloqueado' && areDatesEqual(a.date, dateStr) && isAllDayBlock(a.time));
+  };
+  const timeToMinutes = (value: string): number | null => {
+    const match = /^(\\d{1,2}):(\\d{2})$/.exec(String(value || '').trim());
+    if (!match) return null;
+    const hours = Number(match[1]), minutes = Number(match[2]);
+    return hours <= 23 && minutes <= 59 ? hours * 60 + minutes : null;
+  };
+  const durationMinutes = (value: string): number => {
+    const text = String(value || '').toLowerCase();
+    const hours = text.match(/(\\d+)\\s*h/);
+    const minutes = text.match(/(\\d+)\\s*(?:min|m\\b)/);
+    const total = (hours ? Number(hours[1]) * 60 : 0) + (minutes ? Number(minutes[1]) : 0);
+    return total > 0 ? total : 30;
+  };
+  const isSlotUnavailable = (slotTime: string): boolean => {
+    const start = timeToMinutes(slotTime);
+    if (start === null) return true;
+    const end = start + durationMinutes(selectedService.duration);
+    if (daySchedules && daySchedules.length > 0) {
+      const date = new Date(`${selectedDate}T12:00:00`);
+      const keys = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
+      const dayConfig = daySchedules.find(day => day.dayKey === keys[date.getDay()]);
+      if (dayConfig) {
+        if (!dayConfig.isOpen) return true;
+        const opening = timeToMinutes(dayConfig.openTime);
+        const closing = timeToMinutes(dayConfig.closeTime);
+        if (opening === null || closing === null || start < opening || end > closing) return true;
+      }
     }
-    return false;
+    return appointments.some(a => {
+      if (!areDatesEqual(a.date, selectedDate) || ['cancelado', 'teste_sistema'].includes(a.status)) return false;
+      const raw = String(a.time || '').trim();
+      if (a.status === 'bloqueado') {
+        if (isAllDayBlock(raw)) return true;
+        const interval = /^(\\d{1,2}:\\d{2})\\s*(?:às|as|-)\\s*(\\d{1,2}:\\d{2})$/i.exec(raw);
+        if (interval) {
+          const blockStart = timeToMinutes(interval[1]), blockEnd = timeToMinutes(interval[2]);
+          return blockStart !== null && blockEnd !== null && start < blockEnd && blockStart < end;
+        }
+      }
+      const occupiedStart = timeToMinutes(raw);
+      if (occupiedStart === null) return false;
+      const occupiedEnd = occupiedStart + durationMinutes(a.serviceDuration || '30 min');
+      return start < occupiedEnd && occupiedStart < end;
+    });
   };
 
   const dateLabel = (date: Date) => date.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
@@ -115,9 +165,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   const isDateUnavailable = (date: Date) => {
     const key = toDateKey(date);
     const sameDayAppointments = appointments.filter(a => areDatesEqual(a.date, key) && !['cancelado', 'teste_sistema'].includes(a.status));
-    const weekday = date.getDay();
-    const outsideWorkingDays = weekday === 0 || weekday === 1;
-    return outsideWorkingDays || isDateBlocked(key) || (sameDayAppointments.length > 0 && sameDayAppointments.every(a => a.status === 'bloqueado'));
+    return isDateBlocked(key) || (sameDayAppointments.length > 0 && sameDayAppointments.every(a => a.status === 'bloqueado' && isAllDayBlock(a.time)));
   };
 
   // Price calculations (40% deposit or 100% full prepayment of selected procedure's official price)
@@ -482,7 +530,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                 ) : (
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-2.5">
                     {timeSlots.filter(s => s.active).map(slot => {
-                      const isBlocked = slot.status === 'bloqueado' || slot.status === 'autoclave' || slot.status === 'almoco';
+                      const isBlocked = slot.status === 'bloqueado' || slot.status === 'autoclave' || slot.status === 'almoco' || isSlotUnavailable(slot.time);
                       const isSelected = selectedTime === slot.time && !isBlocked;
 
                       return (
@@ -705,7 +753,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                       Opções de Pré-pagamento via Pix
                     </h3>
                     <p className="font-jakarta text-xs text-[#786C63]">
-                      Escolha como deseja garantir sua vaga no atelier privativo
+                      Escolha como deseja garantir sua vaga no Espaço privativo
                     </p>
                   </div>
                 </div>
@@ -761,7 +809,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                     </span>
                   </div>
                   <p className="text-[#786C63] leading-relaxed">
-                    Procedimento quitado com prioridade VIP. Chegue ao atelier sem preocupações financeiras adicionais ao final.
+                    Procedimento quitado com prioridade VIP. Chegue ao Espaço sem preocupações financeiras adicionais ao final.
                   </p>
                 </button>
               </div>
@@ -888,7 +936,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                       value={selectedService.id}
                       onChange={e => {
                         const match = services.find(s => s.id === e.target.value);
-                        if (match) onSelectService(match);
+                        if (match) { onSelectService(match); setAdditionalServiceIds([]); setShowAdditionalServices(false); }
                       }}
                       className="w-full px-3 py-2 rounded-lg bg-[#FDFBF9] text-base sm:text-xs text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] min-h-[44px]"
                     >
@@ -903,18 +951,23 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
               </div>
 
               <div className="py-4 border-b border-[#E8D9B5] space-y-3">
-                <h4 className="font-syne font-semibold text-sm text-[#49382E]">Adicionar serviços</h4>
-                <div className="space-y-2">
-                  {services.filter(service => service.id !== selectedService.id).map(service => (
-                    <label key={service.id} className="flex items-center gap-2 text-xs text-[#49382E]">
-                      <input type="checkbox" checked={additionalServiceIds.includes(service.id)}
-                        onChange={event => setAdditionalServiceIds(current => event.target.checked ? [...current, service.id] : current.filter(id => id !== service.id))}
-                        className="accent-[#D4AF37]" />
-                      <span className="flex-1">{service.title}</span>
-                      <span className="font-semibold">+ {service.priceFormatted}</span>
-                    </label>
-                  ))}
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="font-syne font-semibold text-sm text-[#49382E]">Serviços adicionais</h4>
+                  <button type="button" onClick={() => setShowAdditionalServices(true)} className="rounded-full border border-[#D4AF37] px-3 py-2 text-xs font-bold text-[#49382E]">
+                    {additionalServiceIds.length ? `Revisar (${additionalServiceIds.length})` : 'Ver opções'}
+                  </button>
                 </div>
+                <p className="text-[10px] text-[#786C63]">Complementos relevantes para o procedimento principal. Preços atuais mantidos.</p>
+                {additionalServices.map(service => <div key={service.id} className="flex justify-between gap-2 text-xs"><span>{service.title}</span><span className="font-semibold">{service.priceFormatted}</span></div>)}
+                {showAdditionalServices && <div className="fixed inset-0 z-[70] bg-[#49382E]/50 backdrop-blur-sm flex items-center justify-center p-4">
+                  <div role="dialog" aria-modal="true" aria-label="Serviços adicionais" className="w-full max-w-md max-h-[80vh] overflow-y-auto rounded-2xl bg-white border border-[#E8D9B5] p-5 shadow-2xl">
+                    <div className="flex items-center justify-between gap-3 mb-3"><h4 className="font-bold text-sm text-[#49382E]">Complementos para {selectedService.title}</h4><button type="button" onClick={() => setShowAdditionalServices(false)} className="rounded-full border border-[#E8D9B5] px-3 py-2">Fechar</button></div>
+                    <p className="text-xs text-[#786C63] mb-3">Os valores são os já cadastrados. Pedidos personalizados sem preço cadastrado não alteram o total automaticamente.</p>
+                    {services.filter(service => service.id !== selectedService.id && service.category === 'nailart' && ['alongamento', 'blindagem'].includes(selectedService.category)).map(service => <label key={service.id} className="flex items-start gap-2 py-3 border-b border-[#E8D9B5] text-xs"><input type="checkbox" checked={additionalServiceIds.includes(service.id)} onChange={event => setAdditionalServiceIds(current => event.target.checked ? Array.from(new Set([...current, service.id])) : current.filter(id => id !== service.id))} className="accent-[#D4AF37]" /><span className="flex-1"><span className="block font-semibold">{service.title}</span><span className="block text-[#786C63]">{service.description}</span></span><span className="font-semibold whitespace-nowrap">{service.priceFormatted}</span></label>)}
+                    {!(['alongamento', 'blindagem'].includes(selectedService.category)) && <p className="text-xs text-[#786C63] py-3">Não há complementos cadastrados para este procedimento. Registre pedidos especiais abaixo, sem alterar o preço automaticamente.</p>}
+                    <button type="button" onClick={() => setShowAdditionalServices(false)} className="mt-4 w-full rounded-full bg-[#D4AF37] px-4 py-3 font-bold text-[#49382E]">Confirmar seleção</button>
+                  </div>
+                </div>}
                 <label className="block text-xs font-semibold text-[#49382E]">Pedido personalizado (opcional)
                   <textarea value={customRequest} onChange={event => setCustomRequest(event.target.value)}
                     placeholder="Ex.: decoração especial de unhas (preço sujeito à confirmação)"
@@ -923,7 +976,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                 <p className="text-[10px] text-[#786C63]">Pedidos personalizados sem preço cadastrado precisam de confirmação e não alteram o total automaticamente.</p>
                 <h4 className="font-syne font-semibold text-sm text-[#49382E] pt-1">Local do atendimento</h4>
                 <div className="flex flex-wrap gap-4 text-xs">
-                  <label className="flex items-center gap-2"><input type="radio" name="appointmentLocation" checked={appointmentLocation === 'salon'} onChange={() => setAppointmentLocation('salon')} /> No salão</label>
+                  <label className="flex items-center gap-2"><input type="radio" name="appointmentLocation" checked={appointmentLocation === 'salon'} onChange={() => setAppointmentLocation('salon')} /> No Espaço</label>
                   <label className="flex items-center gap-2"><input type="radio" name="appointmentLocation" checked={appointmentLocation === 'home'} onChange={() => setAppointmentLocation('home')} /> Em domicílio</label>
                 </div>
                 {appointmentLocation === 'home' && (
@@ -1152,7 +1205,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                 </a>
 
                 <p className="text-[10px] text-[#786C63] text-center leading-tight">
-                  Abre o WhatsApp com a mensagem oficial e política do atelier pronta para você revisar e enviar.
+                  Abre o WhatsApp com a mensagem oficial e política do Espaço pronta para você revisar e enviar.
                 </p>
               </div>
             )}

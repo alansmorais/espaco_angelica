@@ -38,7 +38,11 @@ import {
   saveRemoteService,
   deleteRemoteService,
   createAdminSession,
-  revokeAdminSession
+  revokeAdminSession,
+  fetchRemoteScheduleConfig,
+  saveRemoteWeeklySchedule,
+  saveRemoteScheduleBlock,
+  deleteRemoteScheduleBlock
 } from './services/emailNotificationService';
 
 // Public Components
@@ -279,6 +283,45 @@ export default function App() {
     }
   });
 
+  useEffect(() => {
+    if (appMode !== 'admin') return;
+    let active = true;
+    void fetchRemoteScheduleConfig().then(result => {
+      if (!active || !result.success || !result.weeklySchedule) return;
+      const weekly = result.weeklySchedule;
+      const dayMap: Record<string, string> = { seg: 'monday', ter: 'tuesday', qua: 'wednesday', qui: 'thursday', sex: 'friday', sab: 'saturday', dom: 'sunday' };
+      setDaySchedules(current => current.map(day => {
+        const saved = weekly[dayMap[day.dayKey]];
+        return saved && typeof saved === 'object' ? { ...day, isOpen: saved.open === true, openTime: String(saved.openTime || day.openTime), closeTime: String(saved.closeTime || day.closeTime) } : day;
+      }));
+      if (Array.isArray(weekly.slots)) setTimeSlots(weekly.slots.filter((slot: any) => slot && typeof slot.id === 'string' && typeof slot.time === 'string'));
+    }).catch(error => console.error('[Schedule config] Read failed:', error));
+    return () => { active = false; };
+  }, [appMode]);
+
+  const persistWeeklySchedule = async (nextDays: DayScheduleConfig[], nextSlots: TimeSlotConfig[]): Promise<boolean> => {
+    const dayMap: Record<string, string> = { seg: 'monday', ter: 'tuesday', qua: 'wednesday', qui: 'thursday', sex: 'friday', sab: 'saturday', dom: 'sunday' };
+    const weeklySchedule: Record<string, unknown> = { slots: nextSlots.map(slot => ({ ...slot })) };
+    nextDays.forEach(day => {
+      const key = dayMap[day.dayKey];
+      if (key) weeklySchedule[key] = { open: day.isOpen, openTime: day.openTime, closeTime: day.closeTime };
+    });
+    const result = await saveRemoteWeeklySchedule(weeklySchedule);
+    if (!result.success) {
+      window.alert('Não foi possível salvar a agenda na planilha oficial. Nenhuma alteração local foi aplicada. ' + (result.error || ''));
+      return false;
+    }
+    return true;
+  };
+
+  const handleUpdateTimeSlots = async (nextSlots: TimeSlotConfig[]) => {
+    if (await persistWeeklySchedule(daySchedules, nextSlots)) setTimeSlots(nextSlots);
+  };
+
+  const handleUpdateDaySchedules = async (nextDays: DayScheduleConfig[]) => {
+    if (await persistWeeklySchedule(nextDays, timeSlots)) setDaySchedules(nextDays);
+  };
+
   // Restore an existing server-issued session after refresh; expired sessions are rejected server-side.
   useEffect(() => {
     const token = adminSessionToken;
@@ -404,6 +447,19 @@ export default function App() {
       if (result.success) {
         setPublicAvailability(result.appointments);
         setPublicBlockedDates(result.blockedDates);
+        if (result.weeklySchedule) {
+          const weekly = result.weeklySchedule;
+          const dayMap: Record<string, string> = { seg: 'monday', ter: 'tuesday', qua: 'wednesday', qui: 'thursday', sex: 'friday', sab: 'saturday', dom: 'sunday' };
+          setDaySchedules(current => current.map(day => {
+            const saved = weekly[dayMap[day.dayKey]];
+            return saved && typeof saved === 'object'
+              ? { ...day, isOpen: saved.open === true, openTime: String(saved.openTime || day.openTime), closeTime: String(saved.closeTime || day.closeTime) }
+              : day;
+          }));
+          if (Array.isArray(weekly.slots)) {
+            setTimeSlots(weekly.slots.filter((slot: any) => slot && typeof slot.id === 'string' && typeof slot.time === 'string'));
+          }
+        }
         setPublicAvailabilityLoaded(true);
         setPublicAvailabilityError(null);
       } else {
@@ -851,7 +907,7 @@ export default function App() {
       servicePrice: 'R$ 0,00',
       serviceDuration: data.timeSpan,
       date: data.date,
-      time: isAllDay ? 'Dia Inteiro' : (data.timeSpan.split(' ')[0] || '09:00'),
+      time: isAllDay ? 'Dia Inteiro' : data.timeSpan,
       status: 'bloqueado',
       paymentMode: 'sinal_40',
       depositAmount: 0,
@@ -860,8 +916,21 @@ export default function App() {
       blockReason: data.reason
     };
 
-    // Submete para a API oficial do backend / Google Sheets com o token administrativo
+    const dmy = String(data.date).match(/^(\d{2})[./-](\d{2})[./-](\d{4})$/);
+    const normalizedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(data.date))
+      ? String(data.date)
+      : dmy ? `${dmy[3]}-${dmy[2]}-${dmy[1]}` : String(data.date);
+    const intervalMatch = String(data.timeSpan).match(/(\d{1,2}:\d{2})\s*(?:às|as|-)\s*(\d{1,2}:\d{2})/i);
+    const scheduleBlock = { id: blockApt.id, date: normalizedDate, allDay: isAllDay, startTime: intervalMatch?.[1], endTime: intervalMatch?.[2], reason: data.reason, active: true };
+    const savedScheduleBlock = await saveRemoteScheduleBlock(scheduleBlock);
+    if (!savedScheduleBlock.success) return { success: false, error: savedScheduleBlock.error || 'Não foi possível persistir o bloqueio na configuração da agenda.' };
+
+    // Preserve the existing appointment block for the calendar and legacy conflict checks.
     const result = await submitBlockSchedule(blockApt, adminSessionToken);
+    if (!result.success || !result.persisted) {
+      await deleteRemoteScheduleBlock(scheduleBlock.id);
+      return { success: false, error: result.error || 'O servidor não confirmou a gravação do bloqueio no armazenamento oficial.' };
+    }
     if (!result.success || !result.persisted) {
       return {
         success: false,
@@ -979,6 +1048,7 @@ export default function App() {
                 onSelectService={handleSelectService}
                 appointments={publicAvailability}
                 blockedDates={publicBlockedDates}
+                daySchedules={daySchedules}
               />
             ) : (
               <section id="wizard-agendamento" className="mx-auto my-12 max-w-3xl rounded-2xl border border-[#E8D9B5] bg-white p-8 text-center">
@@ -1251,7 +1321,18 @@ export default function App() {
                   onSelectAppointmentForReview={_name => {
                     setAdminTab('gestao-clientes');
                   }}
-                  todayAppointments={appointments}
+                  todayAppointments={appointments.filter(a => {
+                    if (a.status === 'cancelado' || a.status === 'bloqueado') return false;
+                    const value = String(a.date || '').trim();
+                    const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                    const br = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+                    const dateKey = iso ? `${iso[1]}-${iso[2]}-${iso[3]}` : br ? `${br[3]}-${br[2]}-${br[1]}` : '';
+                    const todayParts = new Intl.DateTimeFormat('en', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+                    const todayValues = Object.fromEntries(todayParts.map(part => [part.type, part.value]));
+                    const todayKey = `${todayValues.year}-${todayValues.month}-${todayValues.day}`;
+                    return dateKey === todayKey;
+                  })}
+                  allAppointments={appointments}
                 />
               )}
 
@@ -1306,9 +1387,9 @@ export default function App() {
               {adminTab === 'configuracoes' && (
                 <SettingsTab
                   timeSlots={timeSlots}
-                  onUpdateTimeSlots={setTimeSlots}
+                  onUpdateTimeSlots={handleUpdateTimeSlots}
                   daySchedules={daySchedules}
-                  onUpdateDaySchedules={setDaySchedules}
+                  onUpdateDaySchedules={handleUpdateDaySchedules}
                   blacklist={blacklist}
                   onUpdateBlacklist={setBlacklist}
                   studioAddress={studioAddress}

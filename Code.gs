@@ -130,6 +130,140 @@ function isValidEmail(email) {
   return re.test(trimmed);
 }
 
+function timeToMinutes(value) {
+  var match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  var hours = Number(match[1]), minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+function parseDurationMinutes(value) {
+  var text = String(value || "").toLowerCase();
+  var hours = text.match(/(\d+)\s*h/);
+  var minutes = text.match(/(\d+)\s*(?:min|m\b)/);
+  var total = (hours ? Number(hours[1]) * 60 : 0) + (minutes ? Number(minutes[1]) : 0);
+  return total > 0 ? total : 30;
+}
+
+function getServiceDurationMinutes(serviceId, serviceTitle) {
+  try {
+    var sheet = getServicesSheet();
+    if (!sheet) return 30;
+    var rows = sheet.getDataRange().getValues();
+    for (var i = 1; i < rows.length; i++) {
+      var idMatches = serviceId && String(rows[i][0] || "").trim() === String(serviceId).trim();
+      var titleMatches = serviceTitle && String(rows[i][1] || "").trim().toLowerCase() === String(serviceTitle).trim().toLowerCase();
+      if (idMatches || titleMatches) return parseDurationMinutes(rows[i][5]);
+    }
+  } catch (e) {
+    console.error("Unable to read service duration: " + e);
+  }
+  return 30;
+}
+
+// Strict duration lookup for new public bookings. Unlike legacy display/conflict
+// helpers, this never invents a duration when the official catalogue is unavailable
+// or the selected service cannot be matched.
+function getConfiguredServiceDurationMinutes(serviceId, serviceTitle) {
+  try {
+    var sheet = getServicesSheet();
+    if (!sheet) return null;
+    var rows = sheet.getDataRange().getValues();
+    for (var i = 1; i < rows.length; i++) {
+      var rowId = String(rows[i][0] || "").trim();
+      var rowTitle = String(rows[i][1] || "").trim();
+      var idMatches = serviceId && rowId === String(serviceId).trim();
+      var titleMatches = serviceTitle && rowTitle.toLowerCase() === String(serviceTitle).trim().toLowerCase();
+      if (!idMatches && !titleMatches) continue;
+      if (rows[i][11] === false || String(rows[i][11]).toLowerCase() === "false") return null;
+      var durationText = String(rows[i][5] || "").toLowerCase();
+      var hoursMatch = durationText.match(/(\d+)\s*h/);
+      var minutesMatch = durationText.match(/(\d+)\s*(?:min|m\b)/);
+      var total = (hoursMatch ? Number(hoursMatch[1]) * 60 : 0) +
+        (minutesMatch ? Number(minutesMatch[1]) : 0);
+      return total > 0 && Number.isFinite(total) ? total : null;
+    }
+  } catch (e) {
+    console.error("Unable to validate official service duration: " + e);
+  }
+  return null;
+}
+
+function intervalsOverlap(startA, endA, startB, endB) {
+  return startA < endB && startB < endA;
+}
+
+function parseBlockInterval(value) {
+  var match = String(value || "").trim().match(/^(\d{1,2}:\d{2})\s*(?:às|as|-)\s*(\d{1,2}:\d{2})$/i);
+  if (!match) return null;
+  var start = timeToMinutes(match[1]), end = timeToMinutes(match[2]);
+  return start !== null && end !== null && end > start ? { start: start, end: end } : null;
+}
+
+function getPublicScheduleData() {
+  try {
+    var data = getScheduleConfigData();
+    return {
+      status: "success",
+      weeklySchedule: data.weeklySchedule || null,
+      blocks: (data.blocks || []).filter(function(block) { return block && block.active !== false; })
+    };
+  } catch (err) {
+    console.error("Unable to read public schedule config: " + err);
+    return { status: "error", message: "Configuração da agenda indisponível." };
+  }
+}
+
+function validateAgainstSavedSchedule(dateKey, timeKey, durationMinutes) {
+  var config = getScheduleConfigData();
+  var start = timeToMinutes(timeKey);
+  var end = start + durationMinutes;
+  var parts = dateKey.split("-");
+  var date = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])));
+  var dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  var dayName = dayNames[date.getUTCDay()];
+  var weekly = config.weeklySchedule;
+
+  if (weekly && weekly[dayName]) {
+    var day = weekly[dayName];
+    if (day.open === false) return { allowed: false, message: "O atelier não atende neste dia. Escolha outra data." };
+    if (day.open === true) {
+      var open = timeToMinutes(String(day.openTime || ""));
+      var close = timeToMinutes(String(day.closeTime || ""));
+      if (open === null || close === null || start < open || end > close) {
+        return { allowed: false, message: "Este horário está fora do expediente configurado. Escolha outro horário." };
+      }
+    }
+  }
+
+  if (weekly && Array.isArray(weekly.slots)) {
+    for (var si = 0; si < weekly.slots.length; si++) {
+      var slot = weekly.slots[si];
+      if (!slot || slot.active === false) continue;
+      var slotStatus = String(slot.status || "").toLowerCase();
+      if (["bloqueado", "autoclave", "almoco"].indexOf(slotStatus) === -1) continue;
+      var slotStart = timeToMinutes(String(slot.time || ""));
+      if (slotStart !== null && intervalsOverlap(start, end, slotStart, slotStart + 30)) {
+        return { allowed: false, message: "Este horário está bloqueado na configuração semanal. Escolha outro horário." };
+      }
+    }
+  }
+
+  var blocks = config.blocks || [];
+  for (var bi = 0; bi < blocks.length; bi++) {
+    var block = blocks[bi];
+    if (!block || block.active === false || String(block.date || "") !== dateKey) continue;
+    if (block.allDay === true) return { allowed: false, message: "Esta data está bloqueada para atendimentos. Escolha outro dia." };
+    var blockStart = timeToMinutes(String(block.startTime || ""));
+    var blockEnd = timeToMinutes(String(block.endTime || ""));
+    if (blockStart !== null && blockEnd !== null && intervalsOverlap(start, end, blockStart, blockEnd)) {
+      return { allowed: false, message: "Este intervalo está bloqueado. Escolha outro horário." };
+    }
+  }
+  return { allowed: true };
+}
+
 function doPost(e) {
   try {
     if (!e || !e.postData || !e.postData.contents) {
@@ -140,13 +274,35 @@ function doPost(e) {
 
     // Agendamento público: usa validações de cliente, catálogo, data, horário,
     // concorrência e duplicidade abaixo. Ações administrativas continuam exigindo token.
-    var isPublicBooking = data.action === "createBooking";
+    var isPublicBooking = data.action === "createBooking" || data.action === "getPublicSchedule";
     if (!isPublicBooking) {
       var tokenProvided = data.token || data.authToken || data.key || (e.parameter && e.parameter.token);
       var auth = validateAuthorization(tokenProvided);
       if (!auth.valid) {
         return responseJSON({ status: "error", message: auth.error });
       }
+    }
+
+    // Public createBooking requests deliberately continue into the single validated
+    // booking flow below. Do not persist bookings in an early shortcut that bypasses
+    // official service, payment, duration, conflict and concurrency validation.
+
+    if (data.action === "getPublicSchedule") {    return responseJSON(getPublicScheduleData());  }    // Persistent weekly schedule and date/time blocks.
+    // These administrative actions use the authorization check above.
+    if (data.action === "getScheduleConfig") {
+      return responseJSON(getScheduleConfigData());
+    }
+
+    if (data.action === "saveWeeklySchedule") {
+      return responseJSON(saveWeeklyScheduleConfig(data.weeklySchedule));
+    }
+
+    if (data.action === "saveScheduleBlock") {
+      return responseJSON(saveScheduleBlock(data.block));
+    }
+
+    if (data.action === "deleteScheduleBlock") {
+      return responseJSON(deleteScheduleBlock(data.blockId));
     }
 
     // 2. Leitura administrativa segura via POST (token no corpo)
@@ -665,6 +821,15 @@ function doPost(e) {
 
       var requestedDateKey = normalizeBookingDate(bookingDate);
       var requestedTimeKey = normalizeBookingTime(bookingTime);
+      var requestedServiceDuration = getConfiguredServiceDurationMinutes(data.serviceId, serviceTitle);
+      if (!requestedServiceDuration) {
+        return responseJSON({
+          status: "error",
+          persisted: false,
+          configurationError: true,
+          message: "Não foi possível confirmar a duração oficial deste serviço. Verifique o catálogo 'Serviços' na planilha e tente novamente."
+        });
+      }
       if (!isValidBookingDateKey(requestedDateKey)) {
         return responseJSON({ status: "error", message: "Data inválida. Use uma data real no formato AAAA-MM-DD." });
       }
@@ -674,9 +839,19 @@ function doPost(e) {
       if (!isValidBookingTime(requestedTimeKey)) {
         return responseJSON({ status: "error", message: "Horário inválido. Use o formato HH:mm." });
       }
-      var requestedWeekday = new Date(requestedDateKey + "T12:00:00-03:00").getUTCDay();
-      if (requestedWeekday === 0 || requestedWeekday === 1) {
-        return responseJSON({ status: "error", message: "O estúdio atende de terça-feira a sábado. Selecione outro dia." });
+
+      // Enforce persisted weekly hours and date/time blocks on the authoritative
+      // booking endpoint, not only in the public calendar UI.
+      var savedScheduleValidation = validateAgainstSavedSchedule(
+        requestedDateKey, requestedTimeKey, requestedServiceDuration
+      );
+      if (!savedScheduleValidation.allowed) {
+        return responseJSON({
+          status: "error",
+          persisted: false,
+          conflict: true,
+          message: savedScheduleValidation.message
+        });
       }
       var location = data.appointmentLocation === undefined ? "salon" : String(data.appointmentLocation).trim();
       if (location !== "salon" && location !== "home") {
@@ -720,21 +895,32 @@ function doPost(e) {
         }
         var existingStatus = String(existing[i][8] || 'pendente_pix').toLowerCase();
         var existingDateKey = normalizeBookingDate(existing[i][5]);
-        var existingTimeKey = normalizeBookingTime(existing[i][6]);
-        var sameRequestedSlot = requestedDateKey === existingDateKey && requestedTimeKey === existingTimeKey;
-        var allDayBlocked = existingStatus === 'bloqueado' &&
-          requestedDateKey === existingDateKey &&
-          ['dia inteiro', 'dia todo', 'all day'].indexOf(String(existing[i][6] || '').trim().toLowerCase()) !== -1;
-        var slotBlocked = existingStatus === 'bloqueado' && sameRequestedSlot;
-        var activeBookingConflict = sameRequestedSlot &&
-          ['cancelado', 'teste_sistema', 'bloqueado'].indexOf(existingStatus) === -1;
+        var existingTimeRaw = String(existing[i][6] || '').trim();
+        var existingTimeKey = normalizeBookingTime(existingTimeRaw);
+        var sameDate = requestedDateKey === existingDateKey;
+        var requestedStart = timeToMinutes(requestedTimeKey);
+        var requestedEnd = requestedStart + requestedServiceDuration;
+        var allDayBlocked = existingStatus === 'bloqueado' && sameDate &&
+          ['dia inteiro', 'dia todo', 'all day'].indexOf(existingTimeRaw.toLowerCase()) !== -1;
+        var blockInterval = existingStatus === 'bloqueado' && sameDate ? parseBlockInterval(existingTimeRaw) : null;
+        var slotBlocked = Boolean(blockInterval && intervalsOverlap(requestedStart, requestedEnd, blockInterval.start, blockInterval.end));
+        var activeBookingConflict = false;
+        if (sameDate && ['cancelado', 'teste_sistema', 'bloqueado'].indexOf(existingStatus) === -1) {
+          var existingStart = timeToMinutes(existingTimeKey);
+          if (existingStart !== null) {
+            var existingDuration = getServiceDurationMinutes(existing[i][15], String(existing[i][4] || ''));
+            activeBookingConflict = intervalsOverlap(requestedStart, requestedEnd, existingStart, existingStart + existingDuration);
+          }
+        }
         if (allDayBlocked || slotBlocked || activeBookingConflict) {
           return responseJSON({
             status: "error",
             conflict: true,
             message: allDayBlocked
               ? "Esta data está bloqueada para atendimentos. Escolha outro dia."
-              : "Este horário acabou de ser reservado ou bloqueado. Escolha outro horário."
+              : slotBlocked
+                ? "Este intervalo está bloqueado. Escolha outro horário."
+                : "Este horário se sobrepõe a outro atendimento. Escolha outro horário."
           });
         }
       }
@@ -963,6 +1149,7 @@ function fetchAppointmentsFromSheet() {
       clientPhone: String(row[2] || ''),
       clientEmail: String(row[3] || ''),
       serviceTitle: String(row[4] || ''),
+      serviceDuration: getServiceDurationMinutes(String(row[15] || ''), String(row[4] || '')) + ' min',
       date: dateStr,
       time: timeStr,
       depositAmount: Number(row[7] || 0),
@@ -1029,5 +1216,200 @@ function doGet(e) {
     return fetchAppointmentsFromSheet();
   } catch (err) {
     return responseJSON({ status: "error", message: err.toString() });
+  }
+}
+
+/**
+ * Persistent schedule configuration.
+ * Creates "Configuração da Agenda" on first use without changing existing tabs.
+ * Rows use: Tipo | ID | Dados JSON | Atualizado em
+ */
+var SCHEDULE_CONFIG_SHEET = "Configuração da Agenda";
+
+function getOrCreateScheduleConfigSheet() {
+  var ss = SpreadsheetApp.openById(TARGET_SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(SCHEDULE_CONFIG_SHEET);
+
+  if (!sheet) {
+    sheet = ss.insertSheet(SCHEDULE_CONFIG_SHEET);
+    sheet.getRange(1, 1, 1, 4).setValues([[
+      "Tipo", "ID", "Dados JSON", "Atualizado em"
+    ]]);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, 4).setFontWeight("bold");
+    sheet.setColumnWidth(1, 160);
+    sheet.setColumnWidth(2, 220);
+    sheet.setColumnWidth(3, 500);
+    sheet.setColumnWidth(4, 180);
+  }
+
+  return sheet;
+}
+
+function getScheduleConfigData() {
+  var sheet = getOrCreateScheduleConfigSheet();
+  var values = sheet.getDataRange().getValues();
+  var weeklySchedule = null;
+  var blocks = [];
+
+  for (var i = 1; i < values.length; i++) {
+    var type = String(values[i][0] || "").trim();
+    var id = String(values[i][1] || "").trim();
+    var raw = String(values[i][2] || "");
+    if (!type || !raw) continue;
+
+    var parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      console.error("Invalid schedule JSON on row " + (i + 1));
+      continue;
+    }
+
+    if (type === "WEEKLY_SCHEDULE") weeklySchedule = parsed;
+    if (type === "BLOCK" && id) blocks.push(parsed);
+  }
+
+  return {
+    status: "success",
+    weeklySchedule: weeklySchedule,
+    blocks: blocks
+  };
+}
+
+function saveWeeklyScheduleConfig(schedule) {
+  if (!schedule || typeof schedule !== "object" || Array.isArray(schedule)) {
+    throw new Error("Envie uma configuração semanal válida.");
+  }
+
+  var allowedDays = [
+    "monday", "tuesday", "wednesday", "thursday",
+    "friday", "saturday", "sunday"
+  ];
+
+  allowedDays.forEach(function(day) {
+    var config = schedule[day];
+    if (config === undefined) return;
+    if (!config || typeof config !== "object" || Array.isArray(config)) {
+      throw new Error("Configuração inválida para " + day + ".");
+    }
+
+    if (config.open === true) {
+      if (!isValidBookingTime(String(config.openTime || "")) ||
+          !isValidBookingTime(String(config.closeTime || ""))) {
+        throw new Error("Horários inválidos para " + day + ".");
+      }
+      if (timeToMinutes(config.closeTime) <= timeToMinutes(config.openTime)) {
+        throw new Error("O encerramento deve ser posterior à abertura em " + day + ".");
+      }
+    }
+  });
+
+  var sheet = getOrCreateScheduleConfigSheet();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+
+  try {
+    var values = sheet.getDataRange().getValues();
+    var foundRow = -1;
+    for (var i = 1; i < values.length; i++) {
+      if (String(values[i][0]) === "WEEKLY_SCHEDULE") {
+        foundRow = i + 1;
+        break;
+      }
+    }
+
+    var row = ["WEEKLY_SCHEDULE", "weekly", JSON.stringify(schedule), new Date()];
+    if (foundRow > 0) {
+      sheet.getRange(foundRow, 1, 1, 4).setValues([row]);
+    } else {
+      sheet.appendRow(row);
+    }
+
+    return { status: "success", saved: true, weeklySchedule: schedule };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function saveScheduleBlock(block) {
+  if (!block || typeof block !== "object" || Array.isArray(block)) {
+    throw new Error("Envie um bloqueio válido.");
+  }
+
+  var date = String(block.date || "").trim();
+  var id = String(block.id || "").trim();
+  var allDay = block.allDay === true;
+  var startTime = String(block.startTime || "").trim();
+  var endTime = String(block.endTime || "").trim();
+
+  if (!isValidBookingDateKey(date)) {
+    throw new Error("Data do bloqueio inválida. Use AAAA-MM-DD.");
+  }
+  if (!id) id = Utilities.getUuid();
+
+  if (!allDay) {
+    if (!isValidBookingTime(startTime) ||
+        !isValidBookingTime(endTime) ||
+        timeToMinutes(endTime) <= timeToMinutes(startTime)) {
+      throw new Error("Intervalo de horas inválido.");
+    }
+  }
+
+  var record = {
+    id: id,
+    date: date,
+    allDay: allDay,
+    startTime: allDay ? "" : startTime,
+    endTime: allDay ? "" : endTime,
+    reason: String(block.reason || "").trim(),
+    active: block.active !== false,
+    updatedAt: new Date().toISOString()
+  };
+
+  var sheet = getOrCreateScheduleConfigSheet();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+
+  try {
+    var values = sheet.getDataRange().getValues();
+    for (var i = 1; i < values.length; i++) {
+      if (String(values[i][0]) === "BLOCK" &&
+          String(values[i][1]) === id) {
+        sheet.getRange(i + 1, 1, 1, 4).setValues([[
+          "BLOCK", id, JSON.stringify(record), new Date()
+        ]]);
+        return { status: "success", saved: true, block: record };
+      }
+    }
+
+    sheet.appendRow(["BLOCK", id, JSON.stringify(record), new Date()]);
+    return { status: "success", saved: true, block: record };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function deleteScheduleBlock(blockId) {
+  var id = String(blockId || "").trim();
+  if (!id) throw new Error("ID do bloqueio obrigatório.");
+
+  var sheet = getOrCreateScheduleConfigSheet();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+
+  try {
+    var values = sheet.getDataRange().getValues();
+    for (var i = values.length - 1; i >= 1; i--) {
+      if (String(values[i][0]) === "BLOCK" &&
+          String(values[i][1]) === id) {
+        sheet.deleteRow(i + 1);
+        return { status: "success", deleted: true, id: id };
+      }
+    }
+
+    return { status: "success", deleted: false, notFound: true, id: id };
+  } finally {
+    lock.releaseLock();
   }
 }

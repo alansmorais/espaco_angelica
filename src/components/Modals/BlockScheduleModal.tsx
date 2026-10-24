@@ -21,7 +21,7 @@ export const BlockScheduleModal: React.FC<BlockScheduleModalProps> = ({
   initialDate
 }) => {
   const [reason, setReason] = useState('Folga / Descanso');
-  const [date, setDate] = useState('Quarta, 13 Nov');
+  const [date, setDate] = useState(() => { const parts = new Intl.DateTimeFormat('en', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()); const p = Object.fromEntries(parts.map(part => [part.type, part.value])); return `${p.year}-${p.month}-${p.day}`; });
   const [isAllDay, setIsAllDay] = useState(true);
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('19:30');
@@ -52,6 +52,15 @@ export const BlockScheduleModal: React.FC<BlockScheduleModalProps> = ({
     if (!date.trim()) {
       setSubmitError('Por favor, informe a data para bloqueio.');
       return;
+    }
+    if (!isAllDay) {
+      const toMinutes = (value: string) => { const match = /^(\d{2}):(\d{2})$/.exec(value); return match ? Number(match[1]) * 60 + Number(match[2]) : NaN; };
+      const start = toMinutes(startTime);
+      const end = toMinutes(endTime);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end > 1439 || end <= start) {
+        setSubmitError('Informe um intervalo válido: o horário final deve ser posterior ao inicial.');
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -135,11 +144,10 @@ export const BlockScheduleModal: React.FC<BlockScheduleModalProps> = ({
             <div className="flex flex-col gap-1">
               <label className="text-[10px] uppercase text-[#786C63] font-bold">Data *</label>
               <input
-                type="text"
+                type="date"
                 value={date}
                 onChange={e => setDate(e.target.value)}
                 required
-                placeholder="Ex: Quarta, 13 Nov"
                 className="bg-[#FDFBF9] text-[#49382E] px-3 py-2.5 rounded-xl border border-[#E8D9B5] outline-none focus:border-[#D4AF37] font-semibold"
               />
             </div>
@@ -164,14 +172,16 @@ export const BlockScheduleModal: React.FC<BlockScheduleModalProps> = ({
               <label className="text-[10px] uppercase text-[#786C63] font-bold">Horário de Início e Fim</label>
               <div className="flex items-center gap-2">
                 <input
-                  type="text"
+                  type="time"
+                  step={1800}
                   value={startTime}
                   onChange={e => setStartTime(e.target.value)}
                   className="w-1/2 bg-[#FDFBF9] text-[#49382E] px-2 py-2.5 rounded-xl text-center border border-[#E8D9B5] focus:border-[#D4AF37] outline-none"
                 />
                 <span className="text-[#786C63]">às</span>
                 <input
-                  type="text"
+                  type="time"
+                  step={1800}
                   value={endTime}
                   onChange={e => setEndTime(e.target.value)}
                   className="w-1/2 bg-[#FDFBF9] text-[#49382E] px-2 py-2.5 rounded-xl text-center border border-[#E8D9B5] focus:border-[#D4AF37] outline-none"

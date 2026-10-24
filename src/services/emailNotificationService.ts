@@ -518,6 +518,7 @@ export interface PublicAvailabilityResult {
   appointments: Appointment[];
   blockedDates: string[];
   updatedAt?: string;
+  weeklySchedule?: Record<string, any> | null;
   error?: string;
 }
 
@@ -537,13 +538,15 @@ export async function fetchPublicAvailability(): Promise<PublicAvailabilityResul
       serviceTitle: '',
       date: String(slot.date || ''),
       time: String(slot.time || ''),
+      serviceDuration: String(slot.serviceDuration || ''),
       status: String(slot.status || 'pendente_pix') as Appointment['status']
     }));
     return {
       success: true,
       appointments,
       blockedDates: Array.isArray(data.blockedDates) ? data.blockedDates.map(String) : [],
-      updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined
+      updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
+      weeklySchedule: data.weeklySchedule && typeof data.weeklySchedule === 'object' ? data.weeklySchedule : null
     };
   } catch (error: any) {
     return { success: false, appointments: [], blockedDates: [], error: error?.message || 'Falha de conexão ao consultar disponibilidade.' };
@@ -870,6 +873,93 @@ export async function updateRemoteAppointment(
       persisted: false,
       error: `Falha de rede ao atualizar agendamento: ${err.message || 'servidor indisponível'}.`
     };
+  }
+}
+
+
+export interface SavedScheduleBlock {
+  id: string;
+  date: string;
+  allDay: boolean;
+  startTime?: string;
+  endTime?: string;
+  reason?: string;
+  active?: boolean;
+}
+
+export interface RemoteScheduleConfig {
+  success: boolean;
+  weeklySchedule: Record<string, any> | null;
+  blocks: SavedScheduleBlock[];
+  error?: string;
+}
+
+async function callScheduleAction(action: string, extra: Record<string, unknown> = {}): Promise<any> {
+  const url = getNotificationWebhookUrl();
+  const token = getNotificationWebhookToken().trim();
+  if (!url) throw new Error('URL do Google Apps Script não configurada.');
+  if (!token) throw new Error('Token do Apps Script não configurado no painel administrativo.');
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+    body: JSON.stringify({ action, token, ...extra })
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data || data.status !== 'success') {
+    throw new Error(data?.message || `Apps Script recusou a ação ${action} (HTTP ${response.status}).`);
+  }
+  return data;
+}
+
+export async function fetchRemoteScheduleConfig(): Promise<RemoteScheduleConfig> {
+  try {
+    const data = await callScheduleAction('getScheduleConfig');
+    return {
+      success: true,
+      weeklySchedule: data.weeklySchedule && typeof data.weeklySchedule === 'object' ? data.weeklySchedule : null,
+      blocks: Array.isArray(data.blocks) ? data.blocks : []
+    };
+  } catch (error: any) {
+    return { success: false, weeklySchedule: null, blocks: [], error: error?.message || 'Falha ao ler configuração da agenda.' };
+  }
+}
+
+export async function saveRemoteWeeklySchedule(
+  weeklySchedule: Record<string, unknown>
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const data = await callScheduleAction('saveWeeklySchedule', { weeklySchedule });
+    return data.saved === true
+      ? { success: true }
+      : { success: false, error: 'Apps Script não confirmou a gravação da agenda semanal.' };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Falha ao salvar agenda semanal.' };
+  }
+}
+
+export async function saveRemoteScheduleBlock(
+  block: SavedScheduleBlock
+): Promise<{ success: boolean; block?: SavedScheduleBlock; error?: string }> {
+  try {
+    const data = await callScheduleAction('saveScheduleBlock', { block });
+    return data.saved === true
+      ? { success: true, block: data.block }
+      : { success: false, error: 'Apps Script não confirmou a gravação do bloqueio.' };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Falha ao salvar bloqueio de agenda.' };
+  }
+}
+
+export async function deleteRemoteScheduleBlock(
+  blockId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const data = await callScheduleAction('deleteScheduleBlock', { blockId });
+    return data.deleted === true || data.notFound === true
+      ? { success: true }
+      : { success: false, error: 'Apps Script não confirmou a exclusão do bloqueio.' };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Falha ao excluir bloqueio de agenda.' };
   }
 }
 
