@@ -60,17 +60,50 @@ function uploadImageToDrive(base64Data, fileName, mimeType) {
 }
 
 function validateAuthorization(tokenProvided) {
-  var expectedToken = PropertiesService.getScriptProperties().getProperty("APPS_SCRIPT_TOKEN");
-
-  if (!expectedToken || String(expectedToken).trim() === "") {
-    return { valid: false, error: "Configuração incompleta: APPS_SCRIPT_TOKEN ausente nas Propriedades do Script." };
-  }
-
-  if (!tokenProvided || String(tokenProvided).trim() !== String(expectedToken).trim()) {
+  var provided = String(tokenProvided || "").trim();
+  if (!provided) {
     return { valid: false, error: "Acesso não autorizado: token de autorização inválido ou ausente." };
   }
 
-  return { valid: true };
+  var expectedToken = String(PropertiesService.getScriptProperties().getProperty("APPS_SCRIPT_TOKEN") || "").trim();
+  if (expectedToken && provided === expectedToken) return { valid: true };
+
+  // Admin session tokens are random, server-side cached and expire after six hours.
+  try {
+    if (CacheService.getScriptCache().get("ADMIN_SESSION_" + provided) === "1") {
+      return { valid: true, session: true };
+    }
+  } catch (cacheError) {
+    console.error("Unable to validate admin session: " + cacheError);
+  }
+
+  return {
+    valid: false,
+    error: expectedToken
+      ? "Acesso não autorizado: sessão inválida ou expirada."
+      : "Configuração incompleta: APPS_SCRIPT_TOKEN ausente nas Propriedades do Script."
+  };
+}
+
+function createAdminSession(password) {
+  var configuredPassword = String(PropertiesService.getScriptProperties().getProperty("ADMIN_PASSWORD") || "");
+  if (!configuredPassword) {
+    return { status: "error", success: false, message: "Configure ADMIN_PASSWORD nas Propriedades do Script do Google Apps Script antes de entrar no painel." };
+  }
+  if (!password || String(password) !== configuredPassword) {
+    return { status: "error", success: false, message: "Senha administrativa incorreta." };
+  }
+
+  var token = Utilities.getUuid().replace(/-/g, "") + Utilities.getUuid().replace(/-/g, "");
+  CacheService.getScriptCache().put("ADMIN_SESSION_" + token, "1", 21600);
+  return { status: "success", success: true, token: token, expiresInSeconds: 21600 };
+}
+
+function revokeAdminSession(token) {
+  var provided = String(token || "").trim();
+  if (!provided) return { status: "success", success: true };
+  CacheService.getScriptCache().remove("ADMIN_SESSION_" + provided);
+  return { status: "success", success: true };
 }
 
 function responseJSON(obj) {
@@ -215,6 +248,56 @@ function getPublicScheduleData() {
   }
 }
 
+function getPublicAvailabilityData() {
+  var sheet = getOfficialSheet();
+  if (!sheet) {
+    return { status: "error", success: false, message: "Aba 'Agendamentos' não encontrada na planilha oficial." };
+  }
+
+  var values = sheet.getDataRange().getValues();
+  var slots = [];
+  var blockedDates = [];
+  var tz = Session.getScriptTimeZone() || "America/Sao_Paulo";
+
+  for (var i = 1; i < values.length; i++) {
+    var row = values[i];
+    if (!row[5]) continue;
+    var dateKey = normalizeBookingDate(row[5]);
+    var timeKey = normalizeBookingTime(row[6]);
+    var status = String(row[8] || "pendente_pix").trim();
+    if (!dateKey) continue;
+
+    if (status.toLowerCase() === "bloqueado" && (!timeKey || timeKey.toLowerCase() === "dia inteiro")) {
+      blockedDates.push(dateKey);
+      continue;
+    }
+
+    if (!row[9] && !row[1]) continue;
+    slots.push({
+      id: String(row[9] || ("apt-sheet-" + i)),
+      date: dateKey,
+      time: timeKey,
+      status: status,
+      serviceDuration: getServiceDurationMinutes(String(row[15] || ""), String(row[4] || "")) + " min"
+    });
+  }
+
+  var schedule = getPublicScheduleData();
+  if (schedule.status !== "success") {
+    return { status: "error", success: false, message: schedule.message || "Configuração da agenda indisponível." };
+  }
+
+  return {
+    status: "success",
+    success: true,
+    slots: slots,
+    blockedDates: Array.from(new Set(blockedDates)),
+    weeklySchedule: schedule.weeklySchedule || null,
+    scheduleBlocks: schedule.blocks || [],
+    updatedAt: new Date().toISOString()
+  };
+}
+
 function validateAgainstSavedSchedule(dateKey, timeKey, durationMinutes) {
   var config = getScheduleConfigData();
   var start = timeToMinutes(timeKey);
@@ -274,7 +357,7 @@ function doPost(e) {
 
     // Agendamento público: usa validações de cliente, catálogo, data, horário,
     // concorrência e duplicidade abaixo. Ações administrativas continuam exigindo token.
-    var isPublicBooking = data.action === "createBooking" || data.action === "getPublicSchedule" || data.action === "getServices";
+    var isPublicBooking = data.action === "createBooking" || data.action === "getPublicSchedule" || data.action === "getPublicAvailability" || data.action === "getServices" || data.action === "createAdminSession";
     if (!isPublicBooking) {
       var tokenProvided = data.token || data.authToken || data.key || (e.parameter && e.parameter.token);
       var auth = validateAuthorization(tokenProvided);
@@ -286,6 +369,18 @@ function doPost(e) {
     // Public createBooking requests deliberately continue into the single validated
     // booking flow below. Do not persist bookings in an early shortcut that bypasses
     // official service, payment, duration, conflict and concurrency validation.
+
+    if (data.action === "createAdminSession") {
+      return responseJSON(createAdminSession(data.password));
+    }
+
+    if (data.action === "revokeAdminSession") {
+      return responseJSON(revokeAdminSession(data.token));
+    }
+
+    if (data.action === "getPublicAvailability") {
+      return responseJSON(getPublicAvailabilityData());
+    }
 
     if (data.action === "getPublicSchedule") {    return responseJSON(getPublicScheduleData());  }    // Persistent weekly schedule and date/time blocks.
     // These administrative actions use the authorization check above.
