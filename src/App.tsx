@@ -240,7 +240,7 @@ export default function App() {
 
   // 3: Studio Address State (Rua Vereador José Luiz Soares, 92 - Pontal da Cruz, São Sebastião - SP)
   const [studioAddress, setStudioAddress] = useState<StudioAddressConfig>(STUDIO_ADDRESS);
-  const [paymentConfig, setPaymentConfig] = useState<PaymentConfig>({ pixKey: '', pixBeneficiary: '', depositAmount: 40, prepayDiscount: 5 });
+  const [paymentConfig, setPaymentConfig] = useState<PaymentConfig>({ pixKey: '', pixBeneficiary: '', depositAmount: 40 });
   const [paymentConfigLoaded, setPaymentConfigLoaded] = useState(false);
   const [paymentConfigConfigured, setPaymentConfigConfigured] = useState(false);
 
