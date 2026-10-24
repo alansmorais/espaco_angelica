@@ -684,6 +684,23 @@ function saveClientProfile(profile) {
   }
 }
 
+function getPublicPaymentConfigData() {
+  var data = getAppSettingsData();
+  var payment = data.settings && data.settings.PAYMENT_CONFIG && typeof data.settings.PAYMENT_CONFIG === "object"
+    ? data.settings.PAYMENT_CONFIG : {};
+  var config = {
+    pixKey: String(payment.pixKey || ""),
+    pixBeneficiary: String(payment.pixBeneficiary || ""),
+    depositAmount: Number(payment.depositAmount === undefined ? 40 : payment.depositAmount),
+    prepayDiscount: Number(payment.prepayDiscount === undefined ? 5 : payment.prepayDiscount)
+  };
+  return {
+    status: "success",
+    configured: Boolean(config.pixKey.trim() && config.pixBeneficiary.trim()),
+    paymentConfig: config
+  };
+}
+
 function doPost(e) {
   try {
     if (!e || !e.postData || !e.postData.contents) {
@@ -694,7 +711,7 @@ function doPost(e) {
 
     // Agendamento público: usa validações de cliente, catálogo, data, horário,
     // concorrência e duplicidade abaixo. Ações administrativas continuam exigindo token.
-    var isPublicBooking = data.action === "createBooking" || data.action === "getPublicSchedule" || data.action === "getPublicAvailability" || data.action === "getPublicStudioAddress" || data.action === "getServices" || data.action === "createAdminSession";
+    var isPublicBooking = data.action === "createBooking" || data.action === "getPublicSchedule" || data.action === "getPublicAvailability" || data.action === "getPublicStudioAddress" || data.action === "getPublicPaymentConfig" || data.action === "getServices" || data.action === "createAdminSession";
     if (!isPublicBooking) {
       var tokenProvided = data.token || data.authToken || data.key || (e.parameter && e.parameter.token);
       var auth = validateAuthorization(tokenProvided);
@@ -711,6 +728,7 @@ function doPost(e) {
     if (data.action === "revokeAdminSession") return responseJSON(revokeAdminSession(data.token));
     if (data.action === "getPublicAvailability") return responseJSON(getPublicAvailabilityData());
     if (data.action === "getPublicStudioAddress") return responseJSON(getPublicStudioAddressData());
+    if (data.action === "getPublicPaymentConfig") return responseJSON(getPublicPaymentConfigData());
 
     if (data.action === "getPublicSchedule") {    return responseJSON(getPublicScheduleData());  }    // Persistent weekly schedule and date/time blocks.
     // These administrative actions use the authorization check above.
