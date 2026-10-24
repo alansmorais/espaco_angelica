@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Appointment, TimeSlotConfig, Service } from '../../types';
-import { INITIAL_TIME_SLOTS } from '../../data/mockData';
 import { sendAppointmentWhatsAppConfirmation } from '../../services/whatsappService';
 import { formatBRL, areDatesEqual } from '../../services/notificationTemplates';
 import { EditAppointmentModal } from '../Modals/EditAppointmentModal';
@@ -21,7 +20,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
   onOpenExtraEncaixeModal,
   onSelectClientForDossier,
   appointments = [],
-  timeSlots = INITIAL_TIME_SLOTS,
+  timeSlots = [],
   services = [],
   onUpdateAppointment,
   onDeleteAppointment
