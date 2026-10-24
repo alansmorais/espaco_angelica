@@ -851,7 +851,7 @@ export default function App() {
       servicePrice: 'R$ 0,00',
       serviceDuration: data.timeSpan,
       date: data.date,
-      time: isAllDay ? 'Dia Inteiro' : (data.timeSpan.split(' ')[0] || '09:00'),
+      time: isAllDay ? 'Dia Inteiro' : data.timeSpan,
       status: 'bloqueado',
       paymentMode: 'sinal_40',
       depositAmount: 0,
@@ -872,17 +872,7 @@ export default function App() {
     // 1. Atualiza lista local imediatamente
     setAppointments(prev => [blockApt, ...prev.filter(a => a.id !== blockApt.id)]);
 
-    // 2. Se for horário específico, marca na grade
-    const timeMatch = data.timeSpan.split(' ')[0];
-    if (timeMatch && !isAllDay) {
-      setTimeSlots(prev =>
-        prev.map(s =>
-          s.time.startsWith(timeMatch)
-            ? { ...s, status: 'bloqueado', note: data.reason }
-            : s
-        )
-      );
-    }
+    // Bloqueios com data específica ficam associados apenas à data e ao intervalo; não alteram a grade semanal.
 
     // 3. Re-sincroniza com a planilha oficial do Google Sheets (fonte da verdade)
     await refreshRemoteAppointments();
@@ -979,6 +969,7 @@ export default function App() {
                 onSelectService={handleSelectService}
                 appointments={publicAvailability}
                 blockedDates={publicBlockedDates}
+                daySchedules={daySchedules}
               />
             ) : (
               <section id="wizard-agendamento" className="mx-auto my-12 max-w-3xl rounded-2xl border border-[#E8D9B5] bg-white p-8 text-center">
@@ -1251,7 +1242,7 @@ export default function App() {
                   onSelectAppointmentForReview={_name => {
                     setAdminTab('gestao-clientes');
                   }}
-                  todayAppointments={appointments}
+                  appointments={appointments}
                 />
               )}
 

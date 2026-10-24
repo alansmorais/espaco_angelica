@@ -1,22 +1,26 @@
 import React from 'react';
 import { Appointment } from '../../types';
-import { formatBRL } from '../../services/notificationTemplates';
+import { formatBRL, areDatesEqual } from '../../services/notificationTemplates';
 import { OverviewCalendar } from './OverviewCalendar';
 
 interface OverviewTabProps {
   onOpenManualBooking: () => void;
   onNavigateToTab: (tab: any) => void;
   onSelectAppointmentForReview: (clientName: string) => void;
-  todayAppointments: Appointment[];
+  appointments: Appointment[];
 }
 
 export const OverviewTab: React.FC<OverviewTabProps> = ({
   onOpenManualBooking,
   onNavigateToTab,
   onSelectAppointmentForReview,
-  todayAppointments
+  appointments
 }) => {
-  // Real dynamic metrics calculated from actual appointments
+  const today = new Date();
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const todayAppointments = appointments.filter(apt => areDatesEqual(apt.date, todayKey) && apt.status !== 'bloqueado');
+
+  // Real dynamic metrics calculated from today's appointments
   const confirmedAppointments = todayAppointments.filter(
     a => a.status === 'confirmado' || a.depositStatus === 'liquidado'
   );
@@ -92,7 +96,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
       </div>
 
-      <OverviewCalendar appointments={todayAppointments} onOpenAgenda={() => onNavigateToTab('agenda-bloqueios')} />
+      <OverviewCalendar appointments={appointments} onOpenAgenda={() => onNavigateToTab('agenda-bloqueios')} />
 
       {/* 4 KPIs Cards (Calculated from Real Data) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
