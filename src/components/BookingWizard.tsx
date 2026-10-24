@@ -706,7 +706,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                       Opções de Pré-pagamento via Pix
                     </h3>
                     <p className="font-jakarta text-xs text-[#786C63]">
-                      Escolha como deseja garantir sua vaga no atelier privativo
+                      Escolha como deseja garantir sua vaga no Espaço privativo
                     </p>
                   </div>
                 </div>
@@ -762,7 +762,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                     </span>
                   </div>
                   <p className="text-[#786C63] leading-relaxed">
-                    Procedimento quitado com prioridade VIP. Chegue ao atelier sem preocupações financeiras adicionais ao final.
+                    Procedimento quitado com prioridade VIP. Chegue ao Espaço sem preocupações financeiras adicionais ao final.
                   </p>
                 </button>
               </div>
@@ -929,7 +929,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                 <p className="text-[10px] text-[#786C63]">Pedidos personalizados sem preço cadastrado precisam de confirmação e não alteram o total automaticamente.</p>
                 <h4 className="font-syne font-semibold text-sm text-[#49382E] pt-1">Local do atendimento</h4>
                 <div className="flex flex-wrap gap-4 text-xs">
-                  <label className="flex items-center gap-2"><input type="radio" name="appointmentLocation" checked={appointmentLocation === 'salon'} onChange={() => setAppointmentLocation('salon')} /> No salão</label>
+                  <label className="flex items-center gap-2"><input type="radio" name="appointmentLocation" checked={appointmentLocation === 'salon'} onChange={() => setAppointmentLocation('salon')} /> No Espaço</label>
                   <label className="flex items-center gap-2"><input type="radio" name="appointmentLocation" checked={appointmentLocation === 'home'} onChange={() => setAppointmentLocation('home')} /> Em domicílio</label>
                 </div>
                 {appointmentLocation === 'home' && (
@@ -1158,7 +1158,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                 </a>
 
                 <p className="text-[10px] text-[#786C63] text-center leading-tight">
-                  Abre o WhatsApp com a mensagem oficial e política do atelier pronta para você revisar e enviar.
+                  Abre o WhatsApp com a mensagem oficial e política do Espaço pronta para você revisar e enviar.
                 </p>
               </div>
             )}
