@@ -837,7 +837,6 @@ export async function fetchPublicPaymentConfig(): Promise<{ success: boolean; co
         pixKey: String(config.pixKey || ''),
         pixBeneficiary: String(config.pixBeneficiary || ''),
         depositAmount: Number(config.depositAmount ?? 40),
-        prepayDiscount: Number(config.prepayDiscount ?? 5)
       }
     };
   } catch (error: any) {
