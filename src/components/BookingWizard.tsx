@@ -93,14 +93,44 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   const isInadimplente = Boolean(matchedBlacklist);
   const effectivePaymentMode = isInadimplente ? 'pre_pagamento_100' : paymentMode;
 
+  const isAllDayBlock = (value: string) => ['dia inteiro', 'dia todo', 'all day'].includes(String(value || '').trim().toLowerCase());
   const isDateBlocked = (dateStr: string): boolean => {
-    if (blockedDates.length > 0 && blockedDates.some(bd => areDatesEqual(bd, dateStr))) {
-      return true;
-    }
-    if (appointments.length > 0) {
-      return appointments.some(a => a.status === 'bloqueado' && areDatesEqual(a.date, dateStr));
-    }
-    return false;
+    if (blockedDates.some(bd => areDatesEqual(bd, dateStr))) return true;
+    return appointments.some(a => a.status === 'bloqueado' && areDatesEqual(a.date, dateStr) && isAllDayBlock(a.time));
+  };
+  const timeToMinutes = (value: string): number | null => {
+    const match = /^(\\d{1,2}):(\\d{2})$/.exec(String(value || '').trim());
+    if (!match) return null;
+    const hours = Number(match[1]), minutes = Number(match[2]);
+    return hours <= 23 && minutes <= 59 ? hours * 60 + minutes : null;
+  };
+  const durationMinutes = (value: string): number => {
+    const text = String(value || '').toLowerCase();
+    const hours = text.match(/(\\d+)\\s*h/);
+    const minutes = text.match(/(\\d+)\\s*(?:min|m\\b)/);
+    const total = (hours ? Number(hours[1]) * 60 : 0) + (minutes ? Number(minutes[1]) : 0);
+    return total > 0 ? total : 30;
+  };
+  const isSlotUnavailable = (slotTime: string): boolean => {
+    const start = timeToMinutes(slotTime);
+    if (start === null) return true;
+    const end = start + durationMinutes(selectedService.duration);
+    return appointments.some(a => {
+      if (!areDatesEqual(a.date, selectedDate) || ['cancelado', 'teste_sistema'].includes(a.status)) return false;
+      const raw = String(a.time || '').trim();
+      if (a.status === 'bloqueado') {
+        if (isAllDayBlock(raw)) return true;
+        const interval = /^(\\d{1,2}:\\d{2})\\s*(?:às|as|-)\\s*(\\d{1,2}:\\d{2})$/i.exec(raw);
+        if (interval) {
+          const blockStart = timeToMinutes(interval[1]), blockEnd = timeToMinutes(interval[2]);
+          return blockStart !== null && blockEnd !== null && start < blockEnd && blockStart < end;
+        }
+      }
+      const occupiedStart = timeToMinutes(raw);
+      if (occupiedStart === null) return false;
+      const occupiedEnd = occupiedStart + durationMinutes(a.serviceDuration || '30 min');
+      return start < occupiedEnd && occupiedStart < end;
+    });
   };
 
   const dateLabel = (date: Date) => date.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
@@ -116,9 +146,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   const isDateUnavailable = (date: Date) => {
     const key = toDateKey(date);
     const sameDayAppointments = appointments.filter(a => areDatesEqual(a.date, key) && !['cancelado', 'teste_sistema'].includes(a.status));
-    const weekday = date.getDay();
-    const outsideWorkingDays = weekday === 0 || weekday === 1;
-    return outsideWorkingDays || isDateBlocked(key) || (sameDayAppointments.length > 0 && sameDayAppointments.every(a => a.status === 'bloqueado'));
+    return isDateBlocked(key) || (sameDayAppointments.length > 0 && sameDayAppointments.every(a => a.status === 'bloqueado' && isAllDayBlock(a.time)));
   };
 
   // Price calculations (40% deposit or 100% full prepayment of selected procedure's official price)
@@ -483,7 +511,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                 ) : (
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-2.5">
                     {timeSlots.filter(s => s.active).map(slot => {
-                      const isBlocked = slot.status === 'bloqueado' || slot.status === 'autoclave' || slot.status === 'almoco';
+                      const isBlocked = slot.status === 'bloqueado' || slot.status === 'autoclave' || slot.status === 'almoco' || isSlotUnavailable(slot.time);
                       const isSelected = selectedTime === slot.time && !isBlocked;
 
                       return (
