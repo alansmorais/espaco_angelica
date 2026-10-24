@@ -311,7 +311,7 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({
           badge: formBadge.trim() || undefined,
           description: formDescription.trim(),
           note: formNote.trim(),
-          imageUrl: formImageUrl.trim() || SERVICE_PHOTO_PRESETS[0]?.url || '',
+          imageUrl: formImageUrl.trim(),
           specs: specsArray,
           active: formActive
         };
