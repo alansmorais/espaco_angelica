@@ -983,37 +983,22 @@ export async function saveRemoteService(
   authToken?: string
 ): Promise<{ success: boolean; saved?: boolean; error?: string; service?: Service }> {
   try {
-    const backendBase = getBackendApiUrl();
-    const targetUrl = backendBase ? `${backendBase}/api/services` : '/api/services';
-    const token = (authToken || '').trim();
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Accept: 'application/json'
-    };
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-
-    const response = await fetch(targetUrl, {
+    const endpoint = getNotificationWebhookUrl();
+    const token = (authToken || getNotificationWebhookToken()).trim();
+    if (!endpoint) return { success: false, error: 'URL do Google Apps Script não configurada.' };
+    if (!token) return { success: false, error: 'Token administrativo do Apps Script não configurado. Configure-o nas definições do painel.' };
+    const response = await fetch(endpoint, {
       method: 'POST',
-      headers,
-      body: JSON.stringify(service)
+      headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+      body: JSON.stringify({ action: 'saveService', token, ...service })
     });
-
-    let data: any;
-    try {
-      data = await response.json();
-    } catch {
-      return { success: false, error: 'Resposta inválida do servidor ao salvar procedimento.' };
+    const data = await response.json().catch(() => null);
+    if (!response.ok || data?.status !== 'success' || data?.saved !== true) {
+      return { success: false, error: data?.message || 'A planilha oficial não confirmou a gravação do serviço.' };
     }
-
-    if (response.ok && data?.success) {
-      return { success: true, saved: true, service: data.service || service };
-    }
-
-    return { success: false, error: data?.error || `Erro HTTP ${response.status} ao salvar procedimento.` };
+    return { success: true, saved: true, service };
   } catch (err: any) {
-    return { success: false, error: `Falha de conexão: ${err.message || 'servidor indisponível'}.` };
+    return { success: false, error: `Falha ao salvar na planilha oficial: ${err.message || 'erro de conexão'}.` };
   }
 }
 
@@ -1021,38 +1006,17 @@ export async function deleteRemoteService(
   serviceId: string,
   authToken?: string
 ): Promise<{ success: boolean; deleted?: boolean; error?: string }> {
+  // Never delete catalog rows. Retire the service by setting active=false in the official sheet.
   try {
-    const backendBase = getBackendApiUrl();
-    const targetUrl = backendBase
-      ? `${backendBase}/api/services/${encodeURIComponent(serviceId)}`
-      : `/api/services/${encodeURIComponent(serviceId)}`;
-    const token = (authToken || '').trim();
-    const headers: Record<string, string> = {
-      Accept: 'application/json'
-    };
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-
-    const response = await fetch(targetUrl, {
-      method: 'DELETE',
-      headers
-    });
-
-    let data: any;
-    try {
-      data = await response.json();
-    } catch {
-      return { success: false, error: 'Resposta inválida do servidor ao excluir procedimento.' };
-    }
-
-    if (response.ok && data?.success) {
-      return { success: true, deleted: true };
-    }
-
-    return { success: false, error: data?.error || `Erro HTTP ${response.status} ao excluir procedimento.` };
+    const services = await fetchRemoteServices();
+    const service = services.find(item => item.id === serviceId);
+    if (!service) return { success: false, error: 'Serviço não encontrado na planilha oficial; nenhum dado foi alterado.' };
+    const result = await saveRemoteService({ ...service, active: false }, authToken);
+    return result.success
+      ? { success: true, deleted: true }
+      : { success: false, error: result.error };
   } catch (err: any) {
-    return { success: false, error: `Falha de rede: ${err.message || 'servidor indisponível'}.` };
+    return { success: false, error: err?.message || 'Falha ao desativar serviço na planilha oficial.' };
   }
 }
 
