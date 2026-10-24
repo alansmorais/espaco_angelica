@@ -210,46 +210,6 @@ export function setNotificationWebhookToken(token: string): void {
   }
 }
 
-export const DEFAULT_BACKEND_API_URL =
-  'https://espaco-angelica-backend-770203144889.southamerica-east1.run.app';
-
-export const BACKEND_API_URL_STORAGE_KEY = 'angelica_backend_api_url';
-
-/**
- * Obtém a URL base do backend seguro (Node server / Cloud Run) configurada.
- * Em ambiente local/staging, usa o servidor local ('') por padrão e nunca faz fallback para produção.
- */
-export function getBackendApiUrl(): string {
-  if (typeof window === 'undefined') {
-    return isLocalOrStagingFrontend() ? '' : DEFAULT_BACKEND_API_URL;
-  }
-  const explicitBackend = (
-    (import.meta as any).env?.VITE_BACKEND_API_URL ||
-    localStorage.getItem(BACKEND_API_URL_STORAGE_KEY) ||
-    ''
-  ).trim();
-  if (isLocalOrStagingFrontend()) {
-    if (!explicitBackend || explicitBackend === DEFAULT_BACKEND_API_URL) {
-      return '';
-    }
-    return explicitBackend;
-  }
-  return explicitBackend || DEFAULT_BACKEND_API_URL;
-}
-
-/**
- * Salva a URL base do backend seguro no armazenamento local.
- */
-export function setBackendApiUrl(url: string): void {
-  if (typeof window === 'undefined') return;
-  const clean = url.trim().replace(/\/$/, '');
-  if (!clean || clean === DEFAULT_BACKEND_API_URL) {
-    localStorage.removeItem(BACKEND_API_URL_STORAGE_KEY);
-  } else {
-    localStorage.setItem(BACKEND_API_URL_STORAGE_KEY, clean);
-  }
-}
-
 /**
  * Executa a comunicação segura com o Google Apps Script.
  * Usa 'text/plain' para compatibilidade CORS e lê a resposta real do script sem assumir falso positivo.
