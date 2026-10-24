@@ -30,7 +30,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   timeSlots = [],
   blacklist = [],
   studioAddress = { street: '', number: '', neighborhood: '', city: '', state: '', fullAddress: '', mapsUrl: '', wazeUrl: '' },
-  paymentConfig = { pixKey: '', pixBeneficiary: '', depositAmount: 40, prepayDiscount: 5 },
+  paymentConfig = { pixKey: '', pixBeneficiary: '', depositAmount: 40 },
   services = [],
   onSelectService,
   appointments = [],
@@ -172,7 +172,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   // Price calculations (40% deposit or 100% full prepayment of selected procedure's official price)
   const additionalServices = services.filter(service => additionalServiceIds.includes(service.id) && service.id !== selectedService.id);
   const servicePrice = selectedService.price + additionalServices.reduce((sum, service) => sum + service.price, 0);
-  const fullPrepayment = calculateFullPrepayment(servicePrice, paymentConfig.prepayDiscount);
+  const fullPrepayment = calculateFullPrepayment(servicePrice);
   const standardDeposit = calculateDeposit40(servicePrice, paymentConfig.depositAmount);
   const standardBalance = calculateRemainingBalance(servicePrice, standardDeposit);
 
