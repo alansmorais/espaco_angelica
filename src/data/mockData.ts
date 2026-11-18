@@ -11,9 +11,9 @@ import {
 } from '../types';
 
 export const BRAND_ASSETS = {
-  logoGold: 'https://raw.githubusercontent.com/alansmorais/espacoangelica/refs/heads/main/images/angelica_logo.png',
-  logoSmall: 'https://raw.githubusercontent.com/alansmorais/espacoangelica/refs/heads/main/images/angelica_logo_round_emblem.png',
-  logoRoundEmblem: 'https://raw.githubusercontent.com/alansmorais/espacoangelica/refs/heads/main/images/angelica_logo_round_emblem.png',
+  logoGold: 'https://raw.githubusercontent.com/alansmorais/espaco_angelica/refs/heads/main/images/angelica_logo_round_emblem.png',
+  logoSmall: 'https://raw.githubusercontent.com/alansmorais/espaco_angelica/refs/heads/main/images/angelica_logo_round_emblem.png',
+  logoRoundEmblem: 'https://raw.githubusercontent.com/alansmorais/espaco_angelica/refs/heads/main/images/angelica_logo_round_emblem.png',
   mapTexture: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCWy_TcZiS3uIGwD9bdGCtXWm2roeCEzMJj9yF1zF-ge-cgvlAn80asVXClBRNLm__GoYVJE_UaLAIdFwOaecu5EXOgsLxyg0hkQuXBWjNYTBTf6L8bdkDP1HTyYdFMMeSSpQQNN_KNx7E_CMnY8MceOS9itYgrBZ9ECAJXEcFQ_OfU-fKk2XatDmfqHlGU812jGFNHaLYu-9fztBT6EqBSJFs6Dp4Mhy8OpA3cL22AhyPBMeleYcBAiw'
 };
 
