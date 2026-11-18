@@ -37,10 +37,10 @@ export const HeaderPublic: React.FC<HeaderPublicProps> = ({
               setMobileMenuOpen(false);
             }}
           >
-            <div className="p-1 sm:p-1.5 rounded-xl bg-[#0B0A0A] border border-[#E8D9B5] shadow-sm flex items-center justify-center shrink-0">
+            <div className="w-[150px] h-[150px] rounded-full overflow-hidden bg-[#0B0A0A] border border-[#E8D9B5] shadow-sm flex items-center justify-center shrink-0">
               <img
                 alt="Espaço Angelica do Carmo Logo"
-                className="w-[150px] h-[150px] object-contain drop-shadow"
+                className="w-full h-full rounded-full object-cover drop-shadow"
                 src={BRAND_ASSETS.logoGold}
               />
             </div>
