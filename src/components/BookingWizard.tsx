@@ -1000,18 +1000,6 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                       rows={2} className="mt-1 w-full rounded-lg border border-[#E8D9B5] bg-[#FDFBF9] p-2 text-xs" />
                   </label>
                   <p className="text-[10px] text-[#786C63]">Pedidos personalizados sem preço cadastrado precisam de confirmação e não alteram o total automaticamente.</p>
-                  <h4 className="font-syne font-semibold text-sm text-[#49382E] pt-1">Local do atendimento</h4>
-                  <div className="flex flex-wrap gap-4 text-xs">
-                    <label className="flex items-center gap-2"><input type="radio" name="appointmentLocation" checked={appointmentLocation === 'salon'} onChange={() => setAppointmentLocation('salon')} /> No Espaço</label>
-                    <label className="flex items-center gap-2"><input type="radio" name="appointmentLocation" checked={appointmentLocation === 'home'} onChange={() => setAppointmentLocation('home')} /> Em domicílio</label>
-                  </div>
-                  {appointmentLocation === 'home' && (
-                    <label className="block text-xs font-semibold text-[#49382E]">Endereço completo *
-                      <textarea required value={homeAddress} onChange={event => setHomeAddress(event.target.value)}
-                        placeholder="Rua, número, bairro, cidade e referência" rows={2}
-                        className="mt-1 w-full rounded-lg border border-[#E8D9B5] bg-[#FDFBF9] p-2 text-xs" />
-                    </label>
-                  )}
                 </div>
 
 
