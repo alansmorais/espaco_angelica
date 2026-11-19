@@ -225,6 +225,7 @@ export default function App() {
   const [selectedService, setSelectedService] = useState<Service>(
     activeServices[0] || services[0] || SERVICES_CATALOG[0]
   );
+  const [additionalServicesRequest, setAdditionalServicesRequest] = useState(0);
 
   // 4: Operating Hours & Time Slots State (Add, Edit, Delete, Block)
   const [timeSlots, setTimeSlots] = useState<TimeSlotConfig[]>(() => {
@@ -671,6 +672,7 @@ export default function App() {
   // Handlers for client booking
   const handleSelectService = (service: Service) => {
     setSelectedService(service);
+    setAdditionalServicesRequest(request => request + 1);
     const el = document.getElementById('wizard-agendamento');
     el?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -1040,6 +1042,7 @@ export default function App() {
             {activeServices.length > 0 && publicAvailabilityLoaded ? (
               <BookingWizard
                 selectedService={activeServices.find(s => s.id === selectedService?.id) || activeServices[0]}
+                additionalServicesRequest={additionalServicesRequest}
                 onBookingConfirmed={handleBookingConfirmed}
                 timeSlots={timeSlots}
                 blacklist={blacklist}
