@@ -89,8 +89,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
 
   // Match the Jéssica booking behavior: personalize only gel procedures and extensions.
   const supportsAddOnsForService = (service: Service) => {
-    const category = String(service.category || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
-    const title = String(service.title || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
+    const category = String(service.category || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const title = String(service.title || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
     return /alongamento|extensao|fibra|blindagem|gel/.test(category) ||
       /alongamento|extensao|fibra|blindagem|banho em gel|esmalta[cç][aã]o em gel/.test(title);
   };
