@@ -88,12 +88,9 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   const [paymentMode, setPaymentMode] = useState<'sinal_40' | 'pre_pagamento_100'>('sinal_40');
 
   // Match the Jéssica booking behavior: personalize only gel procedures and extensions.
-  const supportsAddOnsForService = (service: Service) => {
-    const category = String(service.category || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-    const title = String(service.title || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-    return /alongamento|extensao|fibra|blindagem|gel/.test(category) ||
-      /alongamento|extensao|fibra|blindagem|banho em gel|esmaltacao em gel/.test(title);
-  };
+  // Every procedure selected from the public catalog must lead to the add-on step.
+  // The add-on list remains limited to other active services from the official catalog.
+  const supportsAddOnsForService = (_service: Service) => true;
 
   useEffect(() => {
     if (additionalServicesRequest <= 0) return;
