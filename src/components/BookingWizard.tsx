@@ -11,17 +11,6 @@ import {
 } from '../services/notificationTemplates';
 import { triggerNewPreBookingEmailNotification } from '../services/emailNotificationService';
 
-type AddOnOption = { id: string; title: string; price: number; unitLabel?: string; fiberOnly?: boolean; excludeBathGel?: boolean };
-
-const BOOKING_ADD_ONS: AddOnOption[] = [
-  { id: 'baby-boomer', title: 'Baby Boomer', price: 30, fiberOnly: true },
-  { id: 'reversa-3d', title: 'Reversa 3D', price: 40, unitLabel: 'por unidade', fiberOnly: true },
-  { id: 'esmaltação-gel', title: 'Esmaltação em gel', price: 25 },
-  { id: 'gel-decoracao-simples', title: 'Gel com decoração simples', price: 30 },
-  { id: 'esmaltação-tradicional', title: 'Esmaltação tradicional', price: 15 },
-  { id: 'decoracoes-especiais', title: 'Decorações especiais', price: 30 }
-];
-
 interface BookingWizardProps {
   selectedService: Service;
   additionalServicesRequest?: number;
@@ -70,8 +59,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   });
   const [selectedTime, setSelectedTime] = useState<string>('11:30');
   const [additionalServiceIds, setAdditionalServiceIds] = useState<string[]>([]);
-  const [addOnQuantities, setAddOnQuantities] = useState<Record<string, number>>({});
-  const [tempAddOnQuantities, setTempAddOnQuantities] = useState<Record<string, number>>({});
+  const [tempAdditionalServiceIds, setTempAdditionalServiceIds] = useState<string[]>([]);
   const [showAdditionalServices, setShowAdditionalServices] = useState(false);
   const [customRequest, setCustomRequest] = useState<string>('');
   const [appointmentLocation, setAppointmentLocation] = useState<'salon' | 'home'>('salon');
@@ -111,8 +99,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
     if (additionalServicesRequest <= 0) return;
     const shouldPersonalize = supportsAddOnsForService(selectedService);
     setAdditionalServiceIds([]);
-    setAddOnQuantities({});
-    setTempAddOnQuantities({});
+    setTempAdditionalServiceIds([]);
     setShowAdditionalServices(shouldPersonalize);
   }, [additionalServicesRequest, selectedService.id, selectedService.category, selectedService.title]);
 
@@ -200,26 +187,22 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
     return isDateBlocked(key) || (sameDayAppointments.length > 0 && sameDayAppointments.every(a => a.status === 'bloqueado' && isAllDayBlock(a.time)));
   };
 
+  // As in Jéssica, any other active procedure can be selected as an addition.
   const supportsAddOns = supportsAddOnsForService(selectedService);
-  const serviceTitleNormalized = String(selectedService.title || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
-  const isFiberService = /fibra|alongamento/.test(serviceTitleNormalized);
-  const isBathGelService = /banho.*gel/.test(serviceTitleNormalized);
-  const availableAddOns = BOOKING_ADD_ONS.filter(option =>
-    (!option.fiberOnly || isFiberService) &&
-    !(isBathGelService && (option.id === 'baby-boomer' || option.id === 'reversa-3d'))
-  );
+  const availableAdditionalServices = supportsAddOns
+    ? services.filter(service => service.id !== selectedService.id && service.active !== false)
+    : [];
+  // Price calculations (40% deposit or 100% full prepayment of selected procedure's official price)
+  const additionalServices = services.filter(service => additionalServiceIds.includes(service.id) && service.id !== selectedService.id);
   const openAdditionalServices = () => {
-    setTempAddOnQuantities(addOnQuantities);
+    setTempAdditionalServiceIds(additionalServiceIds);
     setShowAdditionalServices(true);
   };
   const confirmAdditionalServices = () => {
-    setAddOnQuantities(tempAddOnQuantities);
-    setAdditionalServiceIds(Object.entries(tempAddOnQuantities).filter(([, quantity]) => quantity > 0).map(([id]) => id));
+    setAdditionalServiceIds(tempAdditionalServiceIds);
     setShowAdditionalServices(false);
   };
-  const selectedAddOns = availableAddOns.filter(option => (addOnQuantities[option.id] || 0) > 0);
-  const addOnsTotal = selectedAddOns.reduce((sum, option) => sum + option.price * (addOnQuantities[option.id] || 0), 0);
-  const servicePrice = selectedService.price + addOnsTotal;
+  const servicePrice = selectedService.price + additionalServices.reduce((sum, service) => sum + service.price, 0);
   const fullPrepayment = calculateFullPrepayment(servicePrice);
   const standardDeposit = calculateDeposit40(servicePrice);
   const standardBalance = calculateRemainingBalance(servicePrice, standardDeposit);
@@ -359,7 +342,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
       customRequest: customRequest.trim() || undefined,
       appointmentLocation,
       homeAddress: appointmentLocation === 'home' ? homeAddress.trim() : undefined,
-      serviceTitle: [selectedService.title, ...selectedAddOns.map(option => `${option.title}${(addOnQuantities[option.id] || 0) > 1 ? ` ×${addOnQuantities[option.id]}` : ''}`)].join(' + '),
+      serviceTitle: [selectedService.title, ...additionalServices.map(service => service.title)].join(' + '),
       servicePrice: `R$ ${formatBRL(servicePrice)}`,
       serviceDuration: selectedService.duration,
       date: selectedDate,
@@ -978,7 +961,30 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                   </div>
                 </div>
 
-
+                {services.length > 1 && onSelectService && (
+                  <div className="pt-1">
+                    <label className="text-[10px] text-[#786C63] block mb-1">Trocar procedimento:</label>
+                    <select
+                      value={selectedService.id}
+                      onChange={e => {
+                        const match = services.find(s => s.id === e.target.value);
+                        if (match) {
+                          onSelectService(match);
+                          setAdditionalServiceIds([]);
+                          setTempAdditionalServiceIds([]);
+                          setShowAdditionalServices(supportsAddOnsForService(match));
+                        }
+                      }}
+                      className="w-full px-3 py-2 rounded-lg bg-[#FDFBF9] text-base sm:text-xs text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] min-h-[44px]"
+                    >
+                      {services.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.title} ({s.priceFormatted})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               {supportsAddOns && (
@@ -986,31 +992,28 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                   <div className="flex items-center justify-between gap-3">
                     <h4 className="font-syne font-semibold text-sm text-[#49382E]">Serviços adicionais</h4>
                     <button type="button" onClick={openAdditionalServices} className="rounded-full border border-[#D4AF37] px-3 py-2 text-xs font-bold text-[#49382E]">
-                      {selectedAddOns.length ? `Revisar (${selectedAddOns.length})` : 'Personalizar'}
+                      {additionalServiceIds.length ? `Revisar (${additionalServiceIds.length})` : 'Ver opções'}
                     </button>
                   </div>
-                  <p className="text-[10px] text-[#786C63]">Adicionais opcionais. Escolha a quantidade desejada ou pule esta etapa.</p>
-                  {selectedAddOns.map(option => <div key={option.id} className="flex justify-between gap-2 text-xs"><span>{option.title} ×{addOnQuantities[option.id]}</span><span className="font-semibold">R$ {formatBRL(option.price * addOnQuantities[option.id])}</span></div>)}
+                  <p className="text-[10px] text-[#786C63]">Complementos relevantes para o procedimento principal. Preços atuais mantidos.</p>
+                  {additionalServices.map(service => <div key={service.id} className="flex justify-between gap-2 text-xs"><span>{service.title}</span><span className="font-semibold">{service.priceFormatted}</span></div>)}
                   {showAdditionalServices && <div className="fixed inset-0 z-[70] bg-[#49382E]/50 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div role="dialog" aria-modal="true" aria-label="Personalização de serviços adicionais" className="w-full max-w-md max-h-[80vh] overflow-y-auto rounded-2xl bg-white border border-[#E8D9B5] p-5 shadow-2xl">
-                      <div className="flex items-center justify-between gap-3 mb-3"><h4 className="font-bold text-sm text-[#49382E]">Personalize {selectedService.title}</h4><button type="button" onClick={() => setShowAdditionalServices(false)} className="rounded-full border border-[#E8D9B5] px-3 py-2">Fechar</button></div>
-                      <p className="text-xs text-[#786C63] mb-3">Os adicionais são opcionais e não alteram o procedimento principal.</p>
-                      {availableAddOns.map(option => {
-                        const quantity = tempAddOnQuantities[option.id] || 0;
-                        return <div key={option.id} className="flex items-center gap-3 py-3 border-b border-[#E8D9B5] text-xs">
-                          <div className="flex-1 min-w-0"><span className="block font-semibold text-[#49382E]">{option.title}</span><span className="block text-[#786C63]">R$ {formatBRL(option.price)}{option.unitLabel ? ` ${option.unitLabel}` : ''}</span></div>
-                          <div className="flex items-center gap-2"><button type="button" aria-label={`Diminuir ${option.title}`} disabled={quantity <= 0} onClick={() => setTempAddOnQuantities(current => ({ ...current, [option.id]: Math.max(0, (current[option.id] || 0) - 1) }))} className="w-8 h-8 rounded-full border border-[#D4AF37] disabled:opacity-30">−</button><span className="w-5 text-center font-bold">{quantity}</span><button type="button" aria-label={`Aumentar ${option.title}`} onClick={() => setTempAddOnQuantities(current => ({ ...current, [option.id]: (current[option.id] || 0) + 1 }))} className="w-8 h-8 rounded-full border border-[#D4AF37]">+</button></div>
-                        </div>;
-                      })}
-                      <div className="mt-4 flex items-center justify-between text-sm font-bold text-[#49382E]"><span>Total dos adicionais</span><span>R$ {formatBRL(availableAddOns.reduce((sum, option) => sum + option.price * (tempAddOnQuantities[option.id] || 0), 0))}</span></div>
-                      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2"><button type="button" onClick={() => { setAddOnQuantities({}); setAdditionalServiceIds([]); setTempAddOnQuantities({}); setShowAdditionalServices(false); }} className="w-full rounded-full border border-[#E8D9B5] bg-white px-4 py-3 font-semibold text-[#786C63]">Pular personalização</button><button type="button" onClick={confirmAdditionalServices} className="w-full rounded-full bg-[#D4AF37] px-4 py-3 font-bold text-[#49382E]">Confirmar seleção</button></div>
+                    <div role="dialog" aria-modal="true" aria-label="Serviços adicionais" className="w-full max-w-md max-h-[80vh] overflow-y-auto rounded-2xl bg-white border border-[#E8D9B5] p-5 shadow-2xl">
+                      <div className="flex items-center justify-between gap-3 mb-3"><h4 className="font-bold text-sm text-[#49382E]">Complementos para {selectedService.title}</h4><button type="button" onClick={() => setShowAdditionalServices(false)} className="rounded-full border border-[#E8D9B5] px-3 py-2">Fechar</button></div>
+                      <p className="text-xs text-[#786C63] mb-3">Os valores são os já cadastrados. Pedidos personalizados sem preço cadastrado não alteram o total automaticamente.</p>
+                      {availableAdditionalServices.length > 0 ? availableAdditionalServices.map(service => <label key={service.id} className="flex items-start gap-2 py-3 border-b border-[#E8D9B5] text-xs"><input type="checkbox" checked={tempAdditionalServiceIds.includes(service.id)} onChange={event => setTempAdditionalServiceIds(current => event.target.checked ? Array.from(new Set([...current, service.id])) : current.filter(id => id !== service.id))} className="accent-[#D4AF37]" /><span className="flex-1"><span className="block font-semibold">{service.title}</span><span className="block text-[#786C63]">{service.description}</span></span><span className="font-semibold whitespace-nowrap">{service.priceFormatted}</span></label>) : <p className="text-xs text-[#786C63] py-3">{supportsAddOns ? 'Não há adicionais cadastrados para este procedimento no momento.' : 'Este procedimento não possui personalização de adicionais nesta etapa.'}</p>}
+                      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2"><button type="button" onClick={() => { setAdditionalServiceIds([]); setTempAdditionalServiceIds([]); setShowAdditionalServices(false); }} className="w-full rounded-full border border-[#E8D9B5] bg-white px-4 py-3 font-semibold text-[#786C63]">Pular personalização</button><button type="button" onClick={confirmAdditionalServices} className="w-full rounded-full bg-[#D4AF37] px-4 py-3 font-bold text-[#49382E]">Confirmar seleção</button></div>
                     </div>
                   </div>}
                   <label className="block text-xs font-semibold text-[#49382E]">Pedido personalizado (opcional)
-                    <textarea value={customRequest} onChange={event => setCustomRequest(event.target.value)} placeholder="Ex.: decoração especial de unhas (preço sujeito à confirmação)" rows={2} className="mt-1 w-full rounded-lg border border-[#E8D9B5] bg-[#FDFBF9] p-2 text-xs" />
+                    <textarea value={customRequest} onChange={event => setCustomRequest(event.target.value)}
+                      placeholder="Ex.: decoração especial de unhas (preço sujeito à confirmação)"
+                      rows={2} className="mt-1 w-full rounded-lg border border-[#E8D9B5] bg-[#FDFBF9] p-2 text-xs" />
                   </label>
                   <p className="text-[10px] text-[#786C63]">Pedidos personalizados sem preço cadastrado precisam de confirmação e não alteram o total automaticamente.</p>
                 </div>
+
+
               )}
               <div className="py-4 border-b border-[#E8D9B5] space-y-3">
                 <h4 className="font-syne font-semibold text-sm text-[#49382E] pt-1">Local do atendimento</h4>
