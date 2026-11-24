@@ -1218,7 +1218,7 @@ export function validateBookingPaymentCoherence(payload: any): {
   }
   const isFiberProcedure = /fibra/i.test(canonicalService.title);
   const isGelProcedure = /gel/i.test(canonicalService.title);
-  const isGelBathProcedure = /banho\\s*(?:em\\s*)?gel|blindagem/i.test(canonicalService.title);
+  const isGelBathProcedure = /banho\s*(?:em\s*)?gel|blindagem/i.test(canonicalService.title);
   if (additionalServiceIds.length > 0 && !isFiberProcedure && !isGelProcedure) {
     return { valid: false, error: 'Os adicionais de esmaltação e decoração só podem ser usados em procedimentos de fibra ou gel.' };
   }
