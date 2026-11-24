@@ -136,8 +136,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   };
   const durationMinutes = (value: string): number => {
     const text = String(value || '').toLowerCase();
-    const hours = text.match(/(\\d+)\s*h/);
-    const minutes = text.match(/(\\d+)\s*(?:min|m\\b)/);
+    const hours = text.match(/(\\d+)\\s*h/);
+    const minutes = text.match(/(\\d+)\\s*(?:min|m\\b)/);
     const total = (hours ? Number(hours[1]) * 60 : 0) + (minutes ? Number(minutes[1]) : 0);
     return total > 0 ? total : 30;
   };
@@ -161,7 +161,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
       const raw = String(a.time || '').trim();
       if (a.status === 'bloqueado') {
         if (isAllDayBlock(raw)) return true;
-        const interval = /^(\\d{1,2}:\\d{2})\s*(?:às|as|-)\s*(\\d{1,2}:\\d{2})$/i.exec(raw);
+        const interval = /^(\\d{1,2}:\\d{2})\\s*(?:às|as|-)\\s*(\\d{1,2}:\\d{2})$/i.exec(raw);
         if (interval) {
           const blockStart = timeToMinutes(interval[1]), blockEnd = timeToMinutes(interval[2]);
           return blockStart !== null && blockEnd !== null && start < blockEnd && blockStart < end;
