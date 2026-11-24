@@ -195,6 +195,9 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   const additionalServices = additionalServiceIds
     .map(id => BOOKING_ADD_ONS.find(addOn => addOn.id === id))
     .filter((service): service is (typeof BOOKING_ADD_ONS)[number] => Boolean(service));
+  const additionalServiceSummary = BOOKING_ADD_ONS
+    .map(addOn => ({ ...addOn, quantity: additionalServiceIds.filter(id => id === addOn.id).length }))
+    .filter(addOn => addOn.quantity > 0);
   const additionalServiceTitleParts = (ids: string[]) => {
     const reversaUnits = ids.filter(id => id === 'adicional-reversa-3d').length;
     const titles = ids
@@ -988,7 +991,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                     </button>
                   </div>
                   <p className="text-[10px] text-[#786C63]">Complementos relevantes para o procedimento principal. Preços atuais mantidos.</p>
-                  {additionalServices.length > 0 && additionalServices.map((service, index) => <div key={`${service.id}-${index}`} className="flex justify-between gap-2 text-xs"><span>{service.title}</span><span className="font-semibold">{service.priceFormatted}</span></div>)}
+                  {additionalServiceSummary.map(service => <div key={service.id} className="flex justify-between gap-2 text-xs"><span>{service.title}{service.id === 'adicional-reversa-3d' ? ` (${service.quantity} ${service.quantity === 1 ? 'unidade' : 'unidades'})` : service.quantity > 1 ? ` (×${service.quantity})` : ''}</span><span className="font-semibold">R$ {formatBRL(service.price * service.quantity)}</span></div>)}
                   {showAdditionalServices && <div className="w-full rounded-xl border border-[#E8D9B5] bg-[#FDFBF9] p-3 sm:p-4 space-y-2">
                     <div className="flex items-center justify-between gap-2"><h4 className="font-bold text-sm text-[#49382E]">Adicionais para {selectedService.title}</h4><button type="button" onClick={() => setShowAdditionalServices(false)} className="text-xs font-semibold text-[#786C63] underline">Recolher</button></div>
                     <p className="text-xs text-[#786C63]">Escolha vários complementos. O total e o sinal de 40% serão recalculados automaticamente.</p>
