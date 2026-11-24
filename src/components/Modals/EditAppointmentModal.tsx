@@ -53,8 +53,8 @@ export const EditAppointmentModal: React.FC<EditAppointmentModalProps> = ({
 
   if (!isOpen || !appointment) return null;
 
-  const mainServiceForAddOns = services.find(service => service.id === appointment.serviceId) ||
-    services.find(service => service.title.toLowerCase() === serviceTitle.trim().toLowerCase());
+  const mainServiceForAddOns = services.find(service => service.title.toLowerCase() === serviceTitle.trim().toLowerCase()) ||
+    services.find(service => service.id === appointment.serviceId);
   const availableAddOns = !mainServiceForAddOns || !['alongamento', 'blindagem'].includes(mainServiceForAddOns.category)
     ? []
     : mainServiceForAddOns.id === 'esmaltacao-gel-premium'
@@ -95,7 +95,7 @@ export const EditAppointmentModal: React.FC<EditAppointmentModalProps> = ({
     setSubmitError(null);
 
     // Preserve legacy add-on IDs while pricing new catalogue add-ons from the shared fixed-price list.
-    const matchedService = services.find(s => s.id === appointment.serviceId) || services.find(s => s.title.toLowerCase() === serviceTitle.toLowerCase());
+    const matchedService = services.find(s => s.title.toLowerCase() === serviceTitle.trim().toLowerCase()) || services.find(s => s.id === appointment.serviceId);
     const additionalTitleParts = additionalServiceIds.map(id =>
       BOOKING_ADD_ONS.find(addOn => addOn.id === id)?.title || services.find(service => service.id === id)?.title
     ).filter((title): title is string => Boolean(title));
