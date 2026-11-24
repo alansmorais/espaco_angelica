@@ -1205,6 +1205,7 @@ export function validateBookingPaymentCoherence(payload: any): {
   // Add-ons are resolved only from the server-owned add-on catalogue; browser prices are never trusted.
   const reversaUnits = additionalServiceIds.filter(id => id === 'adicional-reversa-3d').length;
   const nonReversaIds = additionalServiceIds.filter(id => id !== 'adicional-reversa-3d');
+  if (reversaUnits > 20) return { valid: false, error: 'A quantidade máxima de Reversa 3D por agendamento é 20 unidades.' };
   if (new Set(nonReversaIds).size !== nonReversaIds.length) {
     return { valid: false, error: 'Um mesmo serviço adicional não pode ser selecionado mais de uma vez.' };
   }
