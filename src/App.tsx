@@ -1018,7 +1018,7 @@ export default function App() {
           />
 
           {/* Main Public Content */}
-          <main className="w-full pt-0 flex-1">
+          <main className="w-full pt-40 flex-1">
             {/* Hero Section with Official Gold Logo and Badges */}
             <HeroSection
               onStartBooking={() => {
