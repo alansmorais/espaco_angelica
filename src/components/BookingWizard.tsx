@@ -90,7 +90,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   // Add-ons are a separate, fixed-price catalogue; they are never exposed as main procedures.
   const supportsAddOnsForService = (service: Service) => /fibra|gel/i.test(`${service.title} ${service.category}`);
   const isFiberProcedure = /fibra/i.test(`${selectedService.title} ${selectedService.category}`);
-  const isGelBathProcedure = /banho\\s*(?:em\\s*)?gel|blindagem/i.test(selectedService.title);
+  const isGelBathProcedure = /banho\s*(?:em\s*)?gel|blindagem/i.test(selectedService.title);
   const availableAdditionalServices = BOOKING_ADD_ONS.filter(addOn => {
     if (addOn.id === 'adicional-reversa-3d') return isFiberProcedure;
     if (addOn.id === 'adicional-baby-boomer' && isGelBathProcedure) return false;
@@ -136,8 +136,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   };
   const durationMinutes = (value: string): number => {
     const text = String(value || '').toLowerCase();
-    const hours = text.match(/(\\d+)\\s*h/);
-    const minutes = text.match(/(\\d+)\\s*(?:min|m\\b)/);
+    const hours = text.match(/(\\d+)\s*h/);
+    const minutes = text.match(/(\\d+)\s*(?:min|m\\b)/);
     const total = (hours ? Number(hours[1]) * 60 : 0) + (minutes ? Number(minutes[1]) : 0);
     return total > 0 ? total : 30;
   };
@@ -161,7 +161,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
       const raw = String(a.time || '').trim();
       if (a.status === 'bloqueado') {
         if (isAllDayBlock(raw)) return true;
-        const interval = /^(\\d{1,2}:\\d{2})\\s*(?:às|as|-)\\s*(\\d{1,2}:\\d{2})$/i.exec(raw);
+        const interval = /^(\\d{1,2}:\\d{2})\s*(?:às|as|-)\s*(\\d{1,2}:\\d{2})$/i.exec(raw);
         if (interval) {
           const blockStart = timeToMinutes(interval[1]), blockEnd = timeToMinutes(interval[2]);
           return blockStart !== null && blockEnd !== null && start < blockEnd && blockStart < end;
