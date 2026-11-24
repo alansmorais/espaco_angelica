@@ -1071,6 +1071,21 @@ export const OFFICIAL_SERVICES_BY_ID: Record<string, CanonicalCatalogService> = 
   }
 };
 
+export const OFFICIAL_ADD_ONS_BY_ID: Record<string, CanonicalCatalogService> = {
+  'adicional-esmaltacao-gel': { id: 'adicional-esmaltacao-gel', title: 'Esmaltação em Gel', price: 25, priceFormatted: 'R$ 25,00' },
+  'adicional-gel-decoracao-simples': { id: 'adicional-gel-decoracao-simples', title: 'Gel + decoração simples', price: 30, priceFormatted: 'R$ 30,00' },
+  'adicional-esmalte-tradicional': { id: 'adicional-esmalte-tradicional', title: 'Esmaltação tradicional (esmalte comum)', price: 15, priceFormatted: 'R$ 15,00' },
+  'adicional-baby-boomer': { id: 'adicional-baby-boomer', title: 'Baby boomer', price: 30, priceFormatted: 'R$ 30,00' },
+  'adicional-encapsulada': { id: 'adicional-encapsulada', title: 'Encapsulada', price: 30, priceFormatted: 'R$ 30,00' },
+  'adicional-cromado': { id: 'adicional-cromado', title: 'Cromado', price: 30, priceFormatted: 'R$ 30,00' },
+  'adicional-espelhado': { id: 'adicional-espelhado', title: 'Espelhado', price: 30, priceFormatted: 'R$ 30,00' },
+  'adicional-olho-de-gato': { id: 'adicional-olho-de-gato', title: 'Olho de gato', price: 30, priceFormatted: 'R$ 30,00' },
+  'adicional-degrade': { id: 'adicional-degrade', title: 'Degradê', price: 30, priceFormatted: 'R$ 30,00' },
+  'adicional-marmorizado': { id: 'adicional-marmorizado', title: 'Marmorizado', price: 30, priceFormatted: 'R$ 30,00' },
+  'adicional-holografico': { id: 'adicional-holografico', title: 'Holográfico', price: 30, priceFormatted: 'R$ 30,00' },
+  'adicional-reversa-3d': { id: 'adicional-reversa-3d', title: 'Reversa 3D', price: 40, priceFormatted: 'R$ 40,00/unidade' }
+};
+
 export const OFFICIAL_SERVICES_BY_TITLE: Record<string, CanonicalCatalogService> = Object.values(
   OFFICIAL_SERVICES_BY_ID
 ).reduce((acc, item) => {
@@ -1123,7 +1138,7 @@ export function validateBookingPaymentCoherence(payload: any): {
 
   const { serviceId, serviceTitle, servicePrice, depositAmount, paymentMode, status } = payload;
   const additionalServiceIds: string[] = Array.isArray(payload.additionalServiceIds)
-    ? Array.from(new Set<string>(payload.additionalServiceIds.filter((id: unknown): id is string => typeof id === 'string' && id.trim() !== '')))
+    ? payload.additionalServiceIds.filter((id: unknown): id is string => typeof id === 'string' && id.trim() !== '').map((id: string) => id.trim())
     : [];
 
   if (typeof depositAmount !== 'number' || !Number.isFinite(depositAmount) || depositAmount <= 0) {
@@ -1187,16 +1202,36 @@ export function validateBookingPaymentCoherence(payload: any): {
     };
   }
 
-  // Resolve every additional service against the server-side catalogue. Never trust browser-supplied prices.
-  const additionalServices = additionalServiceIds.map(id => DYNAMIC_SERVICES_BY_ID[id] || OFFICIAL_SERVICES_BY_ID[id]);
+  // Add-ons are resolved only from the server-owned add-on catalogue; browser prices are never trusted.
+  const reversaUnits = additionalServiceIds.filter(id => id === 'adicional-reversa-3d').length;
+  const nonReversaIds = additionalServiceIds.filter(id => id !== 'adicional-reversa-3d');
+  if (reversaUnits > 20) return { valid: false, error: 'A quantidade máxima de Reversa 3D por agendamento é 20 unidades.' };
+  if (new Set(nonReversaIds).size !== nonReversaIds.length) {
+    return { valid: false, error: 'Um mesmo serviço adicional não pode ser selecionado mais de uma vez.' };
+  }
+  const additionalServices = additionalServiceIds.map(id => OFFICIAL_ADD_ONS_BY_ID[id]);
   if (additionalServices.some(service => !service)) {
     return { valid: false, error: 'Um ou mais serviços adicionais não existem no catálogo oficial.' };
   }
   if (additionalServiceIds.includes(String(serviceId || ''))) {
     return { valid: false, error: 'O procedimento principal não pode ser repetido como serviço adicional.' };
   }
+  const isFiberProcedure = /fibra/i.test(canonicalService.title);
+  const isGelProcedure = /gel/i.test(canonicalService.title);
+  const isGelBathProcedure = /banho\s*(?:em\s*)?gel|blindagem/i.test(canonicalService.title);
+  if (additionalServiceIds.length > 0 && !isFiberProcedure && !isGelProcedure) {
+    return { valid: false, error: 'Os adicionais de esmaltação e decoração só podem ser usados em procedimentos de fibra ou gel.' };
+  }
+  if (reversaUnits > 0 && !isFiberProcedure) {
+    return { valid: false, error: 'Reversa 3D é exclusiva para alongamento em fibra.' };
+  }
+  if (isGelBathProcedure && additionalServiceIds.includes('adicional-baby-boomer')) {
+    return { valid: false, error: 'Baby boomer não está disponível como adicional para Banho em Gel.' };
+  }
   const referencePrice = canonicalService.price + additionalServices.reduce((sum, service) => sum + service!.price, 0);
-  const expectedTitle = [canonicalService.title, ...additionalServices.map(service => service!.title)].join(' + ');
+  const expectedAddOnTitles = nonReversaIds.map(id => OFFICIAL_ADD_ONS_BY_ID[id].title);
+  if (reversaUnits > 0) expectedAddOnTitles.push(`Reversa 3D (${reversaUnits} ${reversaUnits === 1 ? 'unidade' : 'unidades'})`);
+  const expectedTitle = [canonicalService.title, ...expectedAddOnTitles].join(' + ');
   if (additionalServices.length > 0 && typeof serviceTitle === 'string' && serviceTitle.trim().toLowerCase() !== expectedTitle.toLowerCase()) {
     return { valid: false, error: 'Os nomes dos serviços não correspondem ao catálogo oficial.' };
   }

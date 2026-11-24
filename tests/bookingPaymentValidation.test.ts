@@ -15,6 +15,7 @@ import { buildPreBookingEmailPayload } from '../src/services/emailNotificationSe
 import { Appointment, BlacklistEntry } from '../src/types';
 import {
   OFFICIAL_SERVICES_BY_ID,
+  OFFICIAL_ADD_ONS_BY_ID,
   validateBookingPaymentCoherence,
   isOriginAllowed,
   allowedOrigins,
@@ -132,11 +133,17 @@ runTest('Validação de sinal_40 (40%) e pre_pagamento_100 (100% sem desconto) p
   }
 });
 
-// 3. Serviços adicionais: o total deve ser a soma de todos os serviços selecionados
-runTest('Serviços adicionais: soma de 2 ou mais extras, sinal de 40% sobre o total e pré-pagamento de 100%', () => {
+// 3. Adicionais: catálogo oficial, múltipla seleção, quantidade da Reversa 3D e regras por procedimento
+runTest('Adicionais oficiais: valores fixos, múltipla seleção e sinal calculado sobre o total', () => {
+  assertCondition(OFFICIAL_ADD_ONS_BY_ID['adicional-esmaltacao-gel'].price === 25, 'Esmaltação em Gel deve custar R$ 25');
+  assertCondition(OFFICIAL_ADD_ONS_BY_ID['adicional-gel-decoracao-simples'].price === 30, 'Gel + decoração simples deve custar R$ 30');
+  assertCondition(OFFICIAL_ADD_ONS_BY_ID['adicional-esmalte-tradicional'].price === 15, 'Esmaltação tradicional deve custar R$ 15');
+  assertCondition(OFFICIAL_ADD_ONS_BY_ID['adicional-baby-boomer'].price === 30, 'Baby boomer deve custar R$ 30');
+  assertCondition(OFFICIAL_ADD_ONS_BY_ID['adicional-reversa-3d'].price === 40, 'Reversa 3D deve custar R$ 40 por unidade');
+
   const main = OFFICIAL_SERVICES_BY_ID['alongamento-fibra-slim'];
-  const additionalIds = ['spa-das-maos-ouro', 'nail-art-encapsulada'];
-  const additional = additionalIds.map(id => OFFICIAL_SERVICES_BY_ID[id]);
+  const additionalIds = ['adicional-esmaltacao-gel', 'adicional-gel-decoracao-simples'];
+  const additional = additionalIds.map(id => OFFICIAL_ADD_ONS_BY_ID[id]);
   const total = main.price + additional.reduce((sum, service) => sum + service.price, 0);
   const deposit40 = calculateDeposit40(total);
   const title = [main.title, ...additional.map(service => service.title)].join(' + ');
@@ -150,22 +157,52 @@ runTest('Serviços adicionais: soma de 2 ou mais extras, sinal de 40% sobre o to
   };
   const validCombined = validateBookingPaymentCoherence(combined);
   assertCondition(validCombined.valid === true, `Backend rejeitou total combinado válido: ${validCombined.error}`);
-  assertCondition(validCombined.verifiedServicePrice === `R$ ${formatBRL(total)}`, 'Backend não retornou a soma dos preços oficiais de todos os serviços');
+  assertCondition(validCombined.verifiedServicePrice === `R$ ${formatBRL(total)}`, 'Backend não retornou a soma dos preços oficiais dos adicionais');
   assertCondition(validCombined.verifiedDepositAmount === deposit40, 'Sinal de 40% não foi calculado sobre o total combinado');
 
   const wrongTotal = validateBookingPaymentCoherence({ ...combined, servicePrice: `R$ ${formatBRL(total - 5)}` });
-  assertCondition(wrongTotal.valid === false, 'Backend aceitou total adulterado de serviços combinados');
-
+  assertCondition(wrongTotal.valid === false, 'Backend aceitou total adulterado dos adicionais');
   const wrongDeposit = validateBookingPaymentCoherence({ ...combined, depositAmount: deposit40 - 1 });
   assertCondition(wrongDeposit.valid === false, 'Backend aceitou sinal incorreto para serviços combinados');
 
-  const fullPayment = validateBookingPaymentCoherence({
-    ...combined,
-    depositAmount: total,
-    paymentMode: 'pre_pagamento_100'
-  });
+  const fullPayment = validateBookingPaymentCoherence({ ...combined, depositAmount: total, paymentMode: 'pre_pagamento_100' });
   assertCondition(fullPayment.valid === true, `Backend rejeitou pré-pagamento integral válido: ${fullPayment.error}`);
-  assertCondition(fullPayment.verifiedDepositAmount === total, 'Pré-pagamento integral deve corresponder à soma de todos os serviços');
+  assertCondition(fullPayment.verifiedDepositAmount === total, 'Pré-pagamento integral deve corresponder à soma dos adicionais');
+
+  const reversaUnits = 3;
+  const reversaTotal = main.price + reversaUnits * OFFICIAL_ADD_ONS_BY_ID['adicional-reversa-3d'].price;
+  const reversaPayload = {
+    serviceId: main.id,
+    additionalServiceIds: Array(reversaUnits).fill('adicional-reversa-3d'),
+    serviceTitle: `${main.title} + Reversa 3D (3 unidades)`,
+    servicePrice: `R$ ${formatBRL(reversaTotal)}`,
+    depositAmount: calculateDeposit40(reversaTotal),
+    paymentMode: 'sinal_40'
+  };
+  const validReversa = validateBookingPaymentCoherence(reversaPayload);
+  assertCondition(validReversa.valid === true, `Backend rejeitou Reversa 3D por unidade: ${validReversa.error}`);
+  assertCondition(validReversa.verifiedServicePrice === `R$ ${formatBRL(reversaTotal)}`, 'Reversa 3D não somou R$ 40 por unidade');
+
+  const bathGel = OFFICIAL_SERVICES_BY_ID['blindagem-diamante'];
+  const forbiddenBabyBoomer = validateBookingPaymentCoherence({
+    serviceId: bathGel.id,
+    additionalServiceIds: ['adicional-baby-boomer'],
+    serviceTitle: `${bathGel.title} + Baby boomer`,
+    servicePrice: `R$ ${formatBRL(bathGel.price + 30)}`,
+    depositAmount: calculateDeposit40(bathGel.price + 30),
+    paymentMode: 'sinal_40'
+  });
+  assertCondition(forbiddenBabyBoomer.valid === false, 'Backend permitiu Baby boomer no Banho em Gel');
+
+  const forbiddenReversa = validateBookingPaymentCoherence({
+    serviceId: bathGel.id,
+    additionalServiceIds: ['adicional-reversa-3d'],
+    serviceTitle: `${bathGel.title} + Reversa 3D (1 unidade)`,
+    servicePrice: `R$ ${formatBRL(bathGel.price + 40)}`,
+    depositAmount: calculateDeposit40(bathGel.price + 40),
+    paymentMode: 'sinal_40'
+  });
+  assertCondition(forbiddenReversa.valid === false, 'Backend permitiu Reversa 3D fora de alongamento em fibra');
 });
 
 // 3. Confirmação de que NÃO existe mais desconto de 5% no pré-pagamento integral

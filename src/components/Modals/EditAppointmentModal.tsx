@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Appointment, Service, SlotStatus } from '../../types';
+import { BOOKING_ADD_ONS } from '../../data/bookingAddOns';
 
 interface EditAppointmentModalProps {
   isOpen: boolean;
@@ -79,8 +80,12 @@ export const EditAppointmentModal: React.FC<EditAppointmentModalProps> = ({
     setSubmitError(null);
 
     // Encontra preço/id correspondente se o serviço foi selecionado do catálogo
-    const matchedService = services.find(s => s.id === appointment.serviceId) || services.find(s => s.title.toLowerCase() === serviceTitle.toLowerCase());
-    const additionalServices = services.filter(service => additionalServiceIds.includes(service.id) && service.id !== matchedService?.id);
+    const mainTitle = serviceTitle.split(' + ')[0].trim();
+    const matchedService = services.find(s => s.id === appointment.serviceId) || services.find(s => s.title.toLowerCase() === mainTitle.toLowerCase());
+    const additionalServices = additionalServiceIds.map(id => BOOKING_ADD_ONS.find(addOn => addOn.id === id) || services.find(service => service.id === id)).filter((service): service is NonNullable<typeof service> => Boolean(service));
+    const reversaUnits = additionalServiceIds.filter(id => id === 'adicional-reversa-3d').length;
+    const additionalTitles = additionalServiceIds.filter(id => id !== 'adicional-reversa-3d').map(id => BOOKING_ADD_ONS.find(addOn => addOn.id === id)?.title || services.find(service => service.id === id)?.title).filter((title): title is string => Boolean(title));
+    if (reversaUnits > 0) additionalTitles.push(`Reversa 3D (${reversaUnits} ${reversaUnits === 1 ? 'unidade' : 'unidades'})`);
     const combinedPrice = matchedService ? matchedService.price + additionalServices.reduce((sum, service) => sum + service.price, 0) : undefined;
 
     const updatedApt: Appointment = {
@@ -88,7 +93,7 @@ export const EditAppointmentModal: React.FC<EditAppointmentModalProps> = ({
       clientName: clientName.trim(),
       clientPhone: clientPhone.trim(),
       clientEmail: clientEmail.trim() || undefined,
-      serviceTitle: [matchedService?.title || serviceTitle.trim(), ...additionalServices.map(service => service.title)].join(' + '),
+      serviceTitle: [matchedService?.title || mainTitle || serviceTitle.trim(), ...additionalTitles].join(' + '),
       ...(matchedService && {
         serviceId: matchedService.id,
         servicePrice: combinedPrice === undefined ? matchedService.priceFormatted : `R$ ${combinedPrice.toFixed(2).replace('.', ',')}`,
@@ -249,13 +254,24 @@ export const EditAppointmentModal: React.FC<EditAppointmentModalProps> = ({
 
           <div className="rounded-xl border border-[#E8D9B5] p-3 space-y-3">
             <label className="block text-[#49382E] font-bold mb-1">Serviços adicionais</label>
-            {services.filter(service => service.id !== appointment?.serviceId).map(service => (
-              <label key={service.id} className="flex items-center gap-2">
-                <input type="checkbox" checked={additionalServiceIds.includes(service.id)}
-                  onChange={e => setAdditionalServiceIds(current => e.target.checked ? [...current, service.id] : current.filter(id => id !== service.id))} />
-                <span className="flex-1">{service.title}</span><span>{service.priceFormatted}</span>
+            {BOOKING_ADD_ONS.filter(addOn => {
+              const mainTitle = (services.find(service => service.id === appointment?.serviceId)?.title || serviceTitle.split(' + ')[0] || '').toLowerCase();
+              const isFiber = mainTitle.includes('fibra');
+              const isGel = mainTitle.includes('gel') || mainTitle.includes('blindagem');
+              const isGelBath = mainTitle.includes('banho') || mainTitle.includes('blindagem');
+              if (addOn.id === 'adicional-reversa-3d') return isFiber;
+              if (addOn.id === 'adicional-baby-boomer' && isGelBath) return false;
+              return isFiber || isGel;
+            }).filter(addOn => addOn.id !== 'adicional-reversa-3d').map(addOn => (
+              <label key={addOn.id} className="flex items-center gap-2">
+                <input type="checkbox" checked={additionalServiceIds.includes(addOn.id)}
+                  onChange={e => setAdditionalServiceIds(current => e.target.checked ? [...current, addOn.id] : current.filter(id => id !== addOn.id))} />
+                <span className="flex-1">{addOn.title}</span><span>{addOn.priceFormatted}</span>
               </label>
             ))}
+            {services.some(service => service.id === appointment?.serviceId && /fibra/i.test(service.title)) && (
+              <label className="flex items-center gap-2"><span className="flex-1">Reversa 3D (R$ 40,00 por unidade)</span><input type="number" min="0" max="20" value={additionalServiceIds.filter(id => id === 'adicional-reversa-3d').length} onChange={e => { const count = Math.max(0, Math.min(20, Number(e.target.value) || 0)); setAdditionalServiceIds(current => [...current.filter(id => id !== 'adicional-reversa-3d'), ...Array.from({ length: count }, () => 'adicional-reversa-3d')]); }} className="w-20 rounded-lg border border-[#E8D9B5] p-2 text-center" /></label>
+            )}
             <label className="block text-[#49382E] font-bold">Pedido personalizado (preço sujeito à confirmação)
               <textarea value={customRequest} onChange={e => setCustomRequest(e.target.value)} rows={2}
                 className="mt-1 w-full px-3 py-2 rounded-xl bg-white border border-[#E8D9B5]" />

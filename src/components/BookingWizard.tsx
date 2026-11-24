@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Service, Appointment, TimeSlotConfig, BlacklistEntry, StudioAddressConfig, RecurrenceConfig, DayScheduleConfig } from '../types';
 import { INITIAL_TIME_SLOTS, INITIAL_BLACKLIST, STUDIO_ADDRESS } from '../data/mockData';
+import { BOOKING_ADD_ONS } from '../data/bookingAddOns';
 import {
   buildOfficialWhatsAppUrl,
   calculateDeposit40,
@@ -32,8 +33,6 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   timeSlots = INITIAL_TIME_SLOTS,
   blacklist = INITIAL_BLACKLIST,
   studioAddress = STUDIO_ADDRESS,
-  services = [],
-  onSelectService,
   appointments = [],
   blockedDates = [],
   daySchedules
@@ -60,6 +59,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   const [selectedTime, setSelectedTime] = useState<string>('11:30');
   const [additionalServiceIds, setAdditionalServiceIds] = useState<string[]>([]);
   const [tempAdditionalServiceIds, setTempAdditionalServiceIds] = useState<string[]>([]);
+  const [tempReversa3DUnits, setTempReversa3DUnits] = useState(0);
   const [showAdditionalServices, setShowAdditionalServices] = useState(false);
   const [customRequest, setCustomRequest] = useState<string>('');
   const [appointmentLocation, setAppointmentLocation] = useState<'salon' | 'home'>('salon');
@@ -87,16 +87,22 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   // Requirement 7: Opção de Pré-pagamento via Pix (Sinal de 40% ou 100%)
   const [paymentMode, setPaymentMode] = useState<'sinal_40' | 'pre_pagamento_100'>('sinal_40');
 
-  // Match the Jéssica booking behavior: personalize only gel procedures and extensions.
-  // Every procedure selected from the public catalog must lead to the add-on step.
-  // The add-on list remains limited to other active services from the official catalog.
-  const supportsAddOnsForService = (_service: Service) => true;
+  // Add-ons are a separate, fixed-price catalogue; they are never exposed as main procedures.
+  const supportsAddOnsForService = (service: Service) => /fibra|gel/i.test(`${service.title} ${service.category}`);
+  const isFiberProcedure = /fibra/i.test(`${selectedService.title} ${selectedService.category}`);
+  const isGelBathProcedure = /banho\s*(?:em\s*)?gel|blindagem/i.test(selectedService.title);
+  const availableAdditionalServices = BOOKING_ADD_ONS.filter(addOn => {
+    if (addOn.id === 'adicional-reversa-3d') return isFiberProcedure;
+    if (addOn.id === 'adicional-baby-boomer' && isGelBathProcedure) return false;
+    return isFiberProcedure || /gel/i.test(`${selectedService.title} ${selectedService.category}`);
+  });
 
   useEffect(() => {
     if (additionalServicesRequest <= 0) return;
     const shouldPersonalize = supportsAddOnsForService(selectedService);
     setAdditionalServiceIds([]);
     setTempAdditionalServiceIds([]);
+    setTempReversa3DUnits(0);
     setShowAdditionalServices(shouldPersonalize);
   }, [additionalServicesRequest, selectedService.id, selectedService.category, selectedService.title]);
 
@@ -184,19 +190,34 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
     return isDateBlocked(key) || (sameDayAppointments.length > 0 && sameDayAppointments.every(a => a.status === 'bloqueado' && isAllDayBlock(a.time)));
   };
 
-  // As in Jéssica, any other active procedure can be selected as an addition.
   const supportsAddOns = supportsAddOnsForService(selectedService);
-  const availableAdditionalServices = supportsAddOns
-    ? services.filter(service => service.id !== selectedService.id && service.active !== false)
-    : [];
-  // Price calculations (40% deposit or 100% full prepayment of selected procedure's official price)
-  const additionalServices = services.filter(service => additionalServiceIds.includes(service.id) && service.id !== selectedService.id);
+  // Repeated Reversa 3D IDs encode the selected unit count in the existing booking payload.
+  const additionalServices = additionalServiceIds
+    .map(id => BOOKING_ADD_ONS.find(addOn => addOn.id === id))
+    .filter((service): service is (typeof BOOKING_ADD_ONS)[number] => Boolean(service));
+  const additionalServiceSummary = BOOKING_ADD_ONS
+    .map(addOn => ({ ...addOn, quantity: additionalServiceIds.filter(id => id === addOn.id).length }))
+    .filter(addOn => addOn.quantity > 0);
+  const additionalServiceTitleParts = (ids: string[]) => {
+    const reversaUnits = ids.filter(id => id === 'adicional-reversa-3d').length;
+    const titles = ids
+      .filter(id => id !== 'adicional-reversa-3d')
+      .map(id => BOOKING_ADD_ONS.find(addOn => addOn.id === id)?.title)
+      .filter((title): title is string => Boolean(title));
+    if (reversaUnits > 0) titles.push(`Reversa 3D (${reversaUnits} ${reversaUnits === 1 ? 'unidade' : 'unidades'})`);
+    return titles;
+  };
   const openAdditionalServices = () => {
-    setTempAdditionalServiceIds(additionalServiceIds);
+    setTempAdditionalServiceIds(additionalServiceIds.filter(id => id !== 'adicional-reversa-3d'));
+    setTempReversa3DUnits(additionalServiceIds.filter(id => id === 'adicional-reversa-3d').length);
     setShowAdditionalServices(true);
   };
   const confirmAdditionalServices = () => {
-    setAdditionalServiceIds(tempAdditionalServiceIds);
+    const selected = [...tempAdditionalServiceIds];
+    if (availableAdditionalServices.some(addOn => addOn.id === 'adicional-reversa-3d')) {
+      for (let unit = 0; unit < Math.max(0, Math.min(20, tempReversa3DUnits)); unit++) selected.push('adicional-reversa-3d');
+    }
+    setAdditionalServiceIds(selected);
     setShowAdditionalServices(false);
   };
   const servicePrice = selectedService.price + additionalServices.reduce((sum, service) => sum + service.price, 0);
@@ -339,7 +360,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
       customRequest: customRequest.trim() || undefined,
       appointmentLocation,
       homeAddress: appointmentLocation === 'home' ? homeAddress.trim() : undefined,
-      serviceTitle: [selectedService.title, ...additionalServices.map(service => service.title)].join(' + '),
+      serviceTitle: [selectedService.title, ...additionalServiceTitleParts(additionalServiceIds)].join(' + '),
       servicePrice: `R$ ${formatBRL(servicePrice)}`,
       serviceDuration: selectedService.duration,
       date: selectedDate,
@@ -958,30 +979,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                   </div>
                 </div>
 
-                {services.length > 1 && onSelectService && (
-                  <div className="pt-1">
-                    <label className="text-[10px] text-[#786C63] block mb-1">Trocar procedimento:</label>
-                    <select
-                      value={selectedService.id}
-                      onChange={e => {
-                        const match = services.find(s => s.id === e.target.value);
-                        if (match) {
-                          onSelectService(match);
-                          setAdditionalServiceIds([]);
-                          setTempAdditionalServiceIds([]);
-                          setShowAdditionalServices(supportsAddOnsForService(match));
-                        }
-                      }}
-                      className="w-full px-3 py-2 rounded-lg bg-[#FDFBF9] text-base sm:text-xs text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] min-h-[44px]"
-                    >
-                      {services.map(s => (
-                        <option key={s.id} value={s.id}>
-                          {s.title} ({s.priceFormatted})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+
               </div>
 
               {supportsAddOns && (
@@ -993,12 +991,13 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                     </button>
                   </div>
                   <p className="text-[10px] text-[#786C63]">Complementos relevantes para o procedimento principal. Preços atuais mantidos.</p>
-                  {additionalServices.map(service => <div key={service.id} className="flex justify-between gap-2 text-xs"><span>{service.title}</span><span className="font-semibold">{service.priceFormatted}</span></div>)}
+                  {additionalServiceSummary.map(service => <div key={service.id} className="flex justify-between gap-2 text-xs"><span>{service.title}{service.id === 'adicional-reversa-3d' ? ` (${service.quantity} ${service.quantity === 1 ? 'unidade' : 'unidades'})` : service.quantity > 1 ? ` (×${service.quantity})` : ''}</span><span className="font-semibold">R$ {formatBRL(service.price * service.quantity)}</span></div>)}
                   {showAdditionalServices && <div className="w-full rounded-xl border border-[#E8D9B5] bg-[#FDFBF9] p-3 sm:p-4 space-y-2">
                     <div className="flex items-center justify-between gap-2"><h4 className="font-bold text-sm text-[#49382E]">Adicionais para {selectedService.title}</h4><button type="button" onClick={() => setShowAdditionalServices(false)} className="text-xs font-semibold text-[#786C63] underline">Recolher</button></div>
-                    <p className="text-xs text-[#786C63]">Selecione um ou mais serviços. Os valores cadastrados serão somados ao procedimento principal.</p>
-                    {availableAdditionalServices.length > 0 ? availableAdditionalServices.map(service => <label key={service.id} className="flex items-start gap-2 py-3 border-b border-[#E8D9B5] text-xs cursor-pointer"><input type="checkbox" checked={tempAdditionalServiceIds.includes(service.id)} onChange={event => setTempAdditionalServiceIds(current => event.target.checked ? Array.from(new Set([...current, service.id])) : current.filter(id => id !== service.id))} className="mt-0.5 accent-[#D4AF37]" /><span className="flex-1"><span className="block font-semibold">{service.title}</span><span className="block text-[#786C63]">{service.description}</span></span><span className="font-semibold whitespace-nowrap">{service.priceFormatted}</span></label>) : <p className="text-xs text-[#786C63] py-3">Não há adicionais cadastrados para este procedimento no momento.</p>}
-                    <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-2"><button type="button" onClick={() => { setAdditionalServiceIds([]); setTempAdditionalServiceIds([]); setShowAdditionalServices(false); }} className="w-full rounded-full border border-[#E8D9B5] bg-white px-4 py-3 font-semibold text-[#786C63]">Pular personalização</button><button type="button" onClick={confirmAdditionalServices} className="w-full rounded-full bg-[#D4AF37] px-4 py-3 font-bold text-[#49382E]">Confirmar seleção</button></div>
+                    <p className="text-xs text-[#786C63]">Escolha vários complementos. O total e o sinal de 40% serão recalculados automaticamente.</p>
+                    {availableAdditionalServices.filter(service => service.id !== 'adicional-reversa-3d').map(service => <label key={service.id} className="flex items-start gap-2 py-3 border-b border-[#E8D9B5] text-xs cursor-pointer"><input type="checkbox" checked={tempAdditionalServiceIds.includes(service.id)} onChange={event => setTempAdditionalServiceIds(current => event.target.checked ? [...current, service.id] : current.filter(id => id !== service.id))} className="mt-0.5 accent-[#D4AF37]" /><span className="flex-1"><span className="block font-semibold">{service.title}</span><span className="block text-[#786C63]">{service.description}</span></span><span className="font-semibold whitespace-nowrap">{service.priceFormatted}</span></label>)}
+                    {availableAdditionalServices.some(service => service.id === 'adicional-reversa-3d') && <div className="flex items-center gap-3 py-3 border-b border-[#E8D9B5] text-xs"><label className="flex-1"><span className="block font-semibold">Reversa 3D</span><span className="block text-[#786C63]">R$ 40,00 por unidade — exclusivo para alongamento em fibra</span></label><input type="number" min="0" max="20" step="1" value={tempReversa3DUnits} onChange={event => setTempReversa3DUnits(Math.max(0, Math.min(20, Number(event.target.value) || 0)))} aria-label="Quantidade de unidades Reversa 3D" className="w-20 rounded-lg border border-[#E8D9B5] bg-white p-2 text-center" /><span className="font-semibold whitespace-nowrap">R$ {formatBRL(tempReversa3DUnits * 40)}</span></div>}
+                    <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-2"><button type="button" onClick={() => { setAdditionalServiceIds([]); setTempAdditionalServiceIds([]); setTempReversa3DUnits(0); setShowAdditionalServices(false); }} className="w-full rounded-full border border-[#E8D9B5] bg-white px-4 py-3 font-semibold text-[#786C63]">Pular personalização</button><button type="button" onClick={confirmAdditionalServices} className="w-full rounded-full bg-[#D4AF37] px-4 py-3 font-bold text-[#49382E]">Confirmar seleção</button></div>
                   </div>}
                   <label className="block text-xs font-semibold text-[#49382E]">Pedido personalizado (opcional)
                     <textarea value={customRequest} onChange={event => setCustomRequest(event.target.value)}
