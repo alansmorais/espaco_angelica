@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Appointment, Service, SlotStatus } from '../../types';
+import { BOOKING_ADD_ONS, POLISH_ADD_ON_IDS } from '../../data/additionalServices';
 
 interface EditAppointmentModalProps {
   isOpen: boolean;
@@ -52,6 +53,21 @@ export const EditAppointmentModal: React.FC<EditAppointmentModalProps> = ({
 
   if (!isOpen || !appointment) return null;
 
+  const mainServiceForAddOns = services.find(service => service.id === appointment.serviceId) ||
+    services.find(service => service.title.toLowerCase() === serviceTitle.trim().toLowerCase());
+  const availableAddOns = !mainServiceForAddOns || !['alongamento', 'blindagem'].includes(mainServiceForAddOns.category)
+    ? []
+    : mainServiceForAddOns.id === 'esmaltacao-gel-premium'
+      ? BOOKING_ADD_ONS.filter(addOn => addOn.id === 'adicional-gel-francesinha')
+      : mainServiceForAddOns.category === 'alongamento'
+        ? BOOKING_ADD_ONS
+        : BOOKING_ADD_ONS.filter(addOn => addOn.id !== 'adicional-reversa-3d');
+  const selectedLegacyAddOns = services.filter(service =>
+    additionalServiceIds.includes(service.id) &&
+    service.id !== mainServiceForAddOns?.id &&
+    !BOOKING_ADD_ONS.some(addOn => addOn.id === service.id)
+  );
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!clientName.trim()) {
@@ -78,17 +94,22 @@ export const EditAppointmentModal: React.FC<EditAppointmentModalProps> = ({
     setIsSubmitting(true);
     setSubmitError(null);
 
-    // Encontra preço/id correspondente se o serviço foi selecionado do catálogo
+    // Preserve legacy add-on IDs while pricing new catalogue add-ons from the shared fixed-price list.
     const matchedService = services.find(s => s.id === appointment.serviceId) || services.find(s => s.title.toLowerCase() === serviceTitle.toLowerCase());
-    const additionalServices = services.filter(service => additionalServiceIds.includes(service.id) && service.id !== matchedService?.id);
-    const combinedPrice = matchedService ? matchedService.price + additionalServices.reduce((sum, service) => sum + service.price, 0) : undefined;
+    const additionalTitleParts = additionalServiceIds.map(id =>
+      BOOKING_ADD_ONS.find(addOn => addOn.id === id)?.title || services.find(service => service.id === id)?.title
+    ).filter((title): title is string => Boolean(title));
+    const additionalTotal = additionalServiceIds.reduce((sum, id) =>
+      sum + (BOOKING_ADD_ONS.find(addOn => addOn.id === id)?.price ?? services.find(service => service.id === id)?.price ?? 0), 0
+    );
+    const combinedPrice = matchedService ? matchedService.price + additionalTotal : undefined;
 
     const updatedApt: Appointment = {
       ...appointment,
       clientName: clientName.trim(),
       clientPhone: clientPhone.trim(),
       clientEmail: clientEmail.trim() || undefined,
-      serviceTitle: [matchedService?.title || serviceTitle.trim(), ...additionalServices.map(service => service.title)].join(' + '),
+      serviceTitle: [matchedService?.title || serviceTitle.trim(), ...additionalTitleParts].join(' + '),
       ...(matchedService && {
         serviceId: matchedService.id,
         servicePrice: combinedPrice === undefined ? matchedService.priceFormatted : `R$ ${combinedPrice.toFixed(2).replace('.', ',')}`,
@@ -249,11 +270,35 @@ export const EditAppointmentModal: React.FC<EditAppointmentModalProps> = ({
 
           <div className="rounded-xl border border-[#E8D9B5] p-3 space-y-3">
             <label className="block text-[#49382E] font-bold mb-1">Serviços adicionais</label>
-            {services.filter(service => service.id !== appointment?.serviceId).map(service => (
-              <label key={service.id} className="flex items-center gap-2">
+            {selectedLegacyAddOns.map(service => (
+              <label key={service.id} className="flex items-center gap-2 text-xs">
                 <input type="checkbox" checked={additionalServiceIds.includes(service.id)}
-                  onChange={e => setAdditionalServiceIds(current => e.target.checked ? [...current, service.id] : current.filter(id => id !== service.id))} />
-                <span className="flex-1">{service.title}</span><span>{service.priceFormatted}</span>
+                  onChange={e => setAdditionalServiceIds(current => e.target.checked ? current : current.filter(id => id !== service.id))} />
+                <span className="flex-1">{service.title} (adicional antigo)</span><span>{service.priceFormatted}</span>
+              </label>
+            ))}
+            {availableAddOns.map(addOn => addOn.id === 'adicional-reversa-3d' ? (
+              <div key={addOn.id} className="flex items-center justify-between gap-2 text-xs">
+                <span className="flex-1">{addOn.title} — R$ 40,00 por unidade</span>
+                <label className="flex items-center gap-2">Qtd.
+                  <input type="number" min="0" max="10" step="1"
+                    value={additionalServiceIds.filter(id => id === addOn.id).length}
+                    onChange={e => {
+                      const quantity = Math.max(0, Math.min(10, Math.floor(Number(e.target.value) || 0)));
+                      setAdditionalServiceIds(current => [...current.filter(id => id !== addOn.id), ...Array.from({ length: quantity }, () => addOn.id)]);
+                    }}
+                    className="w-16 rounded-lg border border-[#E8D9B5] p-2 text-center" />
+                </label>
+              </div>
+            ) : (
+              <label key={addOn.id} className="flex items-center gap-2 text-xs">
+                <input type="checkbox" checked={additionalServiceIds.includes(addOn.id)}
+                  onChange={e => setAdditionalServiceIds(current => {
+                    if (!e.target.checked) return current.filter(id => id !== addOn.id);
+                    const next = POLISH_ADD_ON_IDS.includes(addOn.id) ? current.filter(id => !POLISH_ADD_ON_IDS.includes(id)) : current;
+                    return [...next, addOn.id];
+                  })} />
+                <span className="flex-1">{addOn.title}</span><span>R$ {addOn.price.toFixed(2).replace('.', ',')}</span>
               </label>
             ))}
             <label className="block text-[#49382E] font-bold">Pedido personalizado (preço sujeito à confirmação)

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { SERVICES_CATALOG } from '../src/data/mockData';
+import { BOOKING_ADD_ONS } from '../src/data/additionalServices';
 import {
   calculateDeposit40,
   calculateFullPrepayment,
@@ -205,6 +206,11 @@ runTest('Catálogo de adicionais: preços oficiais, quantidade de Reversa 3D e s
   assertCondition(OFFICIAL_ADD_ONS_BY_ID['adicional-esmaltacao-tradicional'].price === 15, 'Esmaltação Tradicional deve custar R$ 15');
   assertCondition(OFFICIAL_ADD_ONS_BY_ID['adicional-baby-boomer'].price === 30, 'Decorações avançadas devem custar R$ 30');
   assertCondition(OFFICIAL_ADD_ONS_BY_ID['adicional-reversa-3d'].price === 40, 'Reversa 3D deve custar R$ 40 por unidade');
+  assertCondition(BOOKING_ADD_ONS.length === Object.keys(OFFICIAL_ADD_ONS_BY_ID).length, 'Catálogo compartilhado do frontend deve ter o mesmo número de adicionais do backend');
+  for (const addOn of BOOKING_ADD_ONS) {
+    assertCondition(OFFICIAL_ADD_ONS_BY_ID[addOn.id]?.price === addOn.price, `Preço divergente entre frontend e backend para ${addOn.id}`);
+    assertCondition(OFFICIAL_ADD_ONS_BY_ID[addOn.id]?.title === addOn.title, `Título divergente entre frontend e backend para ${addOn.id}`);
+  }
 
   const wizardSource = fs.readFileSync(path.resolve(__dirname, '../src/components/BookingWizard.tsx'), 'utf8');
   assertCondition(!wizardSource.includes('Trocar procedimento:'), 'A etapa de adicionais não deve repetir o seletor de procedimento principal');
