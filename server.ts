@@ -1071,6 +1071,18 @@ export const OFFICIAL_SERVICES_BY_ID: Record<string, CanonicalCatalogService> = 
   }
 };
 
+export const OFFICIAL_ADD_ONS_BY_ID: Record<string, CanonicalCatalogService> = {
+  'adicional-esmaltacao-gel': { id: 'adicional-esmaltacao-gel', title: 'Esmaltação em Gel', price: 25, priceFormatted: 'R$ 25,00' },
+  'adicional-gel-francesinha': { id: 'adicional-gel-francesinha', title: 'Esmaltação em Gel + decoração simples (Francesinha)', price: 30, priceFormatted: 'R$ 30,00' },
+  'adicional-esmaltacao-tradicional': { id: 'adicional-esmaltacao-tradicional', title: 'Esmaltação Tradicional', price: 15, priceFormatted: 'R$ 15,00' },
+  'adicional-baby-boomer': { id: 'adicional-baby-boomer', title: 'Baby Boomer', price: 30, priceFormatted: 'R$ 30,00' },
+  'adicional-encapsulada': { id: 'adicional-encapsulada', title: 'Encapsulada', price: 30, priceFormatted: 'R$ 30,00' },
+  'adicional-cromado': { id: 'adicional-cromado', title: 'Cromado', price: 30, priceFormatted: 'R$ 30,00' },
+  'adicional-espelhado': { id: 'adicional-espelhado', title: 'Espelhado', price: 30, priceFormatted: 'R$ 30,00' },
+  'adicional-olho-de-gato': { id: 'adicional-olho-de-gato', title: 'Olho de gato', price: 30, priceFormatted: 'R$ 30,00' },
+  'adicional-reversa-3d': { id: 'adicional-reversa-3d', title: 'Reversa 3D', price: 40, priceFormatted: 'R$ 40,00 por unidade' }
+};
+
 export const OFFICIAL_SERVICES_BY_TITLE: Record<string, CanonicalCatalogService> = Object.values(
   OFFICIAL_SERVICES_BY_ID
 ).reduce((acc, item) => {
@@ -1123,8 +1135,19 @@ export function validateBookingPaymentCoherence(payload: any): {
 
   const { serviceId, serviceTitle, servicePrice, depositAmount, paymentMode, status } = payload;
   const additionalServiceIds: string[] = Array.isArray(payload.additionalServiceIds)
-    ? Array.from(new Set<string>(payload.additionalServiceIds.filter((id: unknown): id is string => typeof id === 'string' && id.trim() !== '')))
+    ? payload.additionalServiceIds.filter((id: unknown): id is string => typeof id === 'string' && id.trim() !== '').map((id: string) => id.trim())
     : [];
+
+  if (additionalServiceIds.length > 20) {
+    return { valid: false, error: 'Quantidade de serviços adicionais acima do limite permitido.' };
+  }
+  const additionalIdCounts = additionalServiceIds.reduce((counts, id) => {
+    counts[id] = (counts[id] || 0) + 1;
+    return counts;
+  }, {} as Record<string, number>);
+  if (Object.entries(additionalIdCounts).some(([id, count]) => count > 1 && id !== 'adicional-reversa-3d')) {
+    return { valid: false, error: 'Somente Reversa 3D permite quantidade por unidade.' };
+  }
 
   if (typeof depositAmount !== 'number' || !Number.isFinite(depositAmount) || depositAmount <= 0) {
     return {
@@ -1188,7 +1211,7 @@ export function validateBookingPaymentCoherence(payload: any): {
   }
 
   // Resolve every additional service against the server-side catalogue. Never trust browser-supplied prices.
-  const additionalServices = additionalServiceIds.map(id => DYNAMIC_SERVICES_BY_ID[id] || OFFICIAL_SERVICES_BY_ID[id]);
+  const additionalServices = additionalServiceIds.map(id => OFFICIAL_ADD_ONS_BY_ID[id] || DYNAMIC_SERVICES_BY_ID[id] || OFFICIAL_SERVICES_BY_ID[id]);
   if (additionalServices.some(service => !service)) {
     return { valid: false, error: 'Um ou mais serviços adicionais não existem no catálogo oficial.' };
   }

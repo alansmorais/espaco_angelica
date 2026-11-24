@@ -10,7 +10,7 @@ import {
   areDatesEqual
 } from '../services/notificationTemplates';
 import { triggerNewPreBookingEmailNotification } from '../services/emailNotificationService';
-
+import { BOOKING_ADD_ONS, POLISH_ADD_ON_IDS } from '../data/additionalServices';
 interface BookingWizardProps {
   selectedService: Service;
   additionalServicesRequest?: number;
@@ -32,8 +32,6 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   timeSlots = INITIAL_TIME_SLOTS,
   blacklist = INITIAL_BLACKLIST,
   studioAddress = STUDIO_ADDRESS,
-  services = [],
-  onSelectService,
   appointments = [],
   blockedDates = [],
   daySchedules
@@ -87,10 +85,10 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   // Requirement 7: Opção de Pré-pagamento via Pix (Sinal de 40% ou 100%)
   const [paymentMode, setPaymentMode] = useState<'sinal_40' | 'pre_pagamento_100'>('sinal_40');
 
-  // Match the Jéssica booking behavior: personalize only gel procedures and extensions.
-  // Every procedure selected from the public catalog must lead to the add-on step.
-  // The add-on list remains limited to other active services from the official catalog.
-  const supportsAddOnsForService = (_service: Service) => true;
+  // Add-ons are only available for gel procedures and extensions.
+  // A standalone gel-polish booking accepts simple decoration only.
+  const supportsAddOnsForService = (service: Service) =>
+    service.category === 'alongamento' || service.category === 'blindagem';
 
   useEffect(() => {
     if (additionalServicesRequest <= 0) return;
@@ -184,13 +182,19 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
     return isDateBlocked(key) || (sameDayAppointments.length > 0 && sameDayAppointments.every(a => a.status === 'bloqueado' && isAllDayBlock(a.time)));
   };
 
-  // As in Jéssica, any other active procedure can be selected as an addition.
   const supportsAddOns = supportsAddOnsForService(selectedService);
-  const availableAdditionalServices = supportsAddOns
-    ? services.filter(service => service.id !== selectedService.id && service.active !== false)
-    : [];
-  // Price calculations (40% deposit or 100% full prepayment of selected procedure's official price)
-  const additionalServices = services.filter(service => additionalServiceIds.includes(service.id) && service.id !== selectedService.id);
+  const availableAdditionalServices = !supportsAddOns
+    ? []
+    : selectedService.id === 'esmaltacao-gel-premium'
+      ? BOOKING_ADD_ONS.filter(addOn => addOn.id === 'adicional-gel-francesinha')
+      : selectedService.category === 'alongamento'
+        ? BOOKING_ADD_ONS
+        : BOOKING_ADD_ONS.filter(addOn => addOn.id !== 'adicional-reversa-3d');
+
+  // Repeated Reversa 3D IDs persist its per-unit quantity through the existing booking payload.
+  const additionalServices = BOOKING_ADD_ONS
+    .filter(addOn => additionalServiceIds.includes(addOn.id))
+    .map(addOn => ({ ...addOn, quantity: additionalServiceIds.filter(id => id === addOn.id).length }));
   const openAdditionalServices = () => {
     setTempAdditionalServiceIds(additionalServiceIds);
     setShowAdditionalServices(true);
@@ -199,7 +203,9 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
     setAdditionalServiceIds(tempAdditionalServiceIds);
     setShowAdditionalServices(false);
   };
-  const servicePrice = selectedService.price + additionalServices.reduce((sum, service) => sum + service.price, 0);
+  const servicePrice = selectedService.price + additionalServiceIds.reduce(
+    (sum, id) => sum + (BOOKING_ADD_ONS.find(addOn => addOn.id === id)?.price || 0), 0
+  );
   const fullPrepayment = calculateFullPrepayment(servicePrice);
   const standardDeposit = calculateDeposit40(servicePrice);
   const standardBalance = calculateRemainingBalance(servicePrice, standardDeposit);
@@ -339,7 +345,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
       customRequest: customRequest.trim() || undefined,
       appointmentLocation,
       homeAddress: appointmentLocation === 'home' ? homeAddress.trim() : undefined,
-      serviceTitle: [selectedService.title, ...additionalServices.map(service => service.title)].join(' + '),
+      serviceTitle: [selectedService.title, ...additionalServiceIds.map(id => BOOKING_ADD_ONS.find(addOn => addOn.id === id)?.title).filter((title): title is string => Boolean(title))].join(' + '),
       servicePrice: `R$ ${formatBRL(servicePrice)}`,
       serviceDuration: selectedService.duration,
       date: selectedDate,
@@ -958,30 +964,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                   </div>
                 </div>
 
-                {services.length > 1 && onSelectService && (
-                  <div className="pt-1">
-                    <label className="text-[10px] text-[#786C63] block mb-1">Trocar procedimento:</label>
-                    <select
-                      value={selectedService.id}
-                      onChange={e => {
-                        const match = services.find(s => s.id === e.target.value);
-                        if (match) {
-                          onSelectService(match);
-                          setAdditionalServiceIds([]);
-                          setTempAdditionalServiceIds([]);
-                          setShowAdditionalServices(supportsAddOnsForService(match));
-                        }
-                      }}
-                      className="w-full px-3 py-2 rounded-lg bg-[#FDFBF9] text-base sm:text-xs text-[#49382E] border border-[#E8D9B5] outline-none focus:border-[#D4AF37] min-h-[44px]"
-                    >
-                      {services.map(s => (
-                        <option key={s.id} value={s.id}>
-                          {s.title} ({s.priceFormatted})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                <p className="text-[10px] text-[#786C63]">Procedimento principal: <strong>{selectedService.title}</strong></p>
               </div>
 
               {supportsAddOns && (
@@ -993,23 +976,48 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
                     </button>
                   </div>
                   <p className="text-[10px] text-[#786C63]">Complementos relevantes para o procedimento principal. Preços atuais mantidos.</p>
-                  {additionalServices.map(service => <div key={service.id} className="flex justify-between gap-2 text-xs"><span>{service.title}</span><span className="font-semibold">{service.priceFormatted}</span></div>)}
+                  {additionalServices.map(service => <div key={service.id} className="flex justify-between gap-2 text-xs"><span>{service.title}{service.quantity > 1 ? ` (${service.quantity} unidades)` : ''}</span><span className="font-semibold">R$ {formatBRL(service.price * service.quantity)}</span></div>)}
                   {showAdditionalServices && <div className="w-full rounded-xl border border-[#E8D9B5] bg-[#FDFBF9] p-3 sm:p-4 space-y-2">
                     <div className="flex items-center justify-between gap-2"><h4 className="font-bold text-sm text-[#49382E]">Adicionais para {selectedService.title}</h4><button type="button" onClick={() => setShowAdditionalServices(false)} className="text-xs font-semibold text-[#786C63] underline">Recolher</button></div>
-                    <p className="text-xs text-[#786C63]">Selecione um ou mais serviços. Os valores cadastrados serão somados ao procedimento principal.</p>
-                    {availableAdditionalServices.length > 0 ? availableAdditionalServices.map(service => <label key={service.id} className="flex items-start gap-2 py-3 border-b border-[#E8D9B5] text-xs cursor-pointer"><input type="checkbox" checked={tempAdditionalServiceIds.includes(service.id)} onChange={event => setTempAdditionalServiceIds(current => event.target.checked ? Array.from(new Set([...current, service.id])) : current.filter(id => id !== service.id))} className="mt-0.5 accent-[#D4AF37]" /><span className="flex-1"><span className="block font-semibold">{service.title}</span><span className="block text-[#786C63]">{service.description}</span></span><span className="font-semibold whitespace-nowrap">{service.priceFormatted}</span></label>) : <p className="text-xs text-[#786C63] py-3">Não há adicionais cadastrados para este procedimento no momento.</p>}
+                    <p className="text-xs text-[#786C63]">Selecione os complementos desejados. Os valores são somados ao procedimento principal. Reversa 3D é cobrada por unidade.</p>
+                    {availableAdditionalServices.length > 0 ? availableAdditionalServices.map(service => service.id === 'adicional-reversa-3d' ? (
+                      <div key={service.id} className="flex items-center justify-between gap-3 py-3 border-b border-[#E8D9B5] text-xs">
+                        <span className="flex-1"><span className="block font-semibold">{service.title}</span><span className="block text-[#786C63]">{service.description}</span></span>
+                        <label className="flex items-center gap-2 whitespace-nowrap">Qtd.
+                          <input type="number" min="0" max="10" step="1" value={tempAdditionalServiceIds.filter(id => id === service.id).length}
+                            onChange={event => {
+                              const quantity = Math.max(0, Math.min(10, Math.floor(Number(event.target.value) || 0)));
+                              setTempAdditionalServiceIds(current => [...current.filter(id => id !== service.id), ...Array.from({ length: quantity }, () => service.id)]);
+                            }}
+                            className="w-16 rounded-lg border border-[#E8D9B5] bg-white p-2 text-center" />
+                        </label>
+                        <span className="font-semibold whitespace-nowrap">R$ {formatBRL(service.price)} / un.</span>
+                      </div>
+                    ) : (
+                      <label key={service.id} className="flex items-start gap-2 py-3 border-b border-[#E8D9B5] text-xs cursor-pointer">
+                        <input type="checkbox" checked={tempAdditionalServiceIds.includes(service.id)}
+                          onChange={event => setTempAdditionalServiceIds(current => {
+                            if (!event.target.checked) return current.filter(id => id !== service.id);
+                            const next = POLISH_ADD_ON_IDS.includes(service.id) ? current.filter(id => !POLISH_ADD_ON_IDS.includes(id)) : current;
+                            return [...next, service.id];
+                          })}
+                          className="mt-0.5 accent-[#D4AF37]" />
+                        <span className="flex-1"><span className="block font-semibold">{service.title}</span><span className="block text-[#786C63]">{service.description}</span></span>
+                        <span className="font-semibold whitespace-nowrap">R$ {formatBRL(service.price)}</span>
+                      </label>
+                    )) : <p className="text-xs text-[#786C63] py-3">Não há adicionais disponíveis para este procedimento.</p>}
                     <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-2"><button type="button" onClick={() => { setAdditionalServiceIds([]); setTempAdditionalServiceIds([]); setShowAdditionalServices(false); }} className="w-full rounded-full border border-[#E8D9B5] bg-white px-4 py-3 font-semibold text-[#786C63]">Pular personalização</button><button type="button" onClick={confirmAdditionalServices} className="w-full rounded-full bg-[#D4AF37] px-4 py-3 font-bold text-[#49382E]">Confirmar seleção</button></div>
                   </div>}
-                  <label className="block text-xs font-semibold text-[#49382E]">Pedido personalizado (opcional)
-                    <textarea value={customRequest} onChange={event => setCustomRequest(event.target.value)}
-                      placeholder="Ex.: decoração especial de unhas (preço sujeito à confirmação)"
-                      rows={2} className="mt-1 w-full rounded-lg border border-[#E8D9B5] bg-[#FDFBF9] p-2 text-xs" />
-                  </label>
-                  <p className="text-[10px] text-[#786C63]">Pedidos personalizados sem preço cadastrado precisam de confirmação e não alteram o total automaticamente.</p>
                 </div>
-
-
               )}
+              <div className="py-4 border-b border-[#E8D9B5] space-y-2">
+                <label className="block text-xs font-semibold text-[#49382E]">Pedido personalizado (opcional)
+                  <textarea value={customRequest} onChange={event => setCustomRequest(event.target.value)}
+                    placeholder="Ex.: decoração especial de unhas (preço sujeito à confirmação)"
+                    rows={2} className="mt-1 w-full rounded-lg border border-[#E8D9B5] bg-[#FDFBF9] p-2 text-xs" />
+                </label>
+                <p className="text-[10px] text-[#786C63]">Pedidos personalizados precisam de confirmação manual e não alteram o total automaticamente.</p>
+              </div>
               <div className="py-4 border-b border-[#E8D9B5] space-y-3">
                 <h4 className="font-syne font-semibold text-sm text-[#49382E] pt-1">Local do atendimento</h4>
                 <div className="flex flex-wrap gap-4 text-xs">

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { SERVICES_CATALOG } from '../src/data/mockData';
+import { BOOKING_ADD_ONS } from '../src/data/additionalServices';
 import {
   calculateDeposit40,
   calculateFullPrepayment,
@@ -15,6 +16,7 @@ import { buildPreBookingEmailPayload } from '../src/services/emailNotificationSe
 import { Appointment, BlacklistEntry } from '../src/types';
 import {
   OFFICIAL_SERVICES_BY_ID,
+  OFFICIAL_ADD_ONS_BY_ID,
   validateBookingPaymentCoherence,
   isOriginAllowed,
   allowedOrigins,
@@ -166,6 +168,53 @@ runTest('Serviços adicionais: soma de 2 ou mais extras, sinal de 40% sobre o to
   });
   assertCondition(fullPayment.valid === true, `Backend rejeitou pré-pagamento integral válido: ${fullPayment.error}`);
   assertCondition(fullPayment.verifiedDepositAmount === total, 'Pré-pagamento integral deve corresponder à soma de todos os serviços');
+});
+
+// 3A. Catálogo de adicionais, Reversa 3D por unidade e cálculo seguro do total
+runTest('Catálogo de adicionais: preços oficiais, quantidade de Reversa 3D e sinal calculado sobre o total', () => {
+  const main = OFFICIAL_SERVICES_BY_ID['alongamento-fibra-slim'];
+  const ids = ['adicional-esmaltacao-gel', 'adicional-baby-boomer', 'adicional-reversa-3d', 'adicional-reversa-3d'];
+  const extras = ids.map(id => OFFICIAL_ADD_ONS_BY_ID[id]);
+  const total = main.price + extras.reduce((sum, item) => sum + item.price, 0);
+  const title = [main.title, ...extras.map(item => item.title)].join(' + ');
+  const valid = validateBookingPaymentCoherence({
+    serviceId: main.id, additionalServiceIds: ids, serviceTitle: title,
+    servicePrice: `R$ ${formatBRL(total)}`, depositAmount: calculateDeposit40(total), paymentMode: 'sinal_40'
+  });
+  assertCondition(valid.valid, `Backend rejeitou adicionais válidos ou quantidade de Reversa 3D: ${valid.error}`);
+  assertCondition(valid.verifiedServicePrice === `R$ ${formatBRL(total)}`, 'Total oficial dos adicionais incorreto');
+  assertCondition(valid.verifiedDepositAmount === calculateDeposit40(total), 'Sinal de 40% deve incluir todos os adicionais');
+
+  const invalidDuplicate = validateBookingPaymentCoherence({
+    serviceId: main.id, additionalServiceIds: ['adicional-baby-boomer', 'adicional-baby-boomer'],
+    serviceTitle: `${main.title} + Baby Boomer + Baby Boomer`,
+    servicePrice: `R$ ${formatBRL(main.price + 60)}`,
+    depositAmount: calculateDeposit40(main.price + 60), paymentMode: 'sinal_40'
+  });
+  assertCondition(!invalidDuplicate.valid, 'Backend aceitou duplicação de adicional que não é cobrado por unidade');
+
+  const spoofed = validateBookingPaymentCoherence({
+    serviceId: main.id, additionalServiceIds: ['adicional-reversa-3d'],
+    serviceTitle: `${main.title} + Reversa 3D`,
+    servicePrice: `R$ ${formatBRL(main.price + 1)}`,
+    depositAmount: calculateDeposit40(main.price + 1), paymentMode: 'sinal_40'
+  });
+  assertCondition(!spoofed.valid, 'Backend aceitou preço adulterado de adicional');
+
+  assertCondition(OFFICIAL_ADD_ONS_BY_ID['adicional-esmaltacao-gel'].price === 25, 'Esmaltação em Gel deve custar R$ 25');
+  assertCondition(OFFICIAL_ADD_ONS_BY_ID['adicional-gel-francesinha'].price === 30, 'Gel com decoração simples deve custar R$ 30');
+  assertCondition(OFFICIAL_ADD_ONS_BY_ID['adicional-esmaltacao-tradicional'].price === 15, 'Esmaltação Tradicional deve custar R$ 15');
+  assertCondition(OFFICIAL_ADD_ONS_BY_ID['adicional-baby-boomer'].price === 30, 'Decorações avançadas devem custar R$ 30');
+  assertCondition(OFFICIAL_ADD_ONS_BY_ID['adicional-reversa-3d'].price === 40, 'Reversa 3D deve custar R$ 40 por unidade');
+  assertCondition(BOOKING_ADD_ONS.length === Object.keys(OFFICIAL_ADD_ONS_BY_ID).length, 'Catálogo compartilhado do frontend deve ter o mesmo número de adicionais do backend');
+  for (const addOn of BOOKING_ADD_ONS) {
+    assertCondition(OFFICIAL_ADD_ONS_BY_ID[addOn.id]?.price === addOn.price, `Preço divergente entre frontend e backend para ${addOn.id}`);
+    assertCondition(OFFICIAL_ADD_ONS_BY_ID[addOn.id]?.title === addOn.title, `Título divergente entre frontend e backend para ${addOn.id}`);
+  }
+
+  const wizardSource = fs.readFileSync(path.resolve(__dirname, '../src/components/BookingWizard.tsx'), 'utf8');
+  assertCondition(!wizardSource.includes('Trocar procedimento:'), 'A etapa de adicionais não deve repetir o seletor de procedimento principal');
+  assertCondition(wizardSource.includes('adicional-reversa-3d'), 'BookingWizard deve exibir o adicional Reversa 3D');
 });
 
 // 3. Confirmação de que NÃO existe mais desconto de 5% no pré-pagamento integral
