@@ -213,7 +213,18 @@ export const EditAppointmentModal: React.FC<EditAppointmentModalProps> = ({
             <div className="space-y-1.5">
               <select
                 value={serviceTitle}
-                onChange={e => setServiceTitle(e.target.value)}
+                onChange={e => {
+                  const nextTitle = e.target.value;
+                  const nextService = services.find(service => service.title === nextTitle);
+                  setServiceTitle(nextTitle);
+                  if (!nextService || !['alongamento', 'blindagem'].includes(nextService.category)) {
+                    setAdditionalServiceIds(current => current.filter(id => !BOOKING_ADD_ONS.some(addOn => addOn.id === id)));
+                  } else if (nextService.id === 'esmaltacao-gel-premium') {
+                    setAdditionalServiceIds(current => current.filter(id => !BOOKING_ADD_ONS.some(addOn => addOn.id === id && id !== 'adicional-gel-francesinha')));
+                  } else if (nextService.category !== 'alongamento') {
+                    setAdditionalServiceIds(current => current.filter(id => id !== 'adicional-reversa-3d'));
+                  }
+                }}
                 className="w-full px-3.5 py-2.5 rounded-xl bg-[#FFFFFF] border border-[#E8D9B5] text-[#49382E] outline-none focus:border-[#D4AF37] font-semibold"
               >
                 {services.map(s => (
