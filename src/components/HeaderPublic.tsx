@@ -27,7 +27,7 @@ export const HeaderPublic: React.FC<HeaderPublicProps> = ({
 
   return (
     <>
-      <header className="sticky top-0 left-0 right-0 w-full z-50 bg-[#FFFFFF]/90 backdrop-blur-xl border-b border-[#E8D9B5] shadow-[0_4px_20px_rgba(73,56,46,0.06)]">
+      <header className="fixed top-0 left-0 right-0 w-full z-50 bg-[#FFFFFF]/90 backdrop-blur-xl border-b border-[#E8D9B5] shadow-[0_4px_20px_rgba(73,56,46,0.06)]">
         <div className="max-w-7xl mx-auto h-40 px-3 sm:px-6 lg:px-8 flex items-center justify-between gap-2 sm:gap-4">
           {/* Brand Lockup */}
           <div
