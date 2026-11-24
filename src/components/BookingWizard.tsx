@@ -33,8 +33,6 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({
   timeSlots = INITIAL_TIME_SLOTS,
   blacklist = INITIAL_BLACKLIST,
   studioAddress = STUDIO_ADDRESS,
-  services = [],
-  onSelectService,
   appointments = [],
   blockedDates = [],
   daySchedules
